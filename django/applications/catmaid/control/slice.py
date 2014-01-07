@@ -1,6 +1,6 @@
+from django.core import serializers
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from django.utils.simplejson.encoder import JSONEncoder
 from django.db.models import Q
 
 import os.path
@@ -77,7 +77,8 @@ def get_slice(request, project_id=None, stack_id=None):
         'node_id', 'min_x', 'min_y', 'max_x', 'max_y', 'center_x',
         'center_y', 'threshold', 'size', 'status', 'flag_left', 'flag_right')
 
-    return HttpResponse(JSONEncoder().encode(list(slices)), mimetype="text/json")
+    return HttpResponse(serializers.serialize('json', slices),
+            mimetype="text/json")
 
 def slices_cog(request, project_id=None, stack_id=None):
     """ Return all slice centers """
@@ -101,7 +102,8 @@ def slices_cog(request, project_id=None, stack_id=None):
         status__gt = 0).all().values('assembly_id', 'sectionindex', 'slice_id',
         'node_id', 'center_x', 'center_y', 'threshold', 'size')
 
-    return HttpResponse(JSONEncoder().encode(list(slices)), mimetype="text/json")
+    return HttpResponse(serializers.serialize('json', slices),
+            mimetype="text/json")
 
 def delete_slice_from_assembly(request, project_id=None, stack_id=None):
     """ Delete slice from assembly """
@@ -148,12 +150,15 @@ def delete_slice_from_assembly(request, project_id=None, stack_id=None):
             slice.assembly = None
             slice.save()
         else:
-            return HttpResponse(JSONEncoder().encode({'message': "Did not delete slice " + str(sliceid) +
-                " in section " + str(sectionindex) + " because assembly IDs are not equal: " + str(assemblyid_update) }), mimetype="text/json")
+            msg = "Did not delete slice %s in section %s because assembly " \
+                    "IDs are not equal: %s" % (sliceid, sectionindex, \
+                    assemblyid_update)
+            return HttpResponse(json.dumps({'message': msg}),
+                    mimetype="text/json")
 
-
-    return HttpResponse(JSONEncoder().encode({'message': "Successfully deleted slice " + str(sliceid) +
-        " in section " + str(sectionindex) + " with assembly id " + str(assemblyid_update) }), mimetype="text/json")
+    msg = "Successfully deleted slice %s in section %s with assembly id %s" \
+            % (sliceid, sectionindex, assemblyid_update)
+    return HttpResponse(json.dumps({'message': msg}), mimetype="text/json")
 
 
 def slices_at_location(request, project_id=None, stack_id=None):
@@ -200,7 +205,8 @@ def slices_at_location(request, project_id=None, stack_id=None):
     #slices = list(slices)
     #slices.sort(key=dist, reverse=True)
 
-    return HttpResponse(JSONEncoder().encode(list(slices)), mimetype="text/json")
+    return HttpResponse(serializers.serialize('json', slices),
+            mimetype="text/json")
 
 def segments_for_slice_right(request, project_id=None, stack_id=None):
     
@@ -232,7 +238,8 @@ def segments_for_slice_right(request, project_id=None, stack_id=None):
     'normalized_histogram_1', 'normalized_histogram_2', 'normalized_histogram_3', 'normalized_histogram_4', 'normalized_histogram_5',
     'normalized_histogram_6', 'normalized_histogram_7', 'normalized_histogram_8', 'normalized_histogram_9').order_by('cost')
 
-    return HttpResponse(JSONEncoder().encode(list(segments_right)), mimetype="text/json")
+    return HttpResponse(serializers.serialize('json', segments_right),
+            mimetype="text/json")
 
 def segments_for_slice_left(request, project_id=None, stack_id=None):
     
@@ -285,7 +292,9 @@ def segments_for_slice_left(request, project_id=None, stack_id=None):
     'normalized_histogram_1', 'normalized_histogram_2', 'normalized_histogram_3', 'normalized_histogram_4', 'normalized_histogram_5',
     'normalized_histogram_6', 'normalized_histogram_7', 'normalized_histogram_8', 'normalized_histogram_9').order_by('cost')
 
-    return HttpResponse(JSONEncoder().encode(list(segments_left)+list(segments_left_branch)), mimetype="text/json")
+    serialized_segments = serializers.serialize('json',
+            list(segments_left) + list(segments_left_branch))
+    return HttpResponse(serialized_segments, mimetype="text/json")
 
 def slice_contour(request, project_id=None, stack_id=None):
     
