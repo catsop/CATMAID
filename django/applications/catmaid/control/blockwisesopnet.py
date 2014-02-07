@@ -430,7 +430,6 @@ def insert_branch_segment(request, project_id = None, stack_id = None):
         return HttpResponse(json.dumps({'id': segment.id}), mimetype='text/json')
     except Slice.DoesNotExist:
         return HttpResponse(json.dumps({'id': -1}), mimetype='text/json')
-    pass
 
 def set_segments_block(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
@@ -455,7 +454,6 @@ def set_segments_block(request, project_id = None, stack_id = None):
 
     except Block.DoesNotExist:
         return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
-    pass
 
 def retrieve_segments_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
