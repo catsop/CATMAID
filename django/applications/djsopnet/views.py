@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404
 from catmaid.models import *
 from catmaid.control.stack import get_stack_info
 
+from celerysopnet.tasks import TraceNeuronTask
+
 # --- JSON conversion ---
 def slice_dict(slice):
     sd = {'id' : slice.id,
@@ -508,3 +510,13 @@ def clear_blocks(request, project_id = None, stack_id = None):
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     else:
         HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+
+def trace_neuron_async(request):
+    """ Queues a celery task to autmatically segment a neuron with the help of
+    Sopnet. In the case of success, the task ID will be returned.
+    """
+    async_result = TraceNeuronTask.delay()
+    return HttpResponse(json.dumps({
+        'success': "Successfully queued tracing task.",
+        'task_id': async_result.id
+    }))
