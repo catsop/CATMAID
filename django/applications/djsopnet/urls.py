@@ -28,4 +28,6 @@ urlpatterns = patterns('',
      (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/sopnet/clear_segments$', 'djsopnet.views.clear_segments'),
      (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/sopnet/clear_slices$', 'djsopnet.views.clear_slices'),
      (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/sopnet/clear_blocks$', 'djsopnet.views.clear_blocks'),
+
+     (r'^trace_neuron$', 'djsopnet.views.trace_neuron_async'),
 )
