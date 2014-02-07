@@ -46,6 +46,7 @@ INSTALLED_APPS = (
     'taggit',
     'adminplus',
     'catmaid',
+    'djsopnet',
     'guardian',
     'south',
 )

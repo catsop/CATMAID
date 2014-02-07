@@ -38,4 +38,3 @@ from clustering import *
 from circles import *
 from neuron_annotations import *
 from treenodeexport import *
-from blockwisesopnet import *
