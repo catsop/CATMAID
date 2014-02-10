@@ -8,7 +8,12 @@ from django.shortcuts import get_object_or_404
 from catmaid.models import *
 from catmaid.control.stack import get_stack_info
 
+from celery.task.control import inspect
+
 from celerysopnet.tasks import TraceNeuronTask
+
+from djcelery.models import TaskState
+
 
 # --- JSON conversion ---
 def slice_dict(slice):
@@ -520,3 +525,16 @@ def trace_neuron_async(request):
         'success': "Successfully queued tracing task.",
         'task_id': async_result.id
     }))
+
+def get_task_list(request):
+    """ Retrieves a list of all tasks that are currently processed.
+    """
+    tasks = TaskState.objects.all()
+
+    task_data = [{
+      'task_id': t.task_id,
+      'state': t.state,
+      'name': t.name,
+    } for t in tasks]
+
+    return HttpResponse(json.dumps(task_data))
