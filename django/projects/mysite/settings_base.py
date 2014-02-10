@@ -103,6 +103,9 @@ ROI_AUTO_CREATE_IMAGE = False
 IMPORTER_DEFAULT_TILE_WIDTH = 256
 IMPORTER_DEFAULT_TILE_HEIGHT = 256
 
+# Celery needs to know all the tasks we want it to be able to execute
+CELERY_IMPORTS = ['celerysopnet.tasks']
+
 # A couple of functions useful for generating default directories to
 # be used in the settings files:
 
