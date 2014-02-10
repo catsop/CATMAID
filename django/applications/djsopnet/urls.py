@@ -1,4 +1,5 @@
 from django.conf.urls.defaults import patterns, url
+from django.views.generic import TemplateView
 
 # Sopnet API
 urlpatterns = patterns('',
@@ -30,4 +31,11 @@ urlpatterns = patterns('',
      (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_blocks$', 'djsopnet.views.clear_blocks'),
 
      (r'^trace_neuron$', 'djsopnet.views.trace_neuron_async'),
+
+     # Models
+     (r'^tasks$', 'djsopnet.views.get_task_list'),
+
+     # Front-end
+     (r'^$', TemplateView.as_view(template_name='djsopnet/index.html')),
+     (r'^overview$', TemplateView.as_view(template_name='djsopnet/partials/overview.html')),
 )

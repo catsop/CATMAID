@@ -1,20 +1,27 @@
 (function(){
   var app;
 
-  app = angular.module('sopnetApp', ['sopnetApp.controllers',
-      'sopnetApp.services']);
+  app = angular.module('sopnetApp', ['ui.router', 'sopnetApp.controllers',
+      'sopnetApp.services', 'sopnetApp.filters']);
 
-  app.config(function($interpolateProvider, $routeProvider) {
+  app.config(function($interpolateProvider, $stateProvider, $urlRouterProvider) {
     // Play nice with Django's templates
     $interpolateProvider.startSymbol('[[');
     $interpolateProvider.endSymbol(']]');
 
     // Define routes
-    $routeProvider.when('overview', {
-      templateUrl: 'templates/overview.html',
-      controller: 'overviewController'
-    }).otherwise({
-      redirectTo: '/overview'
+    $urlRouterProvider.otherwise('/');
+
+    return $stateProvider.state('overview', {
+      url: '/',
+      templateUrl: 'overview',
+      controller: 'overviewController',
+      resolve: {
+        tasks: function (Tasks) {
+          Tasks.fetch();
+          return Tasks.data();
+        }
+      }
     });
   });
 

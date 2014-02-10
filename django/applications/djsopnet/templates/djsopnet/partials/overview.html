@@ -1,0 +1,19 @@
+<p>
+  The following tasks are currently queued:
+</p>
+
+<table class="table table-striped table-bordered table-condensed">
+<thead>
+  <th>UUID</th><th>State</th><th>Name</th>
+</thead>
+<tbody>
+  <tr data-ng-repeat="task in tasks" class="[[ task.state | statetoclass ]]">
+    <td>[[task.task_id]]</td><td>[[task.state]]</td><td>[[task.name]]</td>
+  </tr>
+</tbody>
+</table>
+
+{% comment %}
+<input type="text" data-ng-model="sometext" />
+<h1>Hello [[ sometext ]]</h1>
+{% endcomment %}
