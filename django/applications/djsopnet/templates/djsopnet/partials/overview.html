@@ -40,11 +40,14 @@ Tasks
   <th>UUID</th><th>State</th><th>Name</th>
 </thead>
 <tbody>
-  <tr data-ng-repeat="task in tasks" class="[[ task.state | statetoclass ]]">
+  <tr data-ng-repeat="task in filteredTasks" class="[[ task.state | statetoclass ]]">
     <td>[[task.task_id]]</td><td>[[task.state]]</td><td>[[task.name]]</td>
   </tr>
 </tbody>
 </table>
+<div data-pagination="" data-total-items="totalItems" data-page="currentPage"
+    data-max-size="maxSize" data-items-per-age="itemsPerPage"
+    data-num-pages="numPages" data-boundary-links="true"></div>
 
 {% comment %}
 <input type="text" data-ng-model="sometext" />

@@ -61,8 +61,25 @@
           });
         };
 
+        // Tasks
         $scope.tasks = tasks.all;
-        return
+        $scope.filteredTasks = [];
+
+        // Pagination of tasks
+        $scope.currentPage = 1;
+        $scope.totalItems = tasks.all.length;
+        $scope.itemsPerPage = 20;
+        $scope.maxSize = 10;
+
+        $scope.setPage = function(pageNo) {
+          $scope.currentPage = pageNo;
+        };
+
+        $scope.$watch('currentPage + itemsPerPage', function() {
+          var begin = (($scope.currentPage - 1) * $scope.itemsPerPage),
+              end   = begin + $scope.itemsPerPage;
+          $scope.filteredTasks = $scope.tasks.slice(begin, end);
+        });
       });
 
 }).call(this);

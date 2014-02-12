@@ -17,8 +17,10 @@
       templateUrl: 'overview',
       controller: 'overviewController',
       resolve: {
+        tasksPromise: function (Tasks ) {
+          return Tasks.fetch();
+        },
         tasks: function (Tasks) {
-          Tasks.fetch();
           return Tasks.data();
         }
       }
