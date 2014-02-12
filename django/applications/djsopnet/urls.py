@@ -38,4 +38,7 @@ urlpatterns = patterns('djsopnet.views',
     # Front-end
     (r'^$', TemplateView.as_view(template_name='djsopnet/index.html')),
     (r'^overview$', TemplateView.as_view(template_name='djsopnet/partials/overview.html')),
+
+    # Tests
+    (r'^segmentguarantor/test$', 'test_segmentguarantor_task'),
 )

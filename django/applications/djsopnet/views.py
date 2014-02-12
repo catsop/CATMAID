@@ -10,7 +10,7 @@ from catmaid.control.stack import get_stack_info
 
 from celery.task.control import inspect
 
-from celerysopnet.tasks import TraceNeuronTask
+from celerysopnet.tasks import SegmentGuarantorTask, TraceNeuronTask
 
 from djcelery.models import TaskState
 
@@ -538,3 +538,10 @@ def get_task_list(request):
     } for t in tasks]
 
     return HttpResponse(json.dumps(task_data))
+
+def test_segmentguarantor_task(request):
+    async_result = SegmentGuarantorTask.delay()
+    return HttpResponse(json.dumps({
+        'success': "Successfully queued segment guarantor task.",
+        'task_id': async_result.id
+    }))
