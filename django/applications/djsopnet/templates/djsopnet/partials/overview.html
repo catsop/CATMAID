@@ -1,22 +1,4 @@
 <h2>
-Tasks
-</h2>
-<p>
-  Past and current tasks in Celery's queue:
-</p>
-
-<table class="table table-striped table-bordered table-condensed">
-<thead>
-  <th>UUID</th><th>State</th><th>Name</th>
-</thead>
-<tbody>
-  <tr data-ng-repeat="task in tasks" class="[[ task.state | statetoclass ]]">
-    <td>[[task.task_id]]</td><td>[[task.state]]</td><td>[[task.name]]</td>
-  </tr>
-</tbody>
-</table>
-
-<h2>
 Test tasks with random data
 </h2>
 
@@ -45,6 +27,24 @@ Test tasks with random data
   <span class="glyphicon glyphicon-play-circle"></span>
   Trace Neuron
 </button>
+
+<h2>
+Tasks
+</h2>
+<p>
+  Past and current tasks in Celery's queue:
+</p>
+
+<table class="table table-striped table-bordered table-condensed">
+<thead>
+  <th>UUID</th><th>State</th><th>Name</th>
+</thead>
+<tbody>
+  <tr data-ng-repeat="task in tasks" class="[[ task.state | statetoclass ]]">
+    <td>[[task.task_id]]</td><td>[[task.state]]</td><td>[[task.name]]</td>
+  </tr>
+</tbody>
+</table>
 
 {% comment %}
 <input type="text" data-ng-model="sometext" />
