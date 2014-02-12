@@ -10,10 +10,13 @@ from catmaid.control.stack import get_stack_info
 
 from celery.task.control import inspect
 
-from celerysopnet.tasks import SegmentGuarantorTask, TraceNeuronTask
+from celerysopnet.tasks import SliceGuarantorTask, SegmentGuarantorTask
+from celerysopnet.tasks import SolutionGuarantorTask, SolveSubvolumeTask
+from celerysopnet.tasks import TraceNeuronTask
 
 from djcelery.models import TaskState
 
+from random import randint
 
 # --- JSON conversion ---
 def slice_dict(slice):
@@ -516,16 +519,6 @@ def clear_blocks(request, project_id = None, stack_id = None):
     else:
         HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
 
-def trace_neuron_async(request):
-    """ Queues a celery task to autmatically segment a neuron with the help of
-    Sopnet. In the case of success, the task ID will be returned.
-    """
-    async_result = TraceNeuronTask.delay()
-    return HttpResponse(json.dumps({
-        'success': "Successfully queued tracing task.",
-        'task_id': async_result.id
-    }))
-
 def get_task_list(request):
     """ Retrieves a list of all tasks that are currently processed.
     """
@@ -539,9 +532,38 @@ def get_task_list(request):
 
     return HttpResponse(json.dumps(task_data))
 
+def test_sliceguarantor_task(request):
+    async_result = SliceGuarantorTask.delay(
+            randint(0,10), randint(0,10), randint(0,10))
+    return HttpResponse(json.dumps({
+        'success': "Successfully queued slice guarantor task.",
+        'task_id': async_result.id
+    }))
+
 def test_segmentguarantor_task(request):
     async_result = SegmentGuarantorTask.delay()
     return HttpResponse(json.dumps({
         'success': "Successfully queued segment guarantor task.",
+        'task_id': async_result.id
+    }))
+
+def test_solutionguarantor_task(request):
+    async_result = SolutionGuarantorTask.delay()
+    return HttpResponse(json.dumps({
+        'success': "Successfully queued solution guarantor task.",
+        'task_id': async_result.id
+    }))
+
+def test_solvesubvolume_task(request):
+    async_result = SolveSubvolumeTask.delay()
+    return HttpResponse(json.dumps({
+        'success': "Successfully queued solve subvolume task.",
+        'task_id': async_result.id
+    }))
+
+def test_traceneuron_task(request):
+    async_result = TraceNeuronTask.delay()
+    return HttpResponse(json.dumps({
+        'success': "Successfully queued trace task.",
         'task_id': async_result.id
     }))

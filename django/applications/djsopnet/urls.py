@@ -30,8 +30,6 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_slices$', 'clear_slices'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_blocks$', 'clear_blocks'),
 
-    (r'^trace_neuron$', 'trace_neuron_async'),
-
     # Models
     (r'^tasks$', 'get_task_list'),
 
@@ -41,4 +39,8 @@ urlpatterns = patterns('djsopnet.views',
 
     # Tests
     (r'^segmentguarantor/test$', 'test_segmentguarantor_task'),
+    (r'^sliceguarantor/test$', 'test_sliceguarantor_task'),
+    (r'^solutionguarantor/test$', 'test_solutionguarantor_task'),
+    (r'^solvesubvolume/test$', 'test_solvesubvolume_task'),
+    (r'^traceneuron/test$', 'test_traceneuron_task'),
 )
