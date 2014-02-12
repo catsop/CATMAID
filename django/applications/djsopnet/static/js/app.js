@@ -1,8 +1,8 @@
 (function(){
   var app;
 
-  app = angular.module('sopnetApp', ['ui.router', 'sopnetApp.controllers',
-      'sopnetApp.services', 'sopnetApp.filters']);
+  app = angular.module('sopnetApp', ['ui.router', 'ui.bootstrap',
+      'sopnetApp.controllers', 'sopnetApp.services', 'sopnetApp.filters']);
 
   app.config(function($interpolateProvider, $stateProvider, $urlRouterProvider) {
     // Play nice with Django's templates
