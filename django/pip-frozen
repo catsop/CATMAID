@@ -19,4 +19,4 @@ python-libuuid==0.9.0
 pillow==2.3.0
 south==0.7.6
 scipy==0.11.0
--e git+https://github.com/catsop/celery-sopnet.git#egg=celerysopnet
+git+https://github.com/catsop/celery-sopnet.git#egg=celerysopnet
