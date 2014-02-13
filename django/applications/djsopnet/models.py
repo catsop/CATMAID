@@ -1,11 +1,28 @@
 from django.db import models
+from datetime import datetime
 
+from django.contrib.auth.models import User
 from catmaid.fields import IntegerArrayField
-from catmaid.models import ClassInstance, Stack, UserFocusedModel
+from catmaid.models import Stack, UserFocusedModel
+
+ASSEMBLY_TYPES = (
+    ('neuron', 'Neuron Slices'),
+    ('synapse', 'Synapse Slices'),
+    ('mitochondrion', 'Mitochondrion Slices'),
+    ('glia', 'Glia Slices'),
+)
+
+class Assembly(models.Model):
+    user = models.ForeignKey(User)
+    creation_time = models.DateTimeField(default=datetime.now)
+    edition_time = models.DateTimeField(default=datetime.now)
+    assembly_type = models.CharField(max_length=32, choices=ASSEMBLY_TYPES,
+     db_index=True)
+    name = models.CharField(max_length=255)
 
 class Slice(UserFocusedModel):
     stack = models.ForeignKey(Stack)
-    assembly = models.ForeignKey(ClassInstance, null=True)
+    assembly = models.ForeignKey(Assembly, null=True)
     hash_value = models.IntegerField(db_index=True)
     section = models.IntegerField(db_index=True)
 
@@ -33,7 +50,7 @@ class Slice(UserFocusedModel):
 
 class Segment(UserFocusedModel):
     stack = models.ForeignKey(Stack)
-    assembly = models.ForeignKey(ClassInstance, null=True)
+    assembly = models.ForeignKey(Assembly, null=True)
     hash_value = models.IntegerField(db_index=True)
     # section infimum, or rather, the id of the section closest to z = -infinity to which this segment belongs.
     section_inf = models.IntegerField(db_index=True)
