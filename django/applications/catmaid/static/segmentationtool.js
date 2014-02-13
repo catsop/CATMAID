@@ -34,6 +34,11 @@ function SegmentationTool()
 
         self.destroyToolbar();
 
+        canvasLayer.canvas.clear();
+
+        self.stack.removeLayer( "CanvasLayer" );
+        canvasLayer = null;
+
         self.stack = null;
     }
 
@@ -62,7 +67,11 @@ function SegmentationTool()
     {
         document.getElementById( "toolbox_segmentation" ).style.display = "block";
         self.stack = parentStack;
+        self.createCanvasLayer();
         self.createToolbar();
+
+        // ADD tool control in a separate file
+        // see SegmentationAnnotations.js on the neurocity branch
     }
 
     /*
@@ -100,6 +109,98 @@ function SegmentationTool()
         slider_z_box.appendChild( self.slider_z.getInputView() );
         sliders_box.appendChild( slider_z_box );
     }
+
+    /*
+    ** Create the canvas layer using fabric.js
+    */
+    this.createCanvasLayer = function ()
+    {
+        canvasLayer = new CanvasLayer( self.stack, self );
+
+        canvasLayer.canvas.on({
+          'mouse:down': function(e) {
+            var target = canvasLayer.canvas.findTarget( e.e );
+            if( target ) {
+                console.log('found element on the canvas:', target);
+                self.redraw();
+                // not propagate to view
+                e.e.stopPropagation();
+                e.e.preventDefault();
+                return false;
+            } else {
+                self.clickXY( e.e );
+            }
+            return true;
+          },
+          'mouse:move': function(e) {
+            //console.log('mouse move', e);
+            //e.target.opacity = 0.5;
+          },/*
+          'object:modified': function(e) {
+            console.log('object modified');
+            e.target.opacity = 1;
+          },
+          'object:added': function(e) {
+            console.log('object added', e);
+          },*/
+          
+        });
+
+        // add the layer to the stack, and implicitly
+        // add the view element to the DOM
+        self.stack.addLayer( "CanvasLayer", canvasLayer );
+
+        self.stack.resize();
+
+        // register mouse events
+        canvasLayer.view.onmousedown = function( e ) {
+                switch ( ui.getMouseButton( e ) )
+                {
+                    case 2:
+                        onmousedown(e);
+                        break;
+                }
+        };
+        canvasLayer.view.onmousewheel = onmousewheel; // function(e){self.mousewheel(e);};
+        
+    }
+
+    var onmousewheel = function( e )
+    {
+        var w = ui.getMouseWheel( e );
+        if ( w )
+        {
+            w = self.stack.inverse_mouse_wheel * w;
+            if ( w > 0 )
+            {
+                if( e.altKey )
+                    self.slider_z.move( 10 );
+                else
+                    self.slider_z.move( 1 );
+            }
+            else
+            {
+                if( e.altKey )
+                    self.slider_z.move( -10 );
+                else
+                    self.slider_z.move( -1 );
+            }
+        }
+        return false;
+    }
+
+    var onmousemove = function( e )
+    {
+        self.lastX = self.stack.x + ui.diffX; // TODO - or + ?
+        self.lastY = self.stack.y + ui.diffY;
+        self.stack.moveToPixel(
+            self.stack.z,
+            self.stack.y - ui.diffY / self.stack.scale,
+            self.stack.x - ui.diffX / self.stack.scale,
+            self.stack.s );
+        self.redraw();
+        return true;
+    };
 
     var onmouseup = function( e )
     {
@@ -223,11 +324,18 @@ function SegmentationTool()
 
     this.clickXY = function( e ) {
         var wc = self.stack.getFieldOfViewInPixel();
+        console.log('you clicked at ', wc, ' with event', e);
         return;
     }
 
     this.redraw = function() {
         updateControls();
+        canvasLayer.canvas.clear();
+
+        // TODO:
+        // update the slices displayed in the section
+        // apply filters etc.
+
     }
 
 }
