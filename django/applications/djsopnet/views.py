@@ -16,7 +16,6 @@ from celerysopnet.tasks import TraceNeuronTask
 
 from djcelery.models import TaskState
 
-from random import randint
 
 # --- JSON conversion ---
 def slice_dict(slice):
@@ -532,16 +531,15 @@ def get_task_list(request):
 
     return HttpResponse(json.dumps(task_data))
 
-def test_sliceguarantor_task(request):
-    async_result = SliceGuarantorTask.delay(
-            randint(0,10), randint(0,10), randint(0,10))
+def test_sliceguarantor_task(request, x, y, z):
+    async_result = SliceGuarantorTask.delay(x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued slice guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_segmentguarantor_task(request):
-    async_result = SegmentGuarantorTask.delay()
+def test_segmentguarantor_task(request, x, y, z):
+    async_result = SegmentGuarantorTask.delay(x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued segment guarantor task.",
         'task_id': async_result.id

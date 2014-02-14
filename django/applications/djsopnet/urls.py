@@ -38,8 +38,10 @@ urlpatterns = patterns('djsopnet.views',
     (r'^overview$', TemplateView.as_view(template_name='djsopnet/partials/overview.html')),
 
     # Tests
-    (r'^segmentguarantor/test$', 'test_segmentguarantor_task'),
-    (r'^sliceguarantor/test$', 'test_sliceguarantor_task'),
+    (r'^segmentguarantor/(?P<x>\d+)/(?P<y>\d+)/(?P<z>\d+)/test$',
+            'test_segmentguarantor_task'),
+    (r'^sliceguarantor/(?P<x>\d+)/(?P<y>\d+)/(?P<z>\d+)/test$',
+            'test_sliceguarantor_task'),
     (r'^solutionguarantor/test$', 'test_solutionguarantor_task'),
     (r'^solvesubvolume/test$', 'test_solvesubvolume_task'),
     (r'^traceneuron/test$', 'test_traceneuron_task'),

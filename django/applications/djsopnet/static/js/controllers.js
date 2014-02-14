@@ -5,26 +5,38 @@
 
   controllers.controller('overviewController',
       function($scope, $state, $log, $http, tasks) {
-        $scope.launchSliceGuarantorTask = function() {
-          $log.info("Launching Slice Guarantor Task");
+        $scope.r = function() {
+          return Math.floor((Math.random()*100)+1);
+        };
+        $scope.pstr = function(x, y, z) {
+          return "(" + x + ", " + y + ", " + z + ")";
+        };
+        $scope.launchSliceGuarantorTask = function(x, y, z) {
+          var p = $scope.pstr(x, y, z);
+          $log.info("Launching Slice Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
-            url: 'sliceguarantor/test',
+            url: 'sliceguarantor/' + x + '/' + y + '/' + z + '/test',
           }).success(function(data) {
-            return $log.info("Successfully launched Slice Guarantor Task.");
+            return $log.info("Successfully launched Slice Guarantor Task for " +
+                "position " + p + ".");
           }).error(function(data) {
-            return $log.info("Failed to launch Slice Guarantor Task.");
+            return $log.info("Failed to launch Slice Guarantor Task for " +
+                "position " + p + ".");
           });
         };
-        $scope.launchSegmentGuarantorTask = function() {
-          $log.info("Launching Segment Guarantor Task");
+        $scope.launchSegmentGuarantorTask = function(x, y, z) {
+          var p = $scope.pstr(x, y, z);
+          $log.info("Launching Segment Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
-            url: 'segmentguarantor/test',
+            url: 'segmentguarantor/' + x + '/' + y + '/' + z + '/test',
           }).success(function(data) {
-            return $log.info("Successfully launched Segment Guarantor Task.");
+            return $log.info("Successfully launched Segment Guarantor Task " +
+                "for position " + p + ".");
           }).error(function(data) {
-            return $log.info("Failed to launch Segment Guarantor Task.");
+            return $log.info("Failed to launch Segment Guarantor Task " +
+                "for position " + p + ".");
           });
         };
         $scope.launchSolutionGuarantorTask = function() {
