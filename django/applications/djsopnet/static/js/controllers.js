@@ -4,15 +4,12 @@
   controllers = angular.module('sopnetApp.controllers', []);
 
   controllers.controller('overviewController',
-      function($scope, $state, $log, $http, tasks) {
-        $scope.r = function() {
-          return Math.floor((Math.random()*100)+1);
-        };
-        $scope.pstr = function(x, y, z) {
-          return "(" + x + ", " + y + ", " + z + ")";
-        };
+      function($scope, $state, $log, $http, tasks, Tools) {
+        // Provide random number generator to template
+        $scope.r = Tools.r;
+
         $scope.launchSliceGuarantorTask = function(x, y, z) {
-          var p = $scope.pstr(x, y, z);
+          var p = Tools.pstr(x, y, z);
           $log.info("Launching Slice Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
@@ -26,7 +23,7 @@
           });
         };
         $scope.launchSegmentGuarantorTask = function(x, y, z) {
-          var p = $scope.pstr(x, y, z);
+          var p = Tools.pstr(x, y, z);
           $log.info("Launching Segment Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',

@@ -113,4 +113,18 @@
     };
   });
 
+  /**
+   * A controller that provides some general tools.
+   */
+  services.factory('Tools', function($http, $http, Slice) {
+    return {
+        r: function() {
+          return Math.floor((Math.random()*100)+1);
+        },
+        pstr: function(x, y, z) {
+          return "(" + x + ", " + y + ", " + z + ")";
+        },
+    };
+  });
+
 }).call(this);
