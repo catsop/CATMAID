@@ -545,8 +545,8 @@ def test_segmentguarantor_task(request, x, y, z):
         'task_id': async_result.id
     }))
 
-def test_solutionguarantor_task(request):
-    async_result = SolutionGuarantorTask.delay()
+def test_solutionguarantor_task(request, x, y, z):
+    async_result = SolutionGuarantorTask.delay(x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued solution guarantor task.",
         'task_id': async_result.id

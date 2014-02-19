@@ -36,15 +36,18 @@
                 "for position " + p + ".");
           });
         };
-        $scope.launchSolutionGuarantorTask = function() {
-          $log.info("Launching Solution Guarantor Task");
+        $scope.launchSolutionGuarantorTask = function(x, y, z) {
+          var p = Tools.pstr(x, y, z);
+          $log.info("Launching Solution Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
-            url: 'solutionguarantor/test',
+            url: 'solutionguarantor/' + x + '/' + y + '/' + z + '/test',
           }).success(function(data) {
-            return $log.info("Successfully launched Solution Guarantor Task.");
+            return $log.info("Successfully launched Solution Guarantor Task " +
+                "for position " + p + ".");
           }).error(function(data) {
-            return $log.info("Failed to launch Solution Guarantor Task.");
+            return $log.info("Failed to launch Solution Guarantor Task " +
+                "for position " + p + ".");
           });
         };
         $scope.launchSolveSubvolumeTask = function() {
