@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 
 from catmaid.models import *
 from catmaid.control.stack import get_stack_info
+from models import *
 
 from celery.task.control import inspect
 
@@ -108,7 +109,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
         height = int(request.GET.get('height'))
         depth = int(request.GET.get('depth'))
     except:
-        return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), mimetype='text/json')
 
     s = get_object_or_404(Stack, pk=stack_id)
     p = get_object_or_404(Project, pk=project_id)
@@ -130,7 +131,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
 
     try:
         info = BlockInfo.objects.get(stack=s)
-        return HttpResponse(json.dumps({'ok': False}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': False, 'reason' : 'already setup'}), mimetype='text/json')
     except BlockInfo.DoesNotExist:
 
         info = BlockInfo(user = u, project = p, stack = s,
