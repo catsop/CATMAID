@@ -1,5 +1,5 @@
 import json
-import time
+import sys
 
 from django.http import HttpResponse
 
@@ -59,9 +59,10 @@ def block_dict(block):
                    block.max_x, block.max_y, block.max_z]}
     return bd
 
-def block_info_dict(block_info):
+def block_info_dict(block_info, stack):
     bid = {'size' : [block_info.height, block_info.width, block_info.depth],
-           'count' : [block_info.num_x, block_info.num_y, block_info.num_z]}
+           'count' : [block_info.num_x, block_info.num_y, block_info.num_z],
+           'stack_size' : [stack.dimension.x, stack.dimension.y, stack.dimension.z]}
     return bid
 
 def generate_slice_response(slice):
@@ -91,9 +92,16 @@ def generate_block_response(block):
     else:
         return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
 
-def generate_block_info_response(block_info):
+def generate_blocks_response(blocks):
+    if (blocks is not None):
+        block_dicts = [block_dict(block) for block in blocks]
+        return HttpResponse(json.dumps({'length' : len(block_dicts), 'blocks' : block_dicts}))
+    else:
+        return HttpResponse(json.dumps({'length' : 0}))
+
+def generate_block_info_response(block_info, stack):
     if block_info:
-        return HttpResponse(json.dumps(block_info_dict(block_info)), mimetype = 'text/json')
+        return HttpResponse(json.dumps(block_info_dict(block_info, stack)), mimetype = 'text/json')
     else:
         return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
 
@@ -115,19 +123,19 @@ def setup_blocks(request, project_id = None, stack_id = None):
     p = get_object_or_404(Project, pk=project_id)
     u = User.objects.get(id=1)
 
-    nx = s.dimension.x / width;
-    ny = s.dimension.y / height;
-    nz = s.dimension.z / depth;
+    nx = s.dimension.x / width
+    ny = s.dimension.y / height
+    nz = s.dimension.z / depth
 
     # If stack size is not equally divisible by block size...
     if nx * width < s.dimension.z:
-        nx = nx + 1;
+        nx = nx + 1
 
     if ny * height < s.dimension.y:
-        ny = ny + 1;
+        ny = ny + 1
 
     if nz * depth < s.dimension.z:
-        nz = nz + 1;
+        nz = nz + 1
 
     try:
         info = BlockInfo.objects.get(stack=s)
@@ -143,11 +151,15 @@ def setup_blocks(request, project_id = None, stack_id = None):
     for z in range(0, s.dimension.z, depth):
         for y in range(0, s.dimension.y, height):
             for x in range(0, s.dimension.x, width):
+                x_ub = min(x + width, s.dimension.x + 1)
+                y_ub = min(y + height, s.dimension.y + 1)
+                z_ub = min(z + depth, s.dimension.z + 1)
                 block = Block(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
-                              max_x = x + width, max_y = y + height, max_z = z + depth,
+                              max_x = x_ub, max_y = y_ub, max_z = z_ub,
                               slices = [], segments = [], slices_flag = False,
                               segments_flag = False)
-                block.save();
+                # TODO: figure out how to use bulk_create instead.
+                block.save()
     return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
 
 def block_at_location(request, project_id = None, stack_id = None):
@@ -166,17 +178,43 @@ def block_at_location(request, project_id = None, stack_id = None):
                                  max_y__gt = y,
                                  max_z__gt = z)
         return generate_block_response(block)
-    except:
+    except Block.DoesNotExist:
         return generate_block_response(None)
+
+def blocks_in_bounding_box(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+
+    xmin = int(request.GET.get('xmin', -1))
+    ymin = int(request.GET.get('ymin', -1))
+    zmin = int(request.GET.get('zmin', -1))
+    width = int(request.GET.get('width', 0))
+    height = int(request.GET.get('height', 0))
+    depth = int(request.GET.get('depth', 0))
+
+    xmax = xmin + width
+    ymax = ymin + height
+    zmax = zmin + depth
+
+    blocks = Block.objects.filter(stack = s,
+                                  max_x__gt = xmin,
+                                  max_y__gt = ymin,
+                                  max_z__gt = zmin,
+                                  min_x__lt = xmax,
+                                  min_y__lt = ymax,
+                                  min_z__lt = zmax)
+
+    return generate_blocks_response(blocks)
 
 
 def block_info(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
     try:
         block_info = BlockInfo.objects.get(stack = s)
-        return generate_block_info_response(block_info)
-    except:
-        return generate_block_info_response(None)
+        print >> sys.stderr, 'got block info'
+        return generate_block_info_response(block_info, s)
+    except BlockInfo.DoesNotExist:
+        print >> sys.stderr, 'found no stack info for that stack'
+        return generate_block_info_response(None, None)
 
 def set_block_slice_flag(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -302,10 +340,10 @@ def set_parent_slice(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
         child_id_strs = request.GET.getlist('child_id[]')
-        parent_id_strs = reqeust.GET.getlist('parent_id[]')
+        parent_id_strs = request.GET.getlist('parent_id[]')
 
         child_ids = map(int, child_id_strs)
-        parent_ids = map(int, parent_id_str)
+        parent_ids = map(int, parent_id_strs)
 
         # TODO: figure out how to do this in a single db hit.
         for child_id, parent_id in zip(child_ids, parent_ids):
@@ -447,7 +485,7 @@ def set_segments_block(request, project_id = None, stack_id = None):
     segment_ids_str = request.GET.getlist('segment[]')
     block_id = int(request.GET.get('block'))
 
-    segment_ids = map(int, segment_id_str)
+    segment_ids = map(int, segment_ids_str)
 
     try:
         block = Block.objects.get(id = block_id)
@@ -513,8 +551,8 @@ def clear_blocks(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
     if sure == 'yes':
-        Block.object.filter(stack = s).delete()
-        BlockInfo.object.filter(stack = s).delete()
+        Block.objects.filter(stack = s).delete()
+        BlockInfo.objects.filter(stack = s).delete()
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     else:
         HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
