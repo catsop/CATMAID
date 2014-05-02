@@ -123,7 +123,7 @@ class SegmentFeatures(UserFocusedModel):
 
 class SliceBlockRelation(UserFocusedModel):
     block = models.ForeignKey(Block, db_index=True)
-    slice = models.ForiegnKey(Slice, db_index=True)
+    slice = models.ForeignKey(Slice, db_index=True)
 
 class SegmentBlockRelation(UserFocusedModel):
     block = models.ForeignKey(Block, db_index=True)
@@ -132,9 +132,17 @@ class SegmentBlockRelation(UserFocusedModel):
 class BlockInfo(UserFocusedModel):
     stack = models.ForeignKey(Stack)
 
-    height = models.IntegerField()
-    width = models.IntegerField()
-    depth = models.IntegerField()
+    # Block height, width, depth, measured units of pixels
+    bheight = models.IntegerField()
+    bwidth = models.IntegerField()
+    bdepth = models.IntegerField()
+
+    # Core height, width, depth, measured in units of Blocks
+    cheight = models.IntegerField()
+    cwidth = models.IntegerField()
+    cdepth = models.IntegerField()
+
+    # Number of blocks in x, y and z
 
     num_x = models.IntegerField()
     num_y = models.IntegerField()
