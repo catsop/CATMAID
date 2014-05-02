@@ -59,6 +59,13 @@ def block_dict(block):
                    block.max_x, block.max_y, block.max_z]}
     return bd
 
+def core_dict(core):
+    bd = {'id' : core.id,
+          'solutions' : core.solution_flag,
+          'box' : [core.min_x, core.min_y, core.min_z,
+                   core.max_x, core.max_y, core.max_z]}
+    return bd
+
 def block_info_dict(block_info, stack):
     bid = {'size' : [block_info.height, block_info.width, block_info.depth],
            'count' : [block_info.num_x, block_info.num_y, block_info.num_z],
@@ -93,11 +100,25 @@ def generate_block_response(block):
         return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
 
 def generate_blocks_response(blocks):
-    if (blocks is not None):
+    if blocks is not None:
         block_dicts = [block_dict(block) for block in blocks]
         return HttpResponse(json.dumps({'length' : len(block_dicts), 'blocks' : block_dicts}))
     else:
         return HttpResponse(json.dumps({'length' : 0}))
+
+def generate_core_response(core):
+    if core:
+        return HttpResponse(json.dumps(core_dict(core)), mimetype = 'text/json')
+    else:
+        return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
+
+def generate_cores_response(cores):
+    if cores is not None:
+        core_dicts = [core_dict(core) for core in cores]
+        return HttpResponse(json.dumps({'length' : len(core_dicts), 'blocks' : core_dicts}))
+    else:
+        return HttpResponse(json.dumps({'length' : 0}))
+
 
 def generate_block_info_response(block_info, stack):
     if block_info:
@@ -105,8 +126,7 @@ def generate_block_info_response(block_info, stack):
     else:
         return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
 
-# --- Blocks ---
-
+# --- Blocks and Cores ---
 def setup_blocks(request, project_id = None, stack_id = None):
     '''
     Initialize and store the blocks and block info in the db, associated with
@@ -116,7 +136,11 @@ def setup_blocks(request, project_id = None, stack_id = None):
         width = int(request.GET.get('width'))
         height = int(request.GET.get('height'))
         depth = int(request.GET.get('depth'))
-    except:
+        # core height, width, and depth in blocks
+        corewib = int(request.GET.get('cwidth'))
+        corehib = int(request.GET.get('cheight'))
+        coredib = int(request.GET.get('cdepth'))
+    except TypeError:
         return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), mimetype='text/json')
 
     s = get_object_or_404(Stack, pk=stack_id)
@@ -143,10 +167,12 @@ def setup_blocks(request, project_id = None, stack_id = None):
     except BlockInfo.DoesNotExist:
 
         info = BlockInfo(user = u, project = p, stack = s,
-                         height = height, width = width, depth = depth,
+                         bheight = height, bwidth = width, bdepth = depth,
+                         cheight = corehib, cwidth = corewib, cdepth = coredib,
                          num_x = nx, num_y = ny, num_z = nz)
-        info.save();
+        info.save()
 
+    # Create new Blocks
 
     for z in range(0, s.dimension.z, depth):
         for y in range(0, s.dimension.y, height):
@@ -156,34 +182,40 @@ def setup_blocks(request, project_id = None, stack_id = None):
                 z_ub = min(z + depth, s.dimension.z + 1)
                 block = Block(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
                               max_x = x_ub, max_y = y_ub, max_z = z_ub,
-                              slices = [], segments = [], slices_flag = False,
-                              segments_flag = False)
+                              slices_flag = False, segments_flag = False)
                 # TODO: figure out how to use bulk_create instead.
                 block.save()
+
+    # Create new Cores
+    cWidth = width * corewib
+    cHeight = height * corehib
+    cDepth = depth * coredib
+    for z in range(0, s.dimension.z, cDepth):
+        for y in range(0, s.dimension.y, cHeight):
+            for x in range(0, s.dimension.x, cWidth):
+                x_ub = min(x + cWidth, s.dimension.x + 1)
+                y_ub = min(y + cHeight, s.dimension.y + 1)
+                z_ub = min(z + cDepth, s.dimension.z + 1)
+                core = Core(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
+                            max_x = x_ub, max_y = y_ub, max_z = z_ub, solution_flag = False)
+                core.save()
+
     return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
 
-def block_at_location(request, project_id = None, stack_id = None):
+# Query, agnostic to Model class
+def location_query(model, s, request):
+    x = int(request.GET.get('x'))
+    y = int(request.GET.get('y'))
+    z = int(request.GET.get('z'))
+    return model.objects.get(stack = s,
+                      min_x__lte = x,
+                      min_y__lte = y,
+                      min_z__lte = z,
+                      max_x__gt = x,
+                      max_y__gt = y,
+                      max_z__gt = z)
 
-    s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        x = int(request.GET.get('x'))
-        y = int(request.GET.get('y'))
-        z = int(request.GET.get('z'))
-        # Block are closed-open, thus lte/gt
-        block = Block.objects.get(stack = s,
-                                 min_x__lte = x,
-                                 min_y__lte = y,
-                                 min_z__lte = z,
-                                 max_x__gt = x,
-                                 max_y__gt = y,
-                                 max_z__gt = z)
-        return generate_block_response(block)
-    except Block.DoesNotExist:
-        return generate_block_response(None)
-
-def blocks_in_bounding_box(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-
+def bound_query(model, s, request):
     xmin = int(request.GET.get('xmin', -1))
     ymin = int(request.GET.get('ymin', -1))
     zmin = int(request.GET.get('zmin', -1))
@@ -194,16 +226,41 @@ def blocks_in_bounding_box(request, project_id = None, stack_id = None):
     xmax = xmin + width
     ymax = ymin + height
     zmax = zmin + depth
+    return model.objects.filter(stack = s,
+                                max_x__gt = xmin,
+                                max_y__gt = ymin,
+                                max_z__gt = zmin,
+                                min_x__lte = xmax,
+                                min_y__lte = ymax,
+                                min_z__lte = zmax)
 
-    blocks = Block.objects.filter(stack = s,
-                                  max_x__gt = xmin,
-                                  max_y__gt = ymin,
-                                  max_z__gt = zmin,
-                                  min_x__lt = xmax,
-                                  min_y__lt = ymax,
-                                  min_z__lt = zmax)
+def block_at_location(request, project_id = None, stack_id = None):
+
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        block = location_query(Block, s, request)
+        return generate_block_response(block)
+    except Block.DoesNotExist:
+        return generate_block_response(None)
+
+def blocks_in_bounding_box(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    blocks = bound_query(Block, s, request)
 
     return generate_blocks_response(blocks)
+
+def core_at_location(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        core = location_query(Core, s, request)
+        return generate_core_response(core)
+    except Core.DoesNotExist:
+        return generate_core_response(None)
+
+def core_in_bounding_box(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    cores = bound_query(Core, s, request)
+    return generate_cores_response(cores)
 
 
 def block_info(request, project_id = None, stack_id = None):
@@ -314,14 +371,14 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     hash_values_str = request.GET.getlist('hash[]')
     hash_values = map(int, hash_values_str)
-    slices = Slice.object.filter(stack = s, hash_value__in = hash_values)
+    slices = Slice.objects.filter(stack = s, hash_value__in = hash_values)
     return generate_slices_response(slices)
 
 def retrieve_slices_by_dbid(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     ids_str = request.GET.get('id[]')
     ids = map(int, ids_str)
-    slices = Slice.object.filter(stack = s, id__in = ids)
+    slices = Slice.objects.filter(stack = s, id__in = ids)
     return generate_slices_response(slices)
 
 
@@ -331,7 +388,7 @@ def retrieve_slices_by_block(request, project_id = None, stack_id = None):
     try:
         block = Block.objects.get(stack = s, id = block_id)
         slice_ids = block.slices
-        slices = Slice.object.filter(stack = s, id__in = slice_ids)
+        slices = Slice.objects.filter(stack = s, id__in = slice_ids)
         return generate_slices_response(slices)
     except:
         return generate_slices_response(Slice.objects.none())
@@ -507,14 +564,14 @@ def retrieve_segments_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     hash_values_str = request.GET.getlist('hash[]')
     hash_values = map(int, hash_values_str)
-    segments = Segment.object.filter(stack = s, hash_value__in = hash_values)
+    segments = Segment.objects.filter(stack = s, hash_value__in = hash_values)
     return generate_segments_response(segments)
 
 def retrieve_segments_by_dbid(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     ids_str = request.GET.getlist('id[]')
     ids = map(int, ids_str)
-    segments = Segment.object.filter(stack = s, id__in = ids)
+    segments = Segment.objects.filter(stack = s, id__in = ids)
     return generate_segments_response(segments)
 
 def retrieve_segments_by_block(request, project_id = None, stack_id = None):
@@ -523,7 +580,7 @@ def retrieve_segments_by_block(request, project_id = None, stack_id = None):
     try:
         block = Block.objects.get(stack = s, id = block_id)
         segment_ids = block.segments
-        segments = Segment.object.filter(stack = s, id__in = segment_ids)
+        segments = Segment.objects.filter(stack = s, id__in = segment_ids)
         return generate_segments_response(segments)
     except:
         return generate_segments_response(Segment.objects.none())
@@ -533,7 +590,7 @@ def clear_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
     if sure == 'yes':
-        Slice.object.filter(stack = s).delete()
+        Slice.objects.filter(stack = s).delete()
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     else:
         HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
@@ -542,7 +599,7 @@ def clear_segments(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
     if sure == 'yes':
-        Segment.object.filter(stack = s).delete()
+        Segment.objects.filter(stack = s).delete()
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     else:
         HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
