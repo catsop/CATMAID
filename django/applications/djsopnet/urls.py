@@ -5,6 +5,7 @@ from django.views.generic import TemplateView
 urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/setup_blocks$', 'setup_blocks'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/block_at_location$', 'block_at_location'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_in_box$', 'blocks_in_bounding_box'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/block$', 'block_info'),
 
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/segment_flag$', 'set_block_segment_flag'),
