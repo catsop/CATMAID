@@ -2,7 +2,7 @@ from django.db import models
 from datetime import datetime
 
 from django.contrib.auth.models import User
-from catmaid.fields import IntegerArrayField
+from catmaid.fields import IntegerArrayField, FloatArrayField
 from catmaid.models import Stack, UserFocusedModel
 
 ASSEMBLY_TYPES = (
@@ -92,11 +92,42 @@ class Block(UserFocusedModel):
     min_z = models.IntegerField(db_index=True)
     max_z = models.IntegerField(db_index=True)
 
-    slices = IntegerArrayField()
-    segments = IntegerArrayField()
-
     slices_flag = models.BooleanField(default=False)
     segments_flag = models.BooleanField(default=False)
+
+class Core(UserFocusedModel):
+    stack = models.ForeignKey(Stack)
+
+    # bounding box
+    min_x = models.IntegerField(db_index=True)
+    min_y = models.IntegerField(db_index=True)
+    max_x = models.IntegerField(db_index=True)
+    max_y = models.IntegerField(db_index=True)
+    min_z = models.IntegerField(db_index=True)
+    max_z = models.IntegerField(db_index=True)
+
+    solution_flag = models.BooleanField(default=False)
+
+class SegmentSolution(UserFocusedModel):
+    core = models.ForeignKey(Core, db_index=True)
+    segment = models.ForeignKey(Segment, db_index=True)
+    solution = models.FloatField()
+
+class SegmentCost(UserFocusedModel):
+    segment = models.ForeignKey(Segment, db_index=True)
+    cost = models.FloatField()
+
+class SegmentFeatures(UserFocusedModel):
+    segment = models.ForeignKey(Segment, db_index=True)
+    features = FloatArrayField()
+
+class SliceBlockRelation(UserFocusedModel):
+    block = models.ForeignKey(Block, db_index=True)
+    slice = models.ForiegnKey(Slice, db_index=True)
+
+class SegmentBlockRelation(UserFocusedModel):
+    block = models.ForeignKey(Block, db_index=True)
+    segment = models.ForeignKey(Segment, db_index=True)
 
 class BlockInfo(UserFocusedModel):
     stack = models.ForeignKey(Stack)
