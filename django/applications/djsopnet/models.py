@@ -133,17 +133,17 @@ class BlockInfo(UserFocusedModel):
     stack = models.ForeignKey(Stack)
 
     # Block height, width, depth, measured units of pixels
-    bheight = models.IntegerField()
-    bwidth = models.IntegerField()
-    bdepth = models.IntegerField()
+    bheight = models.IntegerField(default=256)
+    bwidth = models.IntegerField(default=256)
+    bdepth = models.IntegerField(default=16)
 
     # Core height, width, depth, measured in units of Blocks
-    cheight = models.IntegerField()
-    cwidth = models.IntegerField()
-    cdepth = models.IntegerField()
+    cheight = models.IntegerField(default=1)
+    cwidth = models.IntegerField(default=1)
+    cdepth = models.IntegerField(default=1)
 
     # Number of blocks in x, y and z
 
-    num_x = models.IntegerField()
-    num_y = models.IntegerField()
-    num_z = models.IntegerField()
+    num_x = models.IntegerField(default=0)
+    num_y = models.IntegerField(default=0)
+    num_z = models.IntegerField(default=0)
