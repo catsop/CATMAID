@@ -94,6 +94,7 @@ class Block(UserFocusedModel):
 
     slices_flag = models.BooleanField(default=False)
     segments_flag = models.BooleanField(default=False)
+    solution_cost_flag = models.BooleanField(default=False)
 
 class Core(UserFocusedModel):
     stack = models.ForeignKey(Stack)
@@ -106,7 +107,7 @@ class Core(UserFocusedModel):
     min_z = models.IntegerField(db_index=True)
     max_z = models.IntegerField(db_index=True)
 
-    solution_flag = models.BooleanField(default=False)
+    solution_set_flag = models.BooleanField(default=False)
 
 class SegmentSolution(UserFocusedModel):
     core = models.ForeignKey(Core, db_index=True)
