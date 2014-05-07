@@ -61,14 +61,15 @@ def block_dict(block):
 
 def core_dict(core):
     bd = {'id' : core.id,
-          'solutions' : core.solution_flag,
+          'solutions' : core.solution_set_flag,
           'box' : [core.min_x, core.min_y, core.min_z,
                    core.max_x, core.max_y, core.max_z]}
     return bd
 
 def block_info_dict(block_info, stack):
-    bid = {'size' : [block_info.height, block_info.width, block_info.depth],
+    bid = {'block_size' : [block_info.bheight, block_info.bwidth, block_info.bdepth],
            'count' : [block_info.num_x, block_info.num_y, block_info.num_z],
+           'core_size' : [block_info.cheight, block_info.cwidth, block_info.cdepth],
            'stack_size' : [stack.dimension.x, stack.dimension.y, stack.dimension.z]}
     return bid
 
@@ -115,7 +116,7 @@ def generate_core_response(core):
 def generate_cores_response(cores):
     if cores is not None:
         core_dicts = [core_dict(core) for core in cores]
-        return HttpResponse(json.dumps({'length' : len(core_dicts), 'blocks' : core_dicts}))
+        return HttpResponse(json.dumps({'length' : len(core_dicts), 'cores' : core_dicts}))
     else:
         return HttpResponse(json.dumps({'length' : 0}))
 
@@ -182,7 +183,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
                 z_ub = min(z + depth, s.dimension.z + 1)
                 block = Block(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
                               max_x = x_ub, max_y = y_ub, max_z = z_ub,
-                              slices_flag = False, segments_flag = False)
+                              slices_flag = False, segments_flag = False, solution_cost_flag = False)
                 # TODO: figure out how to use bulk_create instead.
                 block.save()
 
@@ -197,7 +198,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
                 y_ub = min(y + cHeight, s.dimension.y + 1)
                 z_ub = min(z + cDepth, s.dimension.z + 1)
                 core = Core(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
-                            max_x = x_ub, max_y = y_ub, max_z = z_ub, solution_flag = False)
+                            max_x = x_ub, max_y = y_ub, max_z = z_ub, solution_set_flag = False)
                 core.save()
 
     return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
@@ -257,7 +258,7 @@ def core_at_location(request, project_id = None, stack_id = None):
     except Core.DoesNotExist:
         return generate_core_response(None)
 
-def core_in_bounding_box(request, project_id = None, stack_id = None):
+def cores_in_bounding_box(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
     cores = bound_query(Core, s, request)
     return generate_cores_response(cores)
@@ -273,29 +274,57 @@ def block_info(request, project_id = None, stack_id = None):
         print >> sys.stderr, 'found no stack info for that stack'
         return generate_block_info_response(None, None)
 
-def set_block_slice_flag(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    block_id = int(request.GET.get('block_id'))
+def set_flag(s, request, flag_name, id_field = 'block_id', type = Block):
+    id = int(request.GET.get(id_field))
     flag = int(request.GET.get('flag'))
     try:
-        block = Block.objects.get(stack = s, id = block_id)
-        block.slices_flag = flag
-        block.save()
-        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
-    except:
-        HttpResponse(json.dumps({'ok': False}), mimetype='text/json')
+        box = type.objects.get(stack = s, id = id)
+        setattr(box, flag_name, flag)
+        box.save()
+        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+    except type.DoesNotExist:
+        return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+
+def get_flag(s, request, flag_name, id_field = 'block_id', type = Block):
+    id = int(request.GET.get(id_field))
+    try:
+        box = type.objects.get(stack = s, id = id)
+        flag = getattr(box, flag_name)
+        return HttpResponse(json.dumps({flag_name : flag}), mimetype='text/json')
+    except type.DoesNotExist:
+        return HttpResponse(json.dumps({flag_name : False, 'ok' : False}), mimetype='text/json')
+
+def set_block_slice_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return set_flag(s, request, 'slices_flag')
 
 def set_block_segment_flag(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
-    block_id = int(request.GET.get('block_id'))
-    flag = int(request.GET.get('flag'))
-    try:
-        block = Block.objects.get(stack = s, id = block_id)
-        block.segments_flag = flag
-        block.save()
-        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
-    except:
-        HttpResponse(json.dumps({'ok': False}), mimetype='text/json')
+    return set_flag(s, request, 'segments_flag')
+
+def set_block_solution_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return set_flag(s, request, 'solution_cost_flag')
+
+def set_core_solution_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return set_flag(s, request, 'solution_set_flag', 'core_id', Core)
+
+def get_block_slice_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return get_flag(s, request, 'slices_flag')
+
+def get_block_segment_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return get_flag(s, request, 'segments_flag')
+
+def get_block_solution_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return get_flag(s, request, 'solution_cost_flag')
+
+def get_core_solution_flag(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    return get_flag(s, request, 'solution_set_flag', 'core_id', Core)
 
 # --- Slices ---
 
