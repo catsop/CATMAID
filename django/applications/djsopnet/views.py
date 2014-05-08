@@ -638,6 +638,7 @@ def clear_blocks(request, project_id = None, stack_id = None):
     sure = request.GET.get('sure')
     if sure == 'yes':
         Block.objects.filter(stack = s).delete()
+        Core.objects.filter(stack = s).delete()
         BlockInfo.objects.filter(stack = s).delete()
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     else:
