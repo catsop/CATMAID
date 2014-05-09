@@ -20,6 +20,17 @@ class Assembly(models.Model):
      db_index=True)
     name = models.CharField(max_length=255)
 
+class SliceConflictSet(models.Model):
+    pass
+
+class SliceConflictRelation(UserFocusedModel):
+    slice = models.ForeignKey(Slice)
+    conflict = models.ForeignKey(SliceConflictSet)
+
+class BlockConflictRelation(UserFocusedModel):
+    block = models.ForeignKey(Block)
+    conflict = models.ForeignKey(SliceConflictSet)
+
 class Slice(UserFocusedModel):
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
@@ -44,9 +55,6 @@ class Slice(UserFocusedModel):
     shape_y = IntegerArrayField()
 
     size = models.IntegerField(db_index=True)
-
-    # Tree
-    parent = models.ForeignKey('self', null=True)
 
 class Segment(UserFocusedModel):
     stack = models.ForeignKey(Stack)

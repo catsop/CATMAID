@@ -127,6 +127,14 @@ def generate_block_info_response(block_info, stack):
     else:
         return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
 
+def generate_conflict_response(conflicts, stack):
+    conflict_dicts = []
+    for conflict in conflicts:
+        rels = SliceConflictRelation.filter(conflict__in = conflict)
+        slice_ids = [rel.slice.id for rel in rels]
+        conflict_dicts.add({'conflict_ids', slice_ids})
+    return HttpResponse(json.dumps({'conflict', conflict_dicts}))
+
 # --- Blocks and Cores ---
 def setup_blocks(request, project_id = None, stack_id = None):
     '''
@@ -384,11 +392,10 @@ def set_slices_block(request, project_id = None, stack_id = None):
 
         slices = Slice.objects.filter(stack = s, id__in = slice_ids)
 
-        ok_slice_ids = [qslice.id for qslice in slices]
-
-        block.slices.extend(ok_slice_ids)
-
-        block.save();
+        # TODO: use bulk_create
+        for slice in slices:
+            bsr = SliceBlockRelation(block = block, slice = slice)
+            bsr.save()
 
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
 
@@ -416,64 +423,56 @@ def retrieve_slices_by_block(request, project_id = None, stack_id = None):
     block_id = int(request.GET.get('block_id'))
     try:
         block = Block.objects.get(stack = s, id = block_id)
-        slice_ids = block.slices
-        slices = Slice.objects.filter(stack = s, id__in = slice_ids)
+        sliceBlockRelations = SliceBlockRelation.objects.filter(stack = s, block = block)
+        slices = [sbr.slice for sbr in sliceBlockRelations]
         return generate_slices_response(slices)
     except:
         return generate_slices_response(Slice.objects.none())
 
-def set_parent_slice(request, project_id = None, stack_id = None):
+def store_conflict_set(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        child_id_strs = request.GET.getlist('child_id[]')
-        parent_id_strs = request.GET.getlist('parent_id[]')
+        u = User.objects.get(id=1)
+        idlist = request.GET.get('ids')
 
-        child_ids = map(int, child_id_strs)
-        parent_ids = map(int, parent_id_strs)
+        # Collect slices from ids, then blocks from slices.
+        ids = [int(id) for id in idlist.split(',')]
+        slices = Slice.objects.filter(stack = s, id__in = ids)
+        bsrs = SliceBlockRelation.objects.filter(slice__in = slices)
+        blocks = [bsr.block for bsr in bsrs]
 
-        # TODO: figure out how to do this in a single db hit.
-        for child_id, parent_id in zip(child_ids, parent_ids):
-            child = Slice.objects.get(stack = s, id = child_id)
-            parent = Slice.objects.get(stack = s, id = parent_id)
-            child.parent = parent
-            child.save()
-        return HttpResponse(json.dumps({'ok' : True}), mimetype = 'text/json')
+        # no exception, so far. create the conflict set
+        conflict = SliceConflictSet()
+        conflict.save()
+
+        # associate each slice and block to the conflict set
+        for slice in slices:
+            sliceConflict = SliceConflictRelation(slice = slice, conflict = conflict, user = u)
+            sliceConflict.save()
+        for block in blocks:
+            blockConflict = BlockConflictRelation(block = block, conflict = conflict, user = u)
+            blockConflict.save()
+        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     except:
-        return HttpResponse(json.dumps({'ok' : False}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
 
-def retrieve_parent_slices(request, project_id = None, stack_id = None):
+def retrieve_conflict_sets(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-
-    cp_array = []
-
     try:
-        ids_str = request.GET.getlist('id[]')
-        ids = map(int, ids_str)
-        children = Slice.objects.get(stack = s, id__in = ids)
-        for child in children:
-            cp_array.append({'child' : child.id, 'parent' : child.parent.id})
+        idlist = request.GET.get('ids');
+
+        ids = [int(id) for id in idlist.split(',')]
+        slices = Slice.objects.filter(stack = s, id__in = ids)
+        conflictRelations = SliceConflictRelation.objects.filter(slice__in = slices)
+        conflicts = {cr.conflict for cr in conflictRelations}
+
+        return generate_conflict_response(conflicts, s)
     except:
-        pass
+        return generate_conflict_response(SliceConflictSet.objects.none, s)
 
-    return HttpResponse(json.dumps({'cp_map' : cp_array}), mimetype = 'text/json')
 
-def retrieve_child_slices(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
-    pc_array = []
 
-    try:
-        ids_str = request.GET.getlist('id[]')
-        ids = map(int, ids_str)
-        parents = Slice.objects.filter(stack = s, id__in = ids)
 
-        for parent in parents:
-            children = Slice.objects.filter(stack = s, parent = parent)
-            pc_array.append({'parent' : parent.id,
-                             'children' : [child.id for child in children]})
-    except:
-        pass
-
-    return HttpResponse(json.dumps({'pc_map' : pc_array}), mimetype = 'text/json')
 
 # --- Segments ---
 
