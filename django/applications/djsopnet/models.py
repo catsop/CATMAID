@@ -20,21 +20,10 @@ class Assembly(models.Model):
      db_index=True)
     name = models.CharField(max_length=255)
 
-class SliceConflictSet(models.Model):
-    pass
-
-class SliceConflictRelation(UserFocusedModel):
-    slice = models.ForeignKey(Slice)
-    conflict = models.ForeignKey(SliceConflictSet)
-
-class BlockConflictRelation(UserFocusedModel):
-    block = models.ForeignKey(Block)
-    conflict = models.ForeignKey(SliceConflictSet)
-
 class Slice(UserFocusedModel):
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
-    hash_value = models.IntegerField(db_index=True)
+    hash_value = models.CharField(db_index=True, primary_key=True, max_length=20)
     section = models.IntegerField(db_index=True)
 
     # bounding box
@@ -156,3 +145,14 @@ class BlockInfo(UserFocusedModel):
     num_x = models.IntegerField(default=0)
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)
+
+class SliceConflictSet(models.Model):
+    pass
+
+class SliceConflictRelation(UserFocusedModel):
+    slice = models.ForeignKey(Slice)
+    conflict = models.ForeignKey(SliceConflictSet)
+
+class BlockConflictRelation(UserFocusedModel):
+    block = models.ForeignKey(Block)
+    conflict = models.ForeignKey(SliceConflictSet)

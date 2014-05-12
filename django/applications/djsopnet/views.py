@@ -20,16 +20,14 @@ from djcelery.models import TaskState
 
 # --- JSON conversion ---
 def slice_dict(slice):
-    sd = {'id' : slice.id,
-          'assembly' : slice.assembly,
+    sd = {'assembly' : slice.assembly,
           'hash' : slice.hash_value,
           'section' : slice.section,
           'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
           'ctr' : [slice.ctr_x, slice.ctr_y],
           'value' : slice.value,
           'x' : slice.shape_x,
-          'y' : slice.shape_y,
-          'parent' : slice.parent.id}
+          'y' : slice.shape_y}
     return sd
 
 def segment_dict(segment):
@@ -131,8 +129,9 @@ def generate_conflict_response(conflicts, stack):
     conflict_dicts = []
     for conflict in conflicts:
         rels = SliceConflictRelation.filter(conflict__in = conflict)
-        slice_ids = [rel.slice.id for rel in rels]
-        conflict_dicts.add({'conflict_ids', slice_ids})
+        conflict_dict = [{'conflict_hashes' : rel.slice.hash_value}
+                        for rel in rels]
+        conflict_dicts.add(conflict_dict)
     return HttpResponse(json.dumps({'conflict', conflict_dicts}))
 
 # --- Blocks and Cores ---
@@ -336,61 +335,60 @@ def get_core_solution_flag(request, project_id = None, stack_id = None):
 
 # --- Slices ---
 
-def insert_slice(request, project_id = None, stack_id = None):
+def do_insert_slices(stack, project, user, dict):
+    try:
+        n = int(dict.get('n'))
+        for i in range(n):
+            i_str = str(i)
+            section = int(dict.get('section_' + i_str))
+            hash_value = dict.get('hash_' + i_str)
+            ctr_x = float(dict.get('cx_' + i_str))
+            ctr_y = float(dict.get('cy_' + i_str))
+            xlist = dict.get('x_' + i_str)
+            ylist = dict.get('y_' + i_str)
+            x = [int(xstr) for xstr in xlist.split(',')]
+            y = [int(ystr) for ystr in ylist.split(',')]
+            value = float(dict.get('value_' + i_str))
+            if x and y and len(x) > 0 and len(y) > 0:
+                min_x = min(x)
+                min_y = min(y)
+                max_x = max(x)
+                max_y = max(y)
+            else:
+                min_x = -1
+                min_y = -1
+                max_x = -1
+                max_y = -1
+            slice = Slice(project = project, stack = stack, user = user,
+                  assembly = None, hash_value = hash_value, section = section,
+                  min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
+                  ctr_x = ctr_x, ctr_y = ctr_y, value = value,
+                  shape_x = x, shape_y = y, size = len(x))
+            slice.save()
+        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+    except:
+        return HttpResponse(json.dumps({'ok' : False, 'reason' : str(sys.exc_info()[0])}), mimetype='text/json')
+
+def insert_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     p = get_object_or_404(Project, pk = project_id)
     u = User.objects.get(id = 1)
 
-    try:
-        section = int(request.GET.get('section'))
-        hash_value = int(request.GET.get('hash'))
-        ctr_x = float(request.GET.get('cx'))
-        ctr_y = float(request.GET.get('cy'))
-        xstr = request.GET.getlist('x[]')
-        ystr = request.GET.getlist('y[]')
-        value = float(request.GET.get('value'))
-    except:
-        return HttpResponse(json.dumps({'id' : -1}), mimetype='text/json')
-
-    print ' '.join(xstr)
-    print ' '.join(ystr)
-
-    x = map(int, xstr)
-    y = map(int, ystr)
-
-    if x and y:
-        min_x = min(x)
-        min_y = min(y)
-        max_x = max(x)
-        max_y = max(y)
+    if (request.method == 'GET'):
+        return do_insert_slices(s, p, u, request.GET)
     else:
-        min_x = -1
-        min_y = -1
-        max_x = -1
-        max_y = -1
+        return do_insert_slices(s, p, u, request.POST)
 
-    slice = Slice(project = p, stack = s, user = u,
-                  assembly = None, hash_value = hash_value, section = section,
-                  min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
-                  ctr_x = ctr_x, ctr_y = ctr_y, value = value,
-                  shape_x = x, shape_y = y, size = len(x), parent = None)
-    slice.save()
-
-    return HttpResponse(json.dumps({'id': slice.id}), mimetype='text/json')
-
-
-def set_slices_block(request, project_id = None, stack_id = None):
+def associate_slices_to_block(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
 
     try:
-        slice_ids_str = request.GET.getlist('slice[]')
+        slice_hashes = request.GET.get('hash').split(',')
         block_id = int(request.GET.get('block'))
-
-        slice_ids = map(int, slice_ids_str)
 
         block = Block.objects.get(id = block_id)
 
-        slices = Slice.objects.filter(stack = s, id__in = slice_ids)
+        slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
 
         # TODO: use bulk_create
         for slice in slices:
@@ -405,26 +403,27 @@ def set_slices_block(request, project_id = None, stack_id = None):
 
 def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-    hash_values_str = request.GET.getlist('hash[]')
-    hash_values = map(int, hash_values_str)
+    hash_values = request.GET.get('hash').split(',')
     slices = Slice.objects.filter(stack = s, hash_value__in = hash_values)
     return generate_slices_response(slices)
 
-def retrieve_slices_by_dbid(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
-    ids_str = request.GET.get('id[]')
-    ids = map(int, ids_str)
-    slices = Slice.objects.filter(stack = s, id__in = ids)
-    return generate_slices_response(slices)
 
-
-def retrieve_slices_by_block(request, project_id = None, stack_id = None):
+# Retrieve Slices associated to any ConflictSet that is associated to the Blocks with the given ids.
+def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-    block_id = int(request.GET.get('block_id'))
     try:
-        block = Block.objects.get(stack = s, id = block_id)
-        sliceBlockRelations = SliceBlockRelation.objects.filter(stack = s, block = block)
-        slices = [sbr.slice for sbr in sliceBlockRelations]
+        block_id_list = request.GET.get('block_ids')
+        block_ids = [int(id) for id in block_id_list.split(',')]
+        # filter Blocks by id
+        blocks = Block.objects.get(stack=s, id__in=block_ids)
+        # filter Block <--> Conflict relationships by Block
+        block_conflict_relations = BlockConflictRelation.objects.filter(stack=s, block__in=blocks)
+        # collect a set of conflicts. List is ok, because we don't expect duplication.
+        conflicts = [bcr.conflict for bcr in block_conflict_relations]
+        # filter Slice <--> Conflict relationships by Conflict
+        slice_conflict_relations = SliceConflictRelation.objects.filter(stack=s, conflict__in = conflicts)
+        # now, collect a set of the resulting Slices, then generate a response for the client.
+        slices = {scr.slice for scr in slice_conflict_relations}
         return generate_slices_response(slices)
     except:
         return generate_slices_response(Slice.objects.none())
@@ -433,11 +432,10 @@ def store_conflict_set(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
         u = User.objects.get(id=1)
-        idlist = request.GET.get('ids')
+        slice_hashes = request.GET.get('hash').split(',')
 
         # Collect slices from ids, then blocks from slices.
-        ids = [int(id) for id in idlist.split(',')]
-        slices = Slice.objects.filter(stack = s, id__in = ids)
+        slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
         bsrs = SliceBlockRelation.objects.filter(slice__in = slices)
         blocks = [bsr.block for bsr in bsrs]
 
@@ -459,20 +457,29 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 def retrieve_conflict_sets(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        idlist = request.GET.get('ids');
+        slice_hashes = request.GET.get('hash').split(',')
 
-        ids = [int(id) for id in idlist.split(',')]
-        slices = Slice.objects.filter(stack = s, id__in = ids)
-        conflictRelations = SliceConflictRelation.objects.filter(slice__in = slices)
-        conflicts = {cr.conflict for cr in conflictRelations}
+        slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
+        conflict_relations = SliceConflictRelation.objects.filter(slice__in = slices)
+        conflicts = {cr.conflict for cr in conflict_relations}
 
         return generate_conflict_response(conflicts, s)
     except:
-        return generate_conflict_response(SliceConflictSet.objects.none, s)
+        return generate_conflict_response(SliceConflictSet.objects.none(), s)
 
+def retrieve_associated_block_ids(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    try:
+        slice_hashes = request.GET.get('hash').split(',')
 
+        slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
+        block_relations = SliceBlockRelation.objects.filter(slice__in = slices)
+        blocks = {br.block for br in block_relations}
+        block_ids = [block.id for block in blocks]
 
-
+        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
+    except:
+        return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
 
 # --- Segments ---
 
