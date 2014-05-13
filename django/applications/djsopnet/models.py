@@ -23,7 +23,7 @@ class Assembly(models.Model):
 class Slice(UserFocusedModel):
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
-    hash_value = models.CharField(db_index=True, primary_key=True, max_length=20)
+    hash_value = models.CharField(unique=True, max_length=20)
     section = models.IntegerField(db_index=True)
 
     # bounding box
