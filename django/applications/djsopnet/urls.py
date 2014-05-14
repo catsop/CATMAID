@@ -8,6 +8,8 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_in_box$', 'blocks_in_bounding_box'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/core_at_location$', 'core_at_location'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/cores_in_box$', 'cores_in_bounding_box'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/cores_by_id$', 'retrieve_cores_by_id'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_id$', 'retrieve_blocks_by_id'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/block$', 'block_info'),
 
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_segments_flag$', 'set_block_segment_flag'),

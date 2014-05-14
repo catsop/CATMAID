@@ -105,9 +105,9 @@ def generate_block_response(block):
 def generate_blocks_response(blocks):
     if blocks is not None:
         block_dicts = [block_dict(block) for block in blocks]
-        return HttpResponse(json.dumps({'length' : len(block_dicts), 'blocks' : block_dicts}))
+        return HttpResponse(json.dumps({'ok' : True, 'length' : len(block_dicts), 'blocks' : block_dicts}))
     else:
-        return HttpResponse(json.dumps({'length' : 0}))
+        return HttpResponse(json.dumps({'ok' : True, 'length' : 0}))
 
 def generate_core_response(core):
     if core:
@@ -279,6 +279,26 @@ def cores_in_bounding_box(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
     cores = bound_query(Core, s, request)
     return generate_cores_response(cores)
+
+def retrieve_blocks_by_id(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        id_list = request.GET.get('ids')
+        ids = [int(id) for id in id_list.split(',')]
+        blocks = Block.objects.filter(id__in = ids)
+        return generate_blocks_response(blocks)
+    except:
+        error_response()
+
+def retrieve_cores_by_id(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        id_list = request.GET.get('ids')
+        ids = [int(id) for id in id_list.split(',')]
+        cores = Core.objects.filter(id__in = ids)
+        return generate_cores_response(cores)
+    except:
+        error_response()
 
 
 def block_info(request, project_id = None, stack_id = None):
