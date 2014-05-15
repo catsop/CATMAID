@@ -140,7 +140,7 @@ def generate_conflict_response(conflicts, stack):
 def error_response():
     sio = StringIO()
     traceback.print_exc(file = sio)
-    res = HttpResponse(json.dumps({'ok' : False, 'reason' : sio.getvalue()}))
+    res = HttpResponse(json.dumps({'ok' : False, 'djerror' : sio.getvalue()}))
     sio.close()
     return res
 
