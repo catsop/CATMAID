@@ -695,6 +695,40 @@ def clear_blocks(request, project_id = None, stack_id = None):
     else:
         HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
 
+def clear_djsopnet(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    sure = request.GET.get('sure')
+    if sure == 'yes':
+        all_blocks = Block.objects.filter(stack = s)
+        all_block_conflict_relations = BlockConflictRelation.objects.filter(block__in = all_blocks)
+        all_conflicts = {bcr.conflict for bcr in all_block_conflict_relations}
+        all_segments = Segment.objects.filter(stack = s)
+        all_slices = Slice.objects.filter(stack = s)
+
+        all_slice_assembly = {slice.assembly for slice in all_slices}
+        all_segment_assembly = {segment.assembly for segment in all_segments}
+        all_assemblies = all_segment_assembly.union(all_slice_assembly)
+        assembly_ids = {assembly.id for assembly in all_assemblies if assembly is not None}
+
+        Assembly.objects.filter(id__in = assembly_ids).delete()
+        SliceConflictSet.objects.filter(id__in = (conflict.id for conflict in all_conflicts)).delete()
+
+        SliceConflictRelation.objects.filter(conflict__in = all_conflicts).delete()
+        SegmentBlockRelation.objects.filter(block__in = all_blocks).delete()
+        SegmentFeatures.objects.filter(segment__in = all_segments).delete()
+        SegmentCost.objects.filter(segment__in = all_segments).delete()
+        SegmentSolution.objects.filter(segment__in = all_segments).delete()
+
+        all_blocks.delete()
+        all_slices.delete()
+        all_segments.delete()
+
+        Core.objects.filter(stack = s).delete()
+        BlockInfo.objects.filter(stack = s).delete()
+        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+    else:
+        return HttpResponse(json.dumps({'ok': False}), mimetype='text/json')
+
 def get_task_list(request):
     """ Retrieves a list of all tasks that are currently processed.
     """
