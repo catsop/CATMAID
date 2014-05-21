@@ -300,6 +300,10 @@ def retrieve_cores_by_id(request, project_id = None, stack_id = None):
     except:
         error_response()
 
+def stack_info(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    stack_dict = {'stack_size' : [s.dimension.x, s.dimension.y, s.dimension.z]}
+    return HttpResponse(json.dumps(stack_dict), mimetype='text/json')
 
 def block_info(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
