@@ -69,9 +69,9 @@ def core_dict(core):
     return bd
 
 def block_info_dict(block_info, stack):
-    bid = {'block_size' : [block_info.bheight, block_info.bwidth, block_info.bdepth],
+    bid = {'block_size' : [block_info.bwidth, block_info.bheight, block_info.bdepth],
            'count' : [block_info.num_x, block_info.num_y, block_info.num_z],
-           'core_size' : [block_info.cheight, block_info.cwidth, block_info.cdepth],
+           'core_size' : [block_info.cwidth, block_info.cheight, block_info.cdepth],
            'stack_size' : [stack.dimension.x, stack.dimension.y, stack.dimension.z]}
     return bid
 
@@ -170,7 +170,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
     nz = s.dimension.z / depth
 
     # If stack size is not equally divisible by block size...
-    if nx * width < s.dimension.z:
+    if nx * width < s.dimension.x:
         nx = nx + 1
 
     if ny * height < s.dimension.y:
@@ -195,9 +195,9 @@ def setup_blocks(request, project_id = None, stack_id = None):
     for z in range(0, s.dimension.z, depth):
         for y in range(0, s.dimension.y, height):
             for x in range(0, s.dimension.x, width):
-                x_ub = min(x + width, s.dimension.x + 1)
-                y_ub = min(y + height, s.dimension.y + 1)
-                z_ub = min(z + depth, s.dimension.z + 1)
+                x_ub = min(x + width, s.dimension.x)
+                y_ub = min(y + height, s.dimension.y)
+                z_ub = min(z + depth, s.dimension.z)
                 block = Block(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
                               max_x = x_ub, max_y = y_ub, max_z = z_ub,
                               slices_flag = False, segments_flag = False, solution_cost_flag = False)
