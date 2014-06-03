@@ -23,7 +23,7 @@ class Assembly(models.Model):
 class Slice(UserFocusedModel):
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
-    hash_value = models.CharField(unique=True, max_length=20)
+    hash_value = models.CharField(max_length=20, primary_key=True)
     section = models.IntegerField(db_index=True)
 
     # bounding box
@@ -74,9 +74,9 @@ class Segment(UserFocusedModel):
     direction = models.IntegerField(db_index=True)
 
     # Slice relations
-    slice_a = models.ForeignKey(Slice, db_index=True, related_name='slice_a')
-    slice_b = models.ForeignKey(Slice, null=True, db_index=True, related_name='slice_b')
-    slice_c = models.ForeignKey(Slice, null=True, db_index=True, related_name='slice_c')
+    slice_a_hash = models.CharField(Slice, max_length=20, null=True, db_index=True)
+    slice_b_hash = models.CharField(Slice, max_length=20, null=True, db_index=True)
+    slice_c_hash = models.CharField(Slice, max_length=20, null=True, db_index=True)
 
 class Block(UserFocusedModel):
     stack = models.ForeignKey(Stack)

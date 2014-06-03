@@ -79,7 +79,7 @@ def generate_slice_response(slice):
     if slice:
         return HttpResponse(json.dumps(slice_dict(slice)), mimetype = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'hash' : 'nope'}), mimetype = 'text/json')
 
 def generate_segment_response(segment):
     if segment:
@@ -402,6 +402,7 @@ def do_insert_slices(stack, project, user, dict):
                 slice.save()
             except IntegrityError:
                 pass
+
         return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
     except:
         return error_response()
@@ -417,7 +418,7 @@ def insert_slices(request, project_id = None, stack_id = None):
         return do_insert_slices(s, p, u, request.POST)
 
 def associate_slices_to_block(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
+    s = get_object_or_404(Stack, pk=stack_id)
     p = get_object_or_404(Project, pk=project_id)
     u = User.objects.get(id = 1)
 
@@ -537,12 +538,12 @@ def insert_end_segment(request, project_id = None, stack_id = None):
 
     try:
         hash_value = int(request.GET.get('hash'))
-        slice_id = int(request.GET.get('slice_id'))
+        slice_hash = request.GET.get('slice_hash')
         direction = int(request.GET.get('direction'))
         ctr_x = float(request.GET.get('cx'))
         ctr_y = float(request.GET.get('cy'))
 
-        slice = Slice.objects.get(stack = s, id = slice_id)
+        slice = Slice.objects.get(stack = s, hash_value = slice_hash)
 
         segment = Segment(stack = s, assembly = None, hash_value = hash_value,
                           section_inf = slice.section, min_x = slice.min_x,
@@ -562,14 +563,14 @@ def insert_continuation_segment(request, project_id = None, stack_id = None):
 
     try:
         hash_value = int(request.GET.get('hash'))
-        slice_a_id = int(request.GET.get('slice_a_id'))
-        slice_b_id = int(request.GET.get('slice_b_id'))
+        slice_a_hash = request.GET.get('slice_a_hash')
+        slice_b_hash = request.GET.get('slice_b_hash')
         direction = int(request.GET.get('direction'))
         ctr_x = float(request.GET.get('cx'))
         ctr_y = float(request.GET.get('cy'))
 
-        slice_a = Slice.objects.get(stack = s, id = slice_a_id)
-        slice_b = Slice.objects.get(stack = s, id = slice_b_id)
+        slice_a = Slice.objects.get(stack = s, hash_value = slice_a_hash)
+        slice_b = Slice.objects.get(stack = s, hash_value = slice_b_hash)
 
         min_x = min(slice_a.min_x, slice_b.min_x)
         min_y = min(slice_a.min_y, slice_b.min_y)
@@ -593,16 +594,16 @@ def insert_branch_segment(request, project_id = None, stack_id = None):
 
     try:
         hash_value = int(request.GET.get('hash'))
-        slice_a_id = int(request.GET.get('slice_a_id'))
-        slice_b_id = int(request.GET.get('slice_b_id'))
-        slice_c_id = int(request.GET.get('slice_c_id'))
+        slice_a_hash = request.GET.get('slice_a_hash')
+        slice_b_hash = request.GET.get('slice_b_hash')
+        slice_c_hash = request.GET.get('slice_c_hash')
         direction = int(request.GET.get('direction'))
         ctr_x = float(request.GET.get('cx'))
         ctr_y = float(request.GET.get('cy'))
 
-        slice_a = Slice.objects.get(stack = s, id = slice_a_id)
-        slice_b = Slice.objects.get(stack = s, id = slice_b_id)
-        slice_c = Slice.objects.get(stack = s, id = slice_c_id)
+        slice_a = Slice.objects.get(stack = s, hash_value = slice_a_hash)
+        slice_b = Slice.objects.get(stack = s, hash_value = slice_b_hash)
+        slice_c = Slice.objects.get(stack = s, hash_value = slice_c_hash)
 
         min_x = min(min(slice_a.min_x, slice_b.min_x), slice_c.min_x)
         min_y = min(min(slice_a.min_y, slice_b.min_y), slice_c.min_y)
@@ -724,7 +725,10 @@ def clear_djsopnet(request, project_id = None, stack_id = None):
         SegmentSolution.objects.filter(segment__in = all_segments).delete()
 
         all_blocks.delete()
-        all_slices.delete()
+
+        for slice in all_slices:
+            slice.delete()
+
         all_segments.delete()
 
         Core.objects.filter(stack = s).delete()
