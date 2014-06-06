@@ -48,7 +48,7 @@ class Slice(UserFocusedModel):
 class Segment(UserFocusedModel):
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
-    hash_value = models.IntegerField(db_index=True)
+    hash_value = models.CharField(max_length=20, primary_key = True)
     # section infimum, or rather, the id of the section closest to z = -infinity to which this segment belongs.
     section_inf = models.IntegerField(db_index=True)
 
@@ -146,6 +146,9 @@ class BlockInfo(UserFocusedModel):
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)
 
+class FeatureName(UserFocusedModel):
+    name = models.CharField(max_length=32)
+
 class SliceConflictSet(models.Model):
     pass
 
@@ -156,3 +159,7 @@ class SliceConflictRelation(UserFocusedModel):
 class BlockConflictRelation(UserFocusedModel):
     block = models.ForeignKey(Block)
     conflict = models.ForeignKey(SliceConflictSet)
+
+class FeatureNameRelation(UserFocusedModel):
+    feature = models.ForeignKey(FeatureName)
+    order = models.IntegerField(default=0)

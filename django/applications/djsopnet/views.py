@@ -439,7 +439,8 @@ def associate_slices_to_block(request, project_id = None, stack_id = None):
 
     except Block.DoesNotExist:
         return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), mimetype='text/json')
-
+    except:
+        return error_response()
 
 def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
@@ -532,6 +533,61 @@ def retrieve_associated_block_ids(request, project_id = None, stack_id = None):
         error_response()
 
 # --- Segments ---
+def do_insert_segments(stack, project, user, dict):
+    try:
+        n = int(dict.get('n'))
+        for i in range(n):
+            i_str = str(i)
+            section_inf = int(dict.get('sectioninf_' + i_str))
+            hash_value = dict.get('hash_' + i_str)
+            ctr_x = float(dict.get('cx_' + i_str))
+            ctr_y = float(dict.get('cy_' + i_str))
+            min_x = float(dict.get('minx_' + i_str))
+            min_y = float(dict.get('miny_' + i_str))
+            max_x = float(dict.get('maxx_' + i_str))
+            max_y = float(dict.get('maxy_' + i_str))
+            type = int(dict.get('type_' + i_str))
+            direction = int(dict.get('direction_' + i_str))
+            slice_a_hash = dict.get('slice_a_' + i_str)
+
+            # type == 0 : End Segment, slice_a only
+            # type == 1 : Continuation Segment, slice_a and slice_b
+            # type == 2: Branch Segment, slice_a, slice_b, and slice_c
+            # we don't check for the existence in the dict first. If the type doesn't match
+            # the number of slices, we'll throw an exception, which will be returned to the sopnet
+            # code via error_response
+            if type > 0:
+                slice_b_hash = dict.get('slice_b_' + i_str)
+            else:
+                slice_b_hash = None
+
+            if type > 1:
+                slice_c_hash = dict.get('slice_c_' + i_str)
+            else:
+                slice_c_hash = None
+
+            segment = Segment(project = project, stack = stack, user = user,
+                              assembly = None, hash_value = hash_value, section_inf = section_inf,
+                              min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
+                              ctr_x = ctr_x, ctr_y = ctr_y, type = type, direction = direction,
+                              slice_a_hash = slice_a_hash, slice_b_hash = slice_b_hash,
+                              slice_c_hash = slice_c_hash)
+            segment.save()
+
+        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+    except:
+        return error_response()
+
+
+def insert_segments(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    p = get_object_or_404(Project, pk = project_id)
+    u = User.objects.get(id = 1)
+
+    if (request.method == 'GET'):
+        return do_insert_segments(s, p, u, request.GET)
+    else:
+        return do_insert_segments(s, p, u, request.POST)
 
 def insert_end_segment(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
@@ -551,124 +607,52 @@ def insert_end_segment(request, project_id = None, stack_id = None):
                           ctr_x = ctr_x, ctr_y = ctr_y, type = 0, direction = direction,
                           slice_a = slice)
         segment.save()
-        return HttpResponse(json.dumps({'id': segment.id}), mimetype='text/json')
+        return HttpResponse(json.dumps({'hash': segment.id}), mimetype='text/json')
     except Slice.DoesNotExist:
         return HttpResponse(json.dumps({'id': -1}), mimetype='text/json')
 
-
-
-
-def insert_continuation_segment(request, project_id = None, stack_id = None):
+def associate_segments_to_block(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
+    p = get_object_or_404(Project, pk=project_id)
+    u = User.objects.get(id = 1)
 
     try:
-        hash_value = int(request.GET.get('hash'))
-        slice_a_hash = request.GET.get('slice_a_hash')
-        slice_b_hash = request.GET.get('slice_b_hash')
-        direction = int(request.GET.get('direction'))
-        ctr_x = float(request.GET.get('cx'))
-        ctr_y = float(request.GET.get('cy'))
+        segment_hashes = request.GET.get('hash').split(',')
+        block_id = int(request.GET.get('block'))
 
-        slice_a = Slice.objects.get(stack = s, hash_value = slice_a_hash)
-        slice_b = Slice.objects.get(stack = s, hash_value = slice_b_hash)
-
-        min_x = min(slice_a.min_x, slice_b.min_x)
-        min_y = min(slice_a.min_y, slice_b.min_y)
-        max_x = max(slice_a.max_x, slice_b.max_x)
-        max_y = max(slice_a.max_y, slice_b.max_y)
-        section = min(slice_a.section, slice_b.section)
-
-        segment = Segment(stack = s, assembly = None, hash_value = hash_value,
-                          section_inf = section, min_x = min_x,
-                          min_y = min_y, max_x = max_x, max_y = max_y,
-                          ctr_x = ctr_x, ctr_y = ctr_y, type = 1, direction = direction,
-                          slice_a = slice_a, slice_b = slice_b)
-        segment.save()
-        return HttpResponse(json.dumps({'id': segment.id}), mimetype='text/json')
-    except Slice.DoesNotExist:
-        return HttpResponse(json.dumps({'id': -1}), mimetype='text/json')
-
-
-def insert_branch_segment(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
-
-    try:
-        hash_value = int(request.GET.get('hash'))
-        slice_a_hash = request.GET.get('slice_a_hash')
-        slice_b_hash = request.GET.get('slice_b_hash')
-        slice_c_hash = request.GET.get('slice_c_hash')
-        direction = int(request.GET.get('direction'))
-        ctr_x = float(request.GET.get('cx'))
-        ctr_y = float(request.GET.get('cy'))
-
-        slice_a = Slice.objects.get(stack = s, hash_value = slice_a_hash)
-        slice_b = Slice.objects.get(stack = s, hash_value = slice_b_hash)
-        slice_c = Slice.objects.get(stack = s, hash_value = slice_c_hash)
-
-        min_x = min(min(slice_a.min_x, slice_b.min_x), slice_c.min_x)
-        min_y = min(min(slice_a.min_y, slice_b.min_y), slice_c.min_y)
-        max_x = max(max(slice_a.max_x, slice_b.max_x), slice_c.max_x)
-        max_y = max(max(slice_a.max_y, slice_b.max_y), slice_c.max_y)
-        section = min(min(slice_a.section, slice_b.section), slice_c.section)
-
-        segment = Segment(stack = s, assembly = None, hash_value = hash_value,
-                          section_inf = section, min_x = min_x,
-                          min_y = min_y, max_x = max_x, max_y = max_y,
-                          ctr_x = ctr_x, ctr_y = ctr_y, type = 1, direction = direction,
-                          slice_a = slice_a, slice_b = slice_b, slice_c = slice_c)
-        segment.save()
-        return HttpResponse(json.dumps({'id': segment.id}), mimetype='text/json')
-    except Slice.DoesNotExist:
-        return HttpResponse(json.dumps({'id': -1}), mimetype='text/json')
-
-def set_segments_block(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
-
-    segment_ids_str = request.GET.getlist('segment[]')
-    block_id = int(request.GET.get('block'))
-
-    segment_ids = map(int, segment_ids_str)
-
-    try:
         block = Block.objects.get(id = block_id)
 
-        segments = Segment.objects.filter(stack = s, id__in = segment_ids)
+        segments = Segment.objects.filter(stack = s, hash_value__in = segment_hashes)
 
-        ok_segment_ids = [qsegment.id for qsegment in segments]
-
-        block.segments.extend(ok_segment_ids)
-
-        block.save();
+        for segment in segments:
+            bsr = SegmentBlockRelation(user = u, project = p, block = block, segment = segment)
+            bsr.save()
 
         return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
-
     except Block.DoesNotExist:
-        return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), mimetype='text/json')
+    except:
+        return error_response()
 
 def retrieve_segments_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-    hash_values_str = request.GET.getlist('hash[]')
-    hash_values = map(int, hash_values_str)
+    hash_values = request.GET.get('hash').split(',')
     segments = Segment.objects.filter(stack = s, hash_value__in = hash_values)
     return generate_segments_response(segments)
 
-def retrieve_segments_by_dbid(request, project_id = None, stack_id = None):
+def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-    ids_str = request.GET.getlist('id[]')
-    ids = map(int, ids_str)
-    segments = Segment.objects.filter(stack = s, id__in = ids)
-    return generate_segments_response(segments)
-
-def retrieve_segments_by_block(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
-    block_id = int(request.GET.get('block_id'))
     try:
-        block = Block.objects.get(stack = s, id = block_id)
-        segment_ids = block.segments
-        segments = Segment.objects.filter(stack = s, id__in = segment_ids)
+        block_id_list = request.GET.get('block_ids')
+        block_ids = [int(id) for id in block_id_list.split(',')]
+        blocks = Block.objects.filter(stack=s, id__in=block_ids)
+
+        segment_block_relations = SegmentBlockRelation.objects.filter(block__in = blocks)
+        segments = {sbr.segment for sbr in segment_block_relations}
+
         return generate_segments_response(segments)
     except:
-        return generate_segments_response(Segment.objects.none())
+        return error_response()
 
 # --- convenience code for debug purposes ---
 def clear_slices(request, project_id = None, stack_id = None):
