@@ -28,7 +28,7 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_by_blocks_and_conflict$', 'retrieve_slices_by_blocks_and_conflict'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/store_conflict_set$', 'store_conflict_set'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/conflict_sets_by_slice$', 'retrieve_conflict_sets'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_slice$', 'retrieve_associated_block_ids'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_slice$', 'retrieve_block_ids_by_slices'),
 
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/insert_end_segment$', 'insert_end_segment'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/insert_continuation_segment$', 'insert_continuation_segment'),

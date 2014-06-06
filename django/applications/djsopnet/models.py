@@ -116,7 +116,7 @@ class SegmentCost(UserFocusedModel):
     cost = models.FloatField()
 
 class SegmentFeatures(UserFocusedModel):
-    segment = models.ForeignKey(Segment, db_index=True)
+    segment = models.OneToOneField(Segment, db_index=True, related_name='segment')
     features = FloatArrayField()
 
 class SliceBlockRelation(UserFocusedModel):
@@ -146,8 +146,13 @@ class BlockInfo(UserFocusedModel):
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)
 
-class FeatureName(UserFocusedModel):
+class FeatureName(models.Model):
     name = models.CharField(max_length=32)
+
+class FeatureNameInfo(UserFocusedModel):
+    stack = models.ForeignKey(Stack)
+    name_ids = IntegerArrayField()
+    size = models.IntegerField(default = 0)
 
 class SliceConflictSet(models.Model):
     pass
@@ -159,7 +164,3 @@ class SliceConflictRelation(UserFocusedModel):
 class BlockConflictRelation(UserFocusedModel):
     block = models.ForeignKey(Block)
     conflict = models.ForeignKey(SliceConflictSet)
-
-class FeatureNameRelation(UserFocusedModel):
-    feature = models.ForeignKey(FeatureName)
-    order = models.IntegerField(default=0)

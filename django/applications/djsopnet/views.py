@@ -137,6 +137,14 @@ def generate_conflict_response(conflicts, stack):
         conflict_dicts.append({'conflict_hashes' : conflict_hashes})
     return HttpResponse(json.dumps({'ok' : True, 'conflict' : conflict_dicts}))
 
+def generate_features_response(features):
+    features_dicts = []
+    for feature in features:
+        segment_hash = feature.segment.hash_value
+        feature_values = feature.features
+        features_dicts.add({'hash' : segment_hash, 'fv': feature_values})
+    return HttpResponse(json.dumps({'ok':True, 'features' : features_dicts}), mimetype='text/json')
+
 def error_response():
     sio = StringIO()
     traceback.print_exc(file = sio)
@@ -288,7 +296,7 @@ def retrieve_blocks_by_id(request, project_id = None, stack_id = None):
         blocks = Block.objects.filter(id__in = ids)
         return generate_blocks_response(blocks)
     except:
-        error_response()
+        return error_response()
 
 def retrieve_cores_by_id(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -298,7 +306,7 @@ def retrieve_cores_by_id(request, project_id = None, stack_id = None):
         cores = Core.objects.filter(id__in = ids)
         return generate_cores_response(cores)
     except:
-        error_response()
+        return error_response()
 
 def stack_info(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -412,7 +420,7 @@ def insert_slices(request, project_id = None, stack_id = None):
     p = get_object_or_404(Project, pk = project_id)
     u = User.objects.get(id = 1)
 
-    if (request.method == 'GET'):
+    if request.method == 'GET':
         return do_insert_slices(s, p, u, request.GET)
     else:
         return do_insert_slices(s, p, u, request.POST)
@@ -518,7 +526,7 @@ def retrieve_conflict_sets(request, project_id = None, stack_id = None):
     except:
         return error_response()
 
-def retrieve_associated_block_ids(request, project_id = None, stack_id = None):
+def retrieve_block_ids_by_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
         slice_hashes = request.GET.get('hash').split(',')
@@ -530,9 +538,39 @@ def retrieve_associated_block_ids(request, project_id = None, stack_id = None):
 
         return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
     except:
-        error_response()
+        return error_response()
 
 # --- Segments ---
+def setup_feature_names(names, stack, project):
+    try:
+        FeatureNameInfo.get(stack = stack, project = project)
+        return False
+    except FeatureNameInfo.DoesNotExist:
+        ids = []
+        user = User.objects.get(id = 1)
+        for name in names:
+            feature_name = FeatureName(name)
+            feature_name.save()
+            ids.add(feature_name.id)
+        info = FeatureNameInfo(stack = stack, project = project, user = user,
+                               name_ids = ids, size = len(ids))
+        info.save()
+        return True
+
+def get_feature_names(stack, project):
+    # get feature names, if they exist.
+    # throws FeatureNameInfo.DoesNotExist, and possibly FeatureNameInfo.MultipleObjectsReturned
+    feature_info = FeatureNameInfo.get(stack = stack, project = project)
+    keys = feature_info.name_ids
+    feature_name_objects = FeatureName.objects.filter(id__in = keys)
+    feature_names = []
+    # ensure that the order of the feature_names list corresponds to that of keys
+    for id in keys:
+        for fno in feature_name_objects:
+            if fno.id == id:
+                feature_names.add(fno.name)
+    return feature_names
+
 def do_insert_segments(stack, project, user, dict):
     try:
         n = int(dict.get('n'))
@@ -584,32 +622,10 @@ def insert_segments(request, project_id = None, stack_id = None):
     p = get_object_or_404(Project, pk = project_id)
     u = User.objects.get(id = 1)
 
-    if (request.method == 'GET'):
+    if request.method == 'GET':
         return do_insert_segments(s, p, u, request.GET)
     else:
         return do_insert_segments(s, p, u, request.POST)
-
-def insert_end_segment(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
-
-    try:
-        hash_value = int(request.GET.get('hash'))
-        slice_hash = request.GET.get('slice_hash')
-        direction = int(request.GET.get('direction'))
-        ctr_x = float(request.GET.get('cx'))
-        ctr_y = float(request.GET.get('cy'))
-
-        slice = Slice.objects.get(stack = s, hash_value = slice_hash)
-
-        segment = Segment(stack = s, assembly = None, hash_value = hash_value,
-                          section_inf = slice.section, min_x = slice.min_x,
-                          min_y = slice.min_y, max_x = slice.max_x, max_y = slice.max_y,
-                          ctr_x = ctr_x, ctr_y = ctr_y, type = 0, direction = direction,
-                          slice_a = slice)
-        segment.save()
-        return HttpResponse(json.dumps({'hash': segment.id}), mimetype='text/json')
-    except Slice.DoesNotExist:
-        return HttpResponse(json.dumps({'id': -1}), mimetype='text/json')
 
 def associate_segments_to_block(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
@@ -651,6 +667,85 @@ def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
         segments = {sbr.segment for sbr in segment_block_relations}
 
         return generate_segments_response(segments)
+    except:
+        return error_response()
+
+def set_feature_names(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    p = get_object_or_404(Project, pk = project_id)
+    names = request.GET.get('names').split(',')
+
+    try:
+        existing_names = get_feature_names(s, p)
+        if existing_names == names:
+            return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        else:
+            return HttpResponse(json.dumps({'ok' : True,
+                                            'reason' : 'tried to set different feature names'}),
+                                mimetype='text/json')
+    except FeatureNameInfo.DoesNotExist:
+        return setup_feature_names(names, p, s)
+    except:
+        return error_response()
+
+def do_set_segment_features(stack, project, user, req_dict):
+    try:
+        n = int(req_dict.get('n'))
+        feature_size = FeatureNameInfo.get(stack = stack, project = project).size
+
+        for i in range(n):
+            i_str = str(i)
+            hash_value = req_dict.get('hash_' + i_str)
+            feature_str_list = req_dict.get('features_' + i_str).split(',')
+
+            # check that these features match the size in FeatureNameInfo
+            if len(feature_str_list) != feature_size:
+                return HttpResponse(
+                    json.dumps({'ok': False, 'reason' : 'feature list is the wrong size'}),
+                    mimetype='text/json')
+
+            segment = Segment.objects.get(hash_value = hash_value)
+
+            feature_float_list = map(float, feature_str_list)
+            segment_features = SegmentFeatures(user = user, stack = stack, projet = project,
+                                              segment = segment, features = feature_float_list)
+            segment_features.save()
+
+        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+    except:
+        return error_response()
+
+def set_segment_features(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    p = get_object_or_404(Project, pk = project_id)
+    u = User.objects.get(id = 1)
+
+    if request.method == 'GET':
+        return do_set_segment_features(s, p, u, request.GET)
+    else:
+        return do_set_segment_features(s, p, u, request.POST)
+
+def get_segment_features(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    try:
+        segment_hashes = request.GET.get('hash').split(',')
+        segments = Segment.objects.filter(stack = s, hash_value__in = segment_hashes)
+        features = SegmentFeatures.objects.filter(stack = s, project = p, segment__in = segments)
+        return generate_features_response(features)
+    except:
+        return error_response()
+
+def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    try:
+        segment_hashes = request.GET.get('hash').split(',')
+
+        segments = Segment.objects.filter(stack = s, hash_value__in = segment_hashes)
+        block_relations = SegmentBlockRelation.objects.filter(segment__in = segments)
+        blocks = {br.block for br in block_relations}
+        block_ids = [block.id for block in blocks]
+
+        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
     except:
         return error_response()
 
