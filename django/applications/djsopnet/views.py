@@ -35,21 +35,21 @@ def slice_dict(slice):
     return sd
 
 def segment_dict(segment):
-    sd = {'id' : segment.id,
-          'assembly' : segment.assembly,
+    sd = {'assembly' : segment.assembly,
           'hash' : segment.hash_value,
           'section' : segment.section_inf,
           'box' : [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
           'ctr' : [segment.ctr_x, segment.ctr_y],
           'type' : segment.type,
-          'slice_a' : segment.slice_a.id,
+          'direction' : segment.direction,
+          'slice_a' : segment.slice_a_hash,
           'slice_b' : -1,
           'slice_c' : -1}
 
-    if segment.slice_b:
-        sd['slice_b'] = segment.slice_b.id
-    if segment.slice_c:
-        sd['slice_c'] = segment.slice_c.id
+    if segment.slice_b_hash:
+        sd['slice_b'] = segment.slice_b_hash
+    if segment.slice_c_hash:
+        sd['slice_c'] = segment.slice_c_hash
 
     return sd
 
@@ -142,7 +142,7 @@ def generate_features_response(features):
     for feature in features:
         segment_hash = feature.segment.hash_value
         feature_values = feature.features
-        features_dicts.add({'hash' : segment_hash, 'fv': feature_values})
+        features_dicts.append({'hash' : segment_hash, 'fv': feature_values})
     return HttpResponse(json.dumps({'ok':True, 'features' : features_dicts}), mimetype='text/json')
 
 def error_response():
@@ -543,15 +543,15 @@ def retrieve_block_ids_by_slices(request, project_id = None, stack_id = None):
 # --- Segments ---
 def setup_feature_names(names, stack, project):
     try:
-        FeatureNameInfo.get(stack = stack, project = project)
+        FeatureNameInfo.objects.get(stack = stack, project = project)
         return False
     except FeatureNameInfo.DoesNotExist:
         ids = []
         user = User.objects.get(id = 1)
         for name in names:
-            feature_name = FeatureName(name)
+            feature_name = FeatureName(name = name)
             feature_name.save()
-            ids.add(feature_name.id)
+            ids.append(feature_name.id)
         info = FeatureNameInfo(stack = stack, project = project, user = user,
                                name_ids = ids, size = len(ids))
         info.save()
@@ -560,7 +560,7 @@ def setup_feature_names(names, stack, project):
 def get_feature_names(stack, project):
     # get feature names, if they exist.
     # throws FeatureNameInfo.DoesNotExist, and possibly FeatureNameInfo.MultipleObjectsReturned
-    feature_info = FeatureNameInfo.get(stack = stack, project = project)
+    feature_info = FeatureNameInfo.objects.get(stack = stack, project = project)
     keys = feature_info.name_ids
     feature_name_objects = FeatureName.objects.filter(id__in = keys)
     feature_names = []
@@ -568,7 +568,7 @@ def get_feature_names(stack, project):
     for id in keys:
         for fno in feature_name_objects:
             if fno.id == id:
-                feature_names.add(fno.name)
+                feature_names.append(fno.name)
     return feature_names
 
 def do_insert_segments(stack, project, user, dict):
@@ -673,45 +673,82 @@ def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
 def set_feature_names(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     p = get_object_or_404(Project, pk = project_id)
-    names = request.GET.get('names').split(',')
+    names = []
 
     try:
+        names = request.GET.get('names').split(',')
         existing_names = get_feature_names(s, p)
         if existing_names == names:
             return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
         else:
-            return HttpResponse(json.dumps({'ok' : True,
+            return HttpResponse(json.dumps({'ok' : False,
                                             'reason' : 'tried to set different feature names'}),
                                 mimetype='text/json')
     except FeatureNameInfo.DoesNotExist:
-        return setup_feature_names(names, p, s)
+        if setup_feature_names(names, s, p):
+            return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        else:
+            return HttpResponse(json.dumps({'ok' : False,
+                                            'reason' : 'something went horribly, horribly awry'}),
+                                mimetype='text/json')
     except:
         return error_response()
+
+def retrieve_feature_names(request, project_id = None, stack_id = None):
+    s = get_object_or_404(Stack, pk = stack_id)
+    p = get_object_or_404(Project, pk = project_id)
+    names = get_feature_names(s, p)
+    return HttpResponse(json.dumps({'names' : names}), mimetype='text/json')
+
 
 def do_set_segment_features(stack, project, user, req_dict):
     try:
         n = int(req_dict.get('n'))
-        feature_size = FeatureNameInfo.get(stack = stack, project = project).size
+        feature_size = FeatureNameInfo.objects.get(stack = stack, project = project).size
+        hash_values = []
+        feature_list_dict = {}
+        count = 0
 
+        # Create a list of all hash values from the request
+        # Populate the feature_list_dict with the feature lists for the given hash
         for i in range(n):
             i_str = str(i)
             hash_value = req_dict.get('hash_' + i_str)
+            hash_values.append(hash_value)
             feature_str_list = req_dict.get('features_' + i_str).split(',')
+            feature_list_dict[hash_value] = feature_str_list
+
+        # Grab all segment objects in a single call
+        segments = Segment.objects.filter(hash_value__in = hash_values)
+
+        # Now, set the features
+        for segment in segments:
+            hash_value = segment.hash_value
+
+            feature_str_list = feature_list_dict[hash_value]
 
             # check that these features match the size in FeatureNameInfo
             if len(feature_str_list) != feature_size:
                 return HttpResponse(
-                    json.dumps({'ok': False, 'reason' : 'feature list is the wrong size'}),
+                    json.dumps({'ok': False,
+                                'reason' : 'feature list is the wrong size',
+                                'count' : count}),
                     mimetype='text/json')
 
-            segment = Segment.objects.get(hash_value = hash_value)
-
             feature_float_list = map(float, feature_str_list)
-            segment_features = SegmentFeatures(user = user, stack = stack, projet = project,
+
+            try:
+                segment_features = SegmentFeatures.objects.get(segment = segment)
+                segment_features.features = feature_float_list
+            except SegmentFeatures.DoesNotExist:
+                segment_features = SegmentFeatures(user = user, project = project,
                                               segment = segment, features = feature_float_list)
+
             segment_features.save()
 
-        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+            count += 1
+
+        return HttpResponse(json.dumps({'ok': True, 'count' : count}), mimetype='text/json')
     except:
         return error_response()
 
@@ -727,11 +764,129 @@ def set_segment_features(request, project_id = None, stack_id = None):
 
 def get_segment_features(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
+    p = get_object_or_404(Project, pk = project_id)
     try:
         segment_hashes = request.GET.get('hash').split(',')
         segments = Segment.objects.filter(stack = s, hash_value__in = segment_hashes)
-        features = SegmentFeatures.objects.filter(stack = s, project = p, segment__in = segments)
+        features = SegmentFeatures.objects.filter(project = p, segment__in = segments)
         return generate_features_response(features)
+    except:
+        return error_response()
+
+def set_segment_costs(request, project_id = None, stack_id = None):
+    p = get_object_or_404(Project, pk = project_id)
+    u = User.objects.get(id = 1)
+
+    try:
+        n = int(request.GET.get('n'))
+        cost_dict = {}
+        hash_values = []
+        count = 0
+
+        for i in range(n):
+            i_str = str(i)
+            hash_value = request.GET.get('hash_' + i_str)
+            hash_values.append(hash_value)
+            cost_dict[hash_value] = float(request.GET.get('cost_' + i_str))
+
+        segments = Segment.objects.filter(hash_value__in = hash_values)
+
+        for segment in segments:
+            cost = cost_dict[segment.hash_value]
+            try:
+                segment_cost = SegmentCost.objects.get(segment = segment)
+                segment_cost.cost = cost
+            except SegmentCost.DoesNotExist:
+                segment_cost = SegmentCost(user = u, project = p, segment = segment, cost = cost)
+            segment_cost.save()
+            count += 1
+
+        return HttpResponse(json.dumps({'ok' : True, 'count' : count}), mimetype='text/json')
+    except:
+        return error_response()
+
+def retrieve_segment_costs(request, project_id = None, stack_id = None):
+    try:
+        hash_values = request.GET.get('hash').split(',')
+        segments = Segment.objects.filter(hash_value__in = hash_values)
+        costs = SegmentCost.objects.filter(segment__in = segments)
+        cost_dicts = [{'hash' : cost.segment.hash_value, 'cost' : cost.cost} for cost in costs]
+        return HttpResponse(json.dumps({'ok' : True, 'costs' : cost_dicts}), mimetype='text/json')
+    except:
+        return error_response()
+
+def set_segment_solutions(request, project_id = None, stack_id = None):
+    p = get_object_or_404(Project, pk = project_id)
+    u = User.objects.get(id = 1)
+
+    try:
+        n = int(request.GET.get('n'))
+        solution_dict = {}
+        core_dict = {}
+        core_id_dict = {}
+        core_ids = []
+        hash_values = []
+        count = 0
+
+        # First we need to collect all of the Cores we'll need to proceed.
+        # This code is a little awkward-looking in order to do it in a single hit
+        for i in range(n):
+            i_str = str(i)
+            core_id = int(request.GET.get('core_id_' + i_str))
+            core_ids.append(core_id)
+
+        cores = Core.objects.filter(id__in = core_ids)
+
+        for core in cores:
+            print 'Got core ' + str(core.id)
+            core_id_dict[core.id] = core
+
+        # Now, populate the other dicts, and collect segment hash_values, so we can get those in
+        # a single hit, too
+        for i in range(n):
+            i_str = str(i)
+            hash_value = request.GET.get('hash_' + i_str)
+            core_id = int(request.GET.get('core_id_' + i_str))
+
+            hash_values.append(hash_value)
+            solution_dict[hash_value] = float(request.GET.get('solution_' + i_str))
+            core_dict[hash_value] = core_id_dict[core_id]
+
+
+        segments = Segment.objects.filter(hash_value__in = hash_values)
+
+        # OK. Set the solution values.
+        for segment in segments:
+            hash_value = segment.hash_value
+            solution = solution_dict[hash_value]
+            core = core_dict[hash_value]
+            try:
+                segment_solution = SegmentSolution.objects.get(core = core, segment = segment)
+                segment_solution.solution = solution
+            except SegmentSolution.DoesNotExist:
+                segment_solution = SegmentSolution(project = p, user = u, core = core,
+                                                   segment = segment, solution = solution)
+            segment_solution.save()
+            count += 1
+
+        return HttpResponse(json.dumps({'ok' : True, 'count' : count}), mimetype='text/json')
+
+    except:
+        return error_response()
+
+def retrieve_segment_solutions(request, project_id = None, stack_id = None):
+    try:
+        hash_values = request.GET.get('hash').split(',')
+        core_id = int(request.GET.get('core_id'))
+        segments = Segment.objects.filter(hash_value__in = hash_values)
+        core = Core.objects.get(pk = core_id)
+        solutions = SegmentSolution.objects.filter(core = core, segment__in = segments)
+
+        solution_dicts = [{'hash' : solution.segment.hash_value,
+                           'solution' : solution.solution} for solution in solutions]
+
+        return HttpResponse(json.dumps({'ok' : True, 'solutions' : solution_dicts}),
+                            mimetype='text/json')
     except:
         return error_response()
 

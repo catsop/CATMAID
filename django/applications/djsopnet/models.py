@@ -112,11 +112,11 @@ class SegmentSolution(UserFocusedModel):
     solution = models.FloatField()
 
 class SegmentCost(UserFocusedModel):
-    segment = models.ForeignKey(Segment, db_index=True)
+    segment = models.OneToOneField(Segment, db_index=True)
     cost = models.FloatField()
 
 class SegmentFeatures(UserFocusedModel):
-    segment = models.OneToOneField(Segment, db_index=True, related_name='segment')
+    segment = models.OneToOneField(Segment, db_index=True)
     features = FloatArrayField()
 
 class SliceBlockRelation(UserFocusedModel):
