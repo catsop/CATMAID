@@ -821,45 +821,30 @@ def set_segment_solutions(request, project_id = None, stack_id = None):
 
     try:
         n = int(request.GET.get('n'))
+        core_id = int(request.GET.get('core_id'))
         solution_dict = {}
-        core_dict = {}
-        core_id_dict = {}
-        core_ids = []
         hash_values = []
         count = 0
 
-        # First we need to collect all of the Cores we'll need to proceed.
-        # This code is a little awkward-looking in order to do it in a single hit
-        for i in range(n):
-            i_str = str(i)
-            core_id = int(request.GET.get('core_id_' + i_str))
-            core_ids.append(core_id)
+        core = Core.objects.get(id = core_id)
 
-        cores = Core.objects.filter(id__in = core_ids)
-
-        for core in cores:
-            print 'Got core ' + str(core.id)
-            core_id_dict[core.id] = core
-
-        # Now, populate the other dicts, and collect segment hash_values, so we can get those in
-        # a single hit, too
+        # Collect all of the solution values and map them to the hash of the segment in question
+        # Collect a list of hash values as well
         for i in range(n):
             i_str = str(i)
             hash_value = request.GET.get('hash_' + i_str)
-            core_id = int(request.GET.get('core_id_' + i_str))
-
             hash_values.append(hash_value)
             solution_dict[hash_value] = float(request.GET.get('solution_' + i_str))
-            core_dict[hash_value] = core_id_dict[core_id]
 
-
+        # filter all of the segments out in a single hit. Note that we might not get a Segment object for every
+        # requested hash.
         segments = Segment.objects.filter(hash_value__in = hash_values)
 
-        # OK. Set the solution values.
+        # Now, set the solution values.
         for segment in segments:
             hash_value = segment.hash_value
             solution = solution_dict[hash_value]
-            core = core_dict[hash_value]
+            # If there is already a SegmentSolution for this segment/core pair, just update it.
             try:
                 segment_solution = SegmentSolution.objects.get(core = core, segment = segment)
                 segment_solution.solution = solution
