@@ -1,5 +1,7 @@
 import json
 
+from collections import defaultdict
+
 from django import forms
 from django.conf import settings
 from django.http import HttpResponse
@@ -803,6 +805,22 @@ def list_classification_graph(request, workspace_pid, project_id=None, link_id=N
             else:
                 return klass.class_name
 
+        def make_roi_html(roi):
+            img_data = (roi.id, settings.STATIC_URL)
+            return "<img class='roiimage' roi_id='%s' " \
+                    "src='%s/widgets/themes/kde/camera.png' \>" % img_data
+
+        def get_rois(ci):
+            # Find ROIs for this class instance
+            roi_links = RegionOfInterestClassInstance.objects.filter(
+                class_instance=ci)
+            roi_htmls = []
+            for roi_link in roi_links:
+                roi_htmls.append( make_roi_html(roi_link.region_of_interest) )
+            roi_html = ''.join(roi_htmls)
+            # Return HTML an links as tuple
+            return roi_html, roi_links
+
         if 0 == parent_id:
             cls_graph = root_link.class_instance_b
             response_on_error = 'Could not select the id of the classification root node.'
@@ -814,15 +832,26 @@ def list_classification_graph(request, workspace_pid, project_id=None, link_id=N
             child_types = get_child_classes( workspace_pid, cls_graph )
             child_types_jstree = child_types_to_jstree_dict( child_types )
 
-            # Create JSTree data structure
+            # Get ROI information
+            roi_html, roi_links = get_rois(root_link.class_instance_b)
+            roi_json = json.dumps( [r.id for r in roi_links] )
+
+            # Build title, based on ROIs
             if len(cls_graph.name) > 0:
                 root_name = cls_graph.name
             else:
                 root_name = cls_graph.class_column.class_name
-            data = {'data': {'title': root_name},
+            if roi_html:
+                title = "%s %s" % (root_name, roi_html)
+            else:
+                title = root_name
+
+            # Create JSTree data structure
+            data = {'data': {'title': title},
                 'attr': {'id': 'node_%s' % cls_graph.id,
                          'linkid': root_link.id,
                          'rel': 'root',
+                         'rois': roi_json,
                          'child_groups': json.dumps(child_types_jstree)}}
             # Test if there are children links present and mark
             # node as leaf if there are none.
@@ -852,21 +881,10 @@ def list_classification_graph(request, workspace_pid, project_id=None, link_id=N
             # Get child types
             child_types = get_child_classes( workspace_pid, parent_ci )
 
-            def make_roi_html(roi):
-                img_data = (roi.id, settings.STATIC_URL)
-                return "<img class='roiimage' roi_id='%s' " \
-                       "src='%s/widgets/themes/kde/camera.png' \>" % img_data
-
             child_data = []
             for child_link in child_links:
                 child = child_link.class_instance_a
-                # Find ROIs for this class instance
-                roi_links = RegionOfInterestClassInstance.objects.filter(
-                    class_instance=child)
-                roi_htmls = []
-                for roi_link in roi_links:
-                    roi_htmls.append( make_roi_html(roi_link.region_of_interest) )
-                roi_html = ''.join(roi_htmls)
+                roi_html, roi_links = get_rois(child)
                 roi_json = json.dumps( [r.id for r in roi_links] )
                 # Get sub-child information
                 subchild_types = get_child_classes( workspace_pid, child )
@@ -1180,6 +1198,47 @@ def autofill_classification_graph(request, workspace_pid, project_id=None, link_
         return HttpResponse("Added nodes: %s" % ','.join(node_names))
     else:
         return HttpResponse("Couldn't infer any new class instances.")
+
+def export(request, workspace_pid=None):
+    """ This view returns a JSON representation of all classifications in this
+    given workspace.
+    """
+
+    # As a last step we create a simpler representation of the collected data
+    graph_to_features = {}
+    for g,fl in get_graphs_to_features(workspace_pid).items():
+        graph_to_features[g.name] = [str(f) for f in fl]
+        # TODO: Get and attach tags of linked projects
+
+    return HttpResponse(json.dumps(graph_to_features))
+
+def get_graphs_to_features(workspace_pid=None):
+    """ This view returns a JSON representation of all classifications in this
+    given workspace.
+    """
+    from catmaid.control.clustering import get_features, graph_instanciates_feature
+
+    # We want all ontologies represented (which are Class objects) that
+    # live under the classification_root node.
+    ontologies = [cc.class_a for cc in \
+            get_class_links_qs(workspace_pid, 'is_a', 'classification_root')]
+    graphs = ClassInstance.objects.filter(class_column__in=ontologies)
+
+    # Map graphs to realized features
+    graph_to_features = defaultdict(list)
+    for o in ontologies:
+        # Get features of the current ontology
+        features = get_features(o,
+            workspace_pid, graphs=graphs, add_nonleafs=True,
+            only_used_features=True)
+        # Now check which graph instaniates which feature
+        for g in graphs:
+            print g.name
+            for f in features:
+                if graph_instanciates_feature(g, f):
+                    graph_to_features[g].append(f)
+
+    return graph_to_features
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def link_roi_to_classification(request, project_id=None, workspace_pid=None,

@@ -63,9 +63,18 @@ class ImageBaseMixin:
         """ Sets the image_base, num_zoom_levels, file_extension fields
         of the calling object. Favor a URL field, if there is one. A URL
         field, however, also requires the existence of the
-        'fileextension' and and 'zoomlevels' field.
+        'fileextension' and 'zoomlevels' field.
         """
         if 'url' in info_object:
+            # Make sure all required data is available
+            required_fields = ['fileextension',]
+            if needs_zoom:
+                required_fields.append('zoomlevels')
+            for f in required_fields:
+                if f not in info_object:
+                    raise RuntimeError("Missing required stack/overlay " \
+                            "field '%s'" % f)
+            # Read out data
             self.image_base = info_object['url']
             if needs_zoom:
                 self.num_zoom_levels = info_object['zoomlevels']
@@ -76,7 +85,7 @@ class ImageBaseMixin:
             folder = info_object['folder']
             self.image_base = urljoin(project_url, folder)
             # Favor 'zoomlevel' and 'fileextension' fields, if
-            # available, but try to find this information if thosa
+            # available, but try to find this information if those
             # fields are not present.
             zoom_available = 'zoomlevels' in info_object
             ext_available = 'fileextension' in info_object
@@ -91,11 +100,20 @@ class ImageBaseMixin:
                     data_folder, folder, needs_zoom )
                 # If there is no zoom level provided, use the found one
                 if not zoom_available and needs_zoom:
+                    if not zoom_levels:
+                        raise RuntimeError("Missing required stack/overlay " \
+                                "field 'zoomlevels' and couldn't retrieve " \
+                                "this information from image data.")
                     self.num_zoom_levels = zoom_levels
                 # If there is no file extension level provided, use the
                 # found one
                 if not ext_available:
+                    if not file_ext:
+                        raise RuntimeError("Missing required stack/overlay " \
+                                "field 'fileextension' and couldn't retrieve " \
+                                "this information from image data.")
                     self.file_extension = file_ext
+
         # Make sure the image base has a trailing slash, because this is expected
         if self.image_base[-1] != '/':
             self.image_base = self.image_base + '/'
@@ -116,6 +134,12 @@ class PreOverlay(ImageBaseMixin):
 
 class PreStack(ImageBaseMixin):
     def __init__(self, info_object, project_url, data_folder, only_unknown):
+        # Make sure everything is there
+        required_fields = ['name', 'dimension', 'resolution']
+        for f in required_fields:
+            if f not in info_object:
+                raise RuntimeError("Missing required stack field '%s'" % f)
+        # Read out data
         self.name = info_object['name']
         # Set 'image_base', 'num_zoom_levels' and 'fileextension'
         self.set_image_fields(info_object, project_url, data_folder, True)
@@ -139,7 +163,17 @@ class PreProject:
     def __init__(self, info_file, project_url, data_folder, only_unknown):
         self.info_file = info_file
         info = yaml.load(open(info_file))
+
+        # Make sure everything is there
+        if 'project' not in info:
+            raise RuntimeError("Missing required container field '%s'" % f)
+        # Read out data
         p = info['project']
+
+        # Make sure everything is there
+        if 'name' not in p:
+            raise RuntimeError("Missing required project field '%s'" % f)
+        # Read out data
         self.name = p['name']
         self.stacks = []
         self.has_been_imported = False
@@ -198,7 +232,10 @@ def check_http_accessibility( image_base, file_extension ):
     """
     slice_zero_url = urljoin(image_base, "0")
     first_file_url = urljoin(slice_zero_url, "0_0_0." + file_extension)
-    code = urllib.urlopen(first_file_url).getcode()
+    try:
+        code = urllib.urlopen(first_file_url).getcode()
+    except IOError:
+        return False
     return code == 200
 
 def find_project_folders(image_base, path, filter_term, only_unknown, depth=1):
@@ -289,7 +326,7 @@ class ImportingWizard(SessionWizardView):
             group_perm_tuples = get_element_permission_tuples(group_permissions)
             form.fields['group_permissions'].choices = group_perm_tuples
         elif current_step == 'classification':
-            # Get tag set and all projecs within it
+            # Get tag set and all projects within it
             tags = self.get_cleaned_data_for_step('projectselection')['tags']
             tags = frozenset([t.strip() for t in tags.split(',')])
             # Get all projects that have all those tags
@@ -320,7 +357,7 @@ class ImportingWizard(SessionWizardView):
                 # Create form field tuples
                 name = "%s (%s)" % (cr.name, cr.id)
                 cgraphs.append( (cr.id, name) )
-                # Create ID to classificatin graph mapping
+                # Create ID to classification graph mapping
                 self.id_to_cls_graph[cr.id] = cr
             form.fields['classification_graph_suggestions'].choices = cgraphs
             #form.fields['classification_graph_suggestions'].initial = [cg[0] for cg in cgraphs]
@@ -586,7 +623,7 @@ def create_classification_linking_form():
             root_ids.append(link.id)
 
     class ClassificationLinkingForm(forms.Form):
-        # A checkbox for each project, checked by default
+        # A check-box for each project, checked by default
         classification_graph_suggestions = forms.MultipleChoiceField(required=False,
             widget=forms.CheckboxSelectMultiple(),
             help_text="Only selected classification graphs will be linked to the new projects.")
@@ -642,7 +679,7 @@ def import_projects( user, pre_projects, make_public, tags, permissions,
             p = Project.objects.create(
                 title=pp.name,
                 public=make_public)
-            # Assig permissions to project
+            # Assign permissions to project
             assigned_permissions = []
             for user_or_group, perm in permissions:
                 assigned_perm = assign( perm.codename, user_or_group, p )

@@ -28,9 +28,8 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'catmaid.middleware.AnonymousAuthenticationMiddleware',
-    'catmaid.middleware.AjaxExceptionMiddleware', 
-    'django.middleware.transaction.TransactionMiddleware',
-    )
+    'catmaid.middleware.AjaxExceptionMiddleware',
+)
 
 ROOT_URLCONF = 'mysite.urls'
 
@@ -47,6 +46,7 @@ INSTALLED_APPS = (
     'adminplus',
     'catmaid',
     'djsopnet',
+    'vncbrowser',
     'guardian',
     'south',
 )
@@ -105,6 +105,23 @@ IMPORTER_DEFAULT_TILE_HEIGHT = 256
 
 # Celery needs to know all the tasks we want it to be able to execute
 CELERY_IMPORTS = ['celerysopnet.tasks']
+
+# Some tools and widgets create files (e.g. cropping, ROIs, NeuroHDF5 and
+# treenode export). These files will be created in a folder for each tool
+# relative to the path defined in Django's MEDIA_ROOT variable. These are
+# the default sub-folders, all of them need to be writable:
+MEDIA_HDF5_SUBDIRECTORY = 'hdf5'
+MEDIA_CROPPING_SUBDIRECTORY = 'cropping'
+MEDIA_ROI_SUBDIRECTORY = 'roi'
+MEDIA_TREENODE_SUBDIRECTORY = 'treenode_archives'
+
+# A sequence of modules that contain Celery tasks which we want Celery to know
+# about automatically.
+CELERY_IMPORTS = (
+    'catmaid.control.cropping',
+    'catmaid.control.roi',
+    'catmaid.control.treenodeexport',
+)
 
 # A couple of functions useful for generating default directories to
 # be used in the settings files:

@@ -276,7 +276,8 @@ function Project( pid )
 		self.id = 0;
 		document.onkeydown = null;
 		document.getElementById( "content" ).style.display = "block";
-		document.getElementById( "project_menu_current" ).style.display = "none";
+		document.getElementById( "stackmenu_box" ).style.display = "none";
+		document.getElementById( "stack_menu" ).style.display = "none";
 		// TODO: bars should be unset by tool on unregister
 		document.getElementById("toolbox_edit").style.display = "none";
 		document.getElementById("toolbox_data").style.display = "none";
@@ -299,20 +300,30 @@ function Project( pid )
 			document.getElementById("toolbox_edit").style.display = "block";
 			//document.getElementById("toolbox_data").style.display = "block";
 			//document.getElementById("toolbox_segmentation").style.display = "block";
-			document.getElementById("toolbox_data").style.display = "block";
+			//document.getElementById("toolbox_data").style.display = "block";
 		}
 		else 
 		{
 			document.getElementById("toolbox_edit").style.display = "none";
 			//document.getElementById("toolbox_data").style.display = "none";
 			//document.getElementById("toolbox_segmentation").style.display = "none";
-			document.getElementById("toolbox_data").style.display = "none";
+			//document.getElementById("toolbox_data").style.display = "none";
 		}
 		window.onresize();
 		
 		return;
 	}
 
+	/**
+	 * This is a helper function for the moveTo() API function. It moves each
+	 * stack in <stacks> to the physical location given. It passes itself as
+	 * callback to the moveTo() API function of each stack. This is done to give
+	 * each stack the chance to wait for asynchronous calls to be finished before
+	 * the next stack is moved. After the last stack has been moved, the actual
+	 * <completionCallback> is executed. Using a loop to call moveTo() for each
+	 * stack wouldn't allow to account for asynchronous calls during moving a
+	 * stack.
+	 */
 	this.moveToInStacks = function(
 		zp,
 		yp,
@@ -330,6 +341,8 @@ function Project( pid )
 				completionCallback();
 			}
 		} else {
+			// Move current stack and continue with next one (or the completion
+			// callback) as a continuation of the moveTo() call on the current stack.
 			stackToMove = stacks.shift();
 			stackToMove.moveTo( zp,
 					    yp,
@@ -342,7 +355,11 @@ function Project( pid )
 	}
 
 	/**
-	 * move all stacks to the physical coordinates
+	 * Move all stacks to the physical coordinates and execute a completion
+	 * callback when everything is done. One stack is moved as a continuation
+	 * of the stack before (except first stack, which is moved directly). This
+	 * makes sure we also wait for asynchronous requests to finish, that a stack
+	 * move might imply (e.g. requesting more treenodes for the tracing tool).
 	 */
 	this.moveTo = function(
 		zp,
@@ -362,6 +379,8 @@ function Project( pid )
 			stacksToMove.push( stacks[ i ] );
 		}
 
+		// Call recursive moving function which executes the completion callback as
+		// a continuation after the last stack has been moved.
 		self.moveToInStacks( zp, yp, xp, sp, stacksToMove, completionCallback );
 	};
 

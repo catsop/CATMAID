@@ -59,6 +59,14 @@ function TileLayer(
 		)
 {
 	/**
+	 * Return friendly name of this layer.
+	 */
+	this.getLayerName = function()
+	{
+		return "Image data";
+	};
+
+	/**
 	 * initialise the tiles array
 	 */
 	var initTiles = function( rows, cols )
@@ -90,9 +98,6 @@ function TileLayer(
 	 */
 	this.redraw = function(completionCallback)
 	{
-		if( !self.visible )
-			return;
-
 		var pixelPos = [ stack.x, stack.y, stack.z ];
 		var tileBaseName = getTileBaseName( pixelPos );
 
@@ -109,8 +114,8 @@ function TileLayer(
 			zoom = 0;
 		}
 
-		effectiveTileWidth = tileWidth * mag;
-		effectiveTileHeight = tileHeight * mag;
+		var effectiveTileWidth = tileWidth * mag;
+		var effectiveTileHeight = tileHeight * mag;
 
 		var fr = Math.floor( stack.yc / effectiveTileHeight );
 		var fc = Math.floor( stack.xc / effectiveTileWidth );
@@ -118,18 +123,22 @@ function TileLayer(
 		var xd = 0;
 		var yd = 0;
 		
+		// If panning only (no scaling, no browsing through z)
 		if ( stack.z == stack.old_z && stack.s == stack.old_s )
 		{
 			var old_fr = Math.floor( stack.old_yc / effectiveTileHeight );
 			var old_fc = Math.floor( stack.old_xc / effectiveTileWidth );
 			
+			// Compute panning in X and Y
 			xd = fc - old_fc;
 			yd = fr - old_fr;
 
-			
 			// re-order the tiles array on demand
 			if ( xd < 0 )
 			{
+				// Panning to the left:
+				// Remove existing last image from each row
+				// and preppend a new one pointing to the black tile URL.
 				for ( var i = 0; i < tiles.length; ++i )
 				{
 					tilesContainer.removeChild( tiles[ i ].pop() );
@@ -143,6 +152,9 @@ function TileLayer(
 			}
 			else if ( xd > 0 )
 			{
+				// Panning to the right:
+				// Remove existing first image from each row
+				// and append a new one pointing to the black tile URL.
 				for ( var i = 0; i < tiles.length; ++i )
 				{
 					tilesContainer.removeChild( tiles[ i ].shift() );
@@ -156,6 +168,9 @@ function TileLayer(
 			}
 			else if ( yd < 0 )
 			{
+				// Panning to the top:
+				// Remove the last row of tiles
+				// and preppend a new row of tiles, all pointing to the black image URL.
 				var old_row = tiles.pop();
 				var new_row = new Array();
 				for ( var i = 0; i < tiles[ 0 ].length; ++i )
@@ -172,6 +187,9 @@ function TileLayer(
 			}
 			else if ( yd > 0 )
 			{
+				// Panning to the bottom:
+				// Remove the first row of tiles
+				// and append a new row of tiles, all pointing to the black image URL.
 				var old_row = tiles.shift();
 				var new_row = new Array();
 				for ( var i = 0; i < tiles[ 0 ].length; ++i )
@@ -188,18 +206,22 @@ function TileLayer(
 			}
 		}
 
-		if ( stack.s != stack.old_s)
+		// Adjust the last tile to render with an URL rather than with the black gif.
+		// Must run when changing scale, or when changing the size of the canvas window.
+		// Considering how inexpensive it is, it is made to run always.
+		if (artificialZoom)
 		{
-			if (artificialZoom)
-			{
-				LAST_XT = Math.floor( ( stack.dimension.x - 1 ) / tileWidth );
-				LAST_YT = Math.floor( ( stack.dimension.y - 1 ) / tileHeight );
-			}
-			else
-			{
-				LAST_XT = Math.floor( ( stack.dimension.x * stack.scale - 1 ) / tileWidth );
-				LAST_YT = Math.floor( ( stack.dimension.y * stack.scale - 1 ) / tileHeight );
-			}
+			// Adjust last tile index to display to the one intersecting the bottom right
+			// of the field of view. The purpose: to set the URL of images beyond the edges
+			// to the black gif URL further below.
+			// Notice that we add the panning xd, yd as well (which is already in tile units).
+			LAST_XT = Math.floor((stack.x * stack.scale + stack.viewWidth) / effectiveTileWidth) + xd;
+			LAST_YT = Math.floor((stack.y * stack.scale + stack.viewHeight) / effectiveTileHeight) + yd;
+		}
+		else
+		{
+			LAST_XT = Math.floor( ( stack.dimension.x * stack.scale - 1 ) / tileWidth );
+			LAST_YT = Math.floor( ( stack.dimension.y * stack.scale - 1 ) / tileHeight );
 		}
 
 		var top;
@@ -254,8 +276,8 @@ function TileLayer(
             }
           }
 					*/
-
 				}
+
 				tiles[ i ][ j ].style.top = t + "px";
 				tiles[ i ][ j ].style.left = l + "px";
 				tiles[ i ][ j ].style.visibility = "visible";

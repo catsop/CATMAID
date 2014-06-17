@@ -31,8 +31,10 @@ var current_dataview;
 var dataview_menu;
 
 var project_menu;
-var project_menu_open;
-var project_menu_current;
+//var project_menu_open;
+//var project_menu_current;
+
+var stack_menu;
 
 var message_menu;
 
@@ -50,11 +52,12 @@ var session;
 var msg_timeout;
 var MSG_TIMEOUT_INTERVAL = 60000; //!< length of the message lookup interval in milliseconds
 var messageWindow = null;
+var latest_message_date = null;
 
 var rootWindow;
 
 // an object to store user profile properties
-var userprofile = {};
+var userprofile = null;
 
 var user_permissions = null;
 var user_groups = null;
@@ -159,10 +162,8 @@ function handle_login(status, text, xml, completionCallback) {
 
       document.getElementById("message_box").style.display = "block";
 
-      document.getElementById("project_menu_new").style.display = "block";
-
-      //msg_timeout = window.setTimeout( message, MSG_TIMEOUT_INTERVAL );
-      message();
+      // Check for unread messages
+      check_messages();
       
       // Asynchronously get the full list of users.
       // TODO: how to handle failure of this call?
@@ -213,8 +214,6 @@ function handle_logout(status, text, xml) {
 	
 	document.getElementById( "message_box" ).style.display = "none";
 	
-	document.getElementById( "project_menu_new" ).style.display = "none";
-	
 	if ( project && project.id ) project.setTool( new Navigator() );
 
 	if (status == 200 && text) {
@@ -232,14 +231,25 @@ function handle_logout(status, text, xml) {
  * tools in the toolbar.
  */
 function handle_profile_update(e) {
-  if (e.userprofile) {
-      userprofile = e.userprofile;
-  } else {
-      alert("The server returned no valid user profile.");
+  try {
+    if (e.userprofile) {
+      userprofile = new Userprofile(e.userprofile);
+    } else {
+      throw "The server returned no valid user profile.";
+    }
+  } catch (error) {
+    /* A valid user profile is needed to start CATMAID. This is a severe error
+     * and a message box will tell the user to report this problem.
+     */
+    new ErrorDialog("The user profile couldn't be loaded. This, however, is " +
+        "required to start CATMAID. Please report this problem to your " +
+        "administrator and try again later.", error).show();
+    return;
   }
+
   // update the edit tool actions and its div container
   createEditToolActions();
-  new_edit_actions = createButtonsFromActions(editToolActions,
+  var new_edit_actions = createButtonsFromActions(editToolActions,
     'toolbox_edit', '');
   $('#toolbox_edit').replaceWith(new_edit_actions);
   $('#toolbox_edit').hide();
@@ -264,7 +274,7 @@ function updateProjects(completionCallback) {
 	}, 'json');
 
 	//ui.catchEvents( "wait" );
-	project_menu_open.update(null);
+	project_menu.update(null);
 
 	document.getElementById("projects_h").style.display = "none";
 	document.getElementById("project_filter_form").style.display = "none";
@@ -307,7 +317,7 @@ function handle_updateProjects(status, text, xml) {
 		var keep_project_editable = false;
 
 		if (e.error) {
-			project_menu_open.update();
+			project_menu.update();
 			alert(e.error);
 		} else {
 			cachedProjectsInfo = e;
@@ -318,7 +328,7 @@ function handle_updateProjects(status, text, xml) {
 				load_default_dataview();
 			}
 			// update the project > open menu
-			project_menu_open.update(cachedProjectsInfo);
+			project_menu.update(cachedProjectsInfo);
 		}
 		if (project) {
 			if (keep_project_alive) {
@@ -469,7 +479,7 @@ function updateProjectListFromCache() {
   } else if (matchingProjects === 0) {
     updateProjectListMessage("No projects matched '"+searchString+"'");
   }
-  project_menu_open.update(cachedProjectsInfo);
+  project_menu.update(cachedProjectsInfo);
 }
 
 /**
@@ -639,16 +649,16 @@ function handle_openProjectStack( status, text, xml )
 					project.setTool( new tool() );
 			}
 
-			/* Update the projects "current project" menu. If there is more
+			/* Update the projects stack menu. If there is more
 			than one stack linked to the current project, a submenu for easy
 			access is generated. */
-			project_menu_current.update();
+			stack_menu.update();
 			getStackMenuInfo(project.id, function(stacks) {
 				if (stacks.length > 1)
 				{
-					var current_menu_content = new Array();
+					var stack_menu_content = new Array();
 					$.each(stacks, function(i, s) {
-						current_menu_content.push(
+						stack_menu_content.push(
 							{
 								id : s.id,
 								title : s.title,
@@ -657,8 +667,9 @@ function handle_openProjectStack( status, text, xml )
 							}
 						);
 					});
-					project_menu_current.update( current_menu_content );
-					document.getElementById( "project_menu_current" ).style.display = "block";
+
+					stack_menu.update( stack_menu_content );
+					document.getElementById( "stackmenu_box" ).style.display = "block";
 				}
 			});
 		}
@@ -668,11 +679,38 @@ function handle_openProjectStack( status, text, xml )
 };
 
 /**
+ * Check, if there are new messages for the current user.
+ */
+
+function check_messages() {
+  requestQueue.register(django_url + 'messages/latestunreaddate', 'GET',
+      undefined, jsonResponseHandler(function(data) {
+        // If there is a newer latest message than we know of, get all
+        // messages to display them in the message menu and widget.
+        if (data.latest_unread_date) {
+          if (!latest_message_date || latest_message_date < data.latest_unread_date) {
+            // Save the date and get all messages
+            latest_message_date = data.latest_unread_date;
+            get_messages();
+          } else {
+            // Check again later
+            msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
+          }
+        } else {
+          // Check again later
+          msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
+        }
+      }));
+
+  return;
+}
+
+/**
  * look for user messages
  */
 
-function message() {
-  requestQueue.register( django_url + 'messages/list', 'GET', undefined, handle_message);
+function get_messages() {
+  requestQueue.register(django_url + 'messages/list', 'GET', undefined, handle_message);
   return;
 }
 
@@ -704,7 +742,7 @@ function handle_message( status, text, xml )
 				for ( var i in e )
 				{
 					if (e [ i ].id == -1) {
-						notifications_count = e [ i ].notification_count;
+						var notifications_count = e [ i ].notification_count;
 						var notifications_button_img = $('#data_button_notifications_img');
 						if (notifications_button_img !== undefined) {
 							if (notifications_count > 0)
@@ -741,54 +779,9 @@ function handle_message( status, text, xml )
 		}
 	}
 	
-	msg_timeout = window.setTimeout( message, MSG_TIMEOUT_INTERVAL );
+	msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
 	
 	return;
-}
-
-/**
- * update the lists of users
- */
-
-function updateUsers() {
-  document.getElementById("new_project_form").elements[3].style.display = "none";
-  document.getElementById("new_project_owners_wait").style.display = "block";
-  requestQueue.register(django_url + 'user-list', 'GET', undefined, handle_updateUsers);
-  return;
-}
-
-/**
- * handle a lists of users update response
- */
-
-function handle_updateUsers(status, text, xml) {
-  if (!session) return;
-
-  if (status == 200 && text) {
-    var e = eval("(" + text + ")");
-    if (e.error) {
-      alert(e.error);
-    } else {
-      var new_project_owners = document.getElementById("new_project_form").elements[3];
-      while (new_project_owners.length > 0)
-      new_project_owners.remove(0);
-      for (var i in e) {
-        var option = document.createElement("option");
-        option.text = e[i].longname;
-        option.value = e[i].id;
-        if (e[i].id == session.id) {
-          option.selected = true;
-        }
-        new_project_owners.appendChild(option);
-      }
-      new_project_owners.size = e.length;
-
-    }
-  }
-  document.getElementById("new_project_owners_wait").style.display = "none";
-  document.getElementById("new_project_form").elements[3].style.display = "block";
-
-  return;
 }
 
 /**
@@ -821,7 +814,7 @@ function handle_dataviews(status, text, xml) {
 		else
 		{
 			// a function for creating data view menu handlers
-			create_handler = function( id, code_type ) {
+			var create_handler = function( id, code_type ) {
 				return function() {
 					// close any open project and its windows
 					rootWindow.closeAllChildren();
@@ -1113,46 +1106,11 @@ var realInit = function()
 	dataviews();
 	
 	project_menu = new Menu();
-	project_menu.update(
-		{
-			0 :
-			{
-				title : "New",
-				id : "project_menu_new",
-				action : function()
-				{
-					if ( project ) project.destroy();
-					document.getElementById( "project list" ).style.display = "none";
-					document.getElementById( "new_project_dialog" ).style.display = "block";
-					updateUsers();
-					return;
-				},
-				note : ""
-			},
-			1 :
-			{
-				title : "Open",
-				id : "project_menu_open",
-				action : {},
-				note : ""
-			},
-			2 :
-			{
-				title : "Current",
-				id : "project_menu_current",
-				action : {},
-				note : ""
-			}
-		}
-	);
 	document.getElementById( "project_menu" ).appendChild( project_menu.getView() );
 	
-	project_menu_open = project_menu.getPulldown( "Open" );
-	document.getElementById( "project_menu_new" ).style.display = "none";
-	//project_menu_open.appendChild( project_menu_open.getView() );
-	project_menu_current = project_menu.getPulldown( "Current" );
-	document.getElementById( "project_menu_current" ).style.display = "none";
-
+	stack_menu = new Menu();
+	document.getElementById( "stack_menu" ).appendChild( stack_menu.getView() );
+	
 	message_menu = new Menu();
 	document.getElementById( "message_menu" ).appendChild( message_menu.getView() );
 

@@ -146,7 +146,8 @@ function createButtonsFromActions(actions, boxID, iconPrefix) {
       a.onclick = action.run;
       img = document.createElement('img');
       img.setAttribute('id', buttonID + '_img');
-      img.setAttribute('src', STATIC_URL_JS + 'widgets/themes/kde/' + iconPrefix + action.getButtonName() + '.png');
+      img.setAttribute('src', STATIC_URL_JS + 'widgets/themes/kde/' + iconPrefix + action.getButtonName() + '.svg');
+      img.setAttribute('onerror', "this.src='" + STATIC_URL_JS + 'widgets/themes/kde/' + iconPrefix + action.getButtonName() + ".png'");
       img.setAttribute('alt', action.getHelpText());
       shortcuts = action.getKeyShortcutsString();
       if (shortcuts.length === 0) {
@@ -190,6 +191,16 @@ var toolActions = [
 	}),
 
 	new Action({
+		helpText: "Show settings",
+		buttonID: 'settings_button',
+		buttonName: "settings",
+		run: function (e) {
+		WindowMaker.show('settings');
+			return true;
+		}
+	}),
+
+	new Action({
 		helpText: "Show keyboard shortcut help",
 		buttonID: 'key_help_button',
 		buttonName: "help",
@@ -201,17 +212,6 @@ var toolActions = [
 			return true;
 		}
 	}),
-
-  new Action({
-    helpText: "Disclaimer",
-    buttonID: "disclaimer_button",
-    buttonName: 'disclaimer',
-    run: function (e) {
-      WindowMaker.show('disclaimer');
-      return true;
-    }
-  })
-
 ];
 
 /**
@@ -426,11 +426,11 @@ var tracingWindowActions = [
   }),
 
   new Action({
-      helpText: "Compartment Graph widget",
+      helpText: "Graph widget",
       buttonID: "data_button_compartment_graph_widget",
       buttonName: 'graph_widget',
       run: function (e) {
-          WindowMaker.create('compartment-graph-widget');
+          WindowMaker.create('graph-widget');
           return true;
       }
   }),
@@ -441,6 +441,26 @@ var tracingWindowActions = [
       buttonName: 'circuit_plot',
       run: function (e) {
           WindowMaker.create('circuit-graph-plot');
+          return true;
+      }
+  }),
+
+  new Action({
+      helpText: "Morphology Plot",
+      buttonID: "data_button_morphology_plot",
+      buttonName: 'morphology_plot',
+      run: function (e) {
+          WindowMaker.create('morphology-plot');
+          return true;
+      }
+  }),
+
+  new Action({
+      helpText: "Venn Diagram",
+      buttonID: "venn_diagram_button",
+      buttonName: 'venn',
+      run: function (e) {
+          WindowMaker.create('venn-diagram');
           return true;
       }
   }),

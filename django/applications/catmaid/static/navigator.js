@@ -62,7 +62,7 @@ function Navigator()
 	slider_z_box.className = "box";
 	slider_z_box.id = "slider_z_box";
 	var slider_z_box_label = document.createElement( "p" );
-	slider_z_box_label.appendChild( document.createTextNode( "z-index" + "   " ) );
+	slider_z_box_label.appendChild( document.createTextNode( "z-index" + "\u00a0\u00a0" ) );
     slider_z_box.appendChild( slider_z_box_label );
 	slider_z_box.appendChild( self.slider_z.getView() );
 	slider_z_box.appendChild( self.slider_z.getInputView() );
@@ -530,7 +530,18 @@ function Navigator()
 		self.checkbox_reflines.checked = userprofile.display_stack_reference_lines;
 		self.checkbox_reflines.onchange = function( e )
 		{
-			self.stack.showReferenceLines( this.checked );
+			// Save current user profile state
+			userprofile.display_stack_reference_lines = this.checked;
+			userprofile.saveAll(
+					(function() {
+						// Success, toggle lines
+						self.stack.showReferenceLines( this.checked );
+					}).bind(this),
+					(function() {
+						// Error, reset checkbox
+						this.checked = !this.checked;
+					}).bind(this));
+
 			return true;
 		};
 		

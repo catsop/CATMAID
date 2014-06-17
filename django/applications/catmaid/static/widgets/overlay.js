@@ -7,7 +7,10 @@
 var SkeletonAnnotations = {
   atn_fillcolor : "rgb(0, 255, 0)",
 
-  /** Data of the active Treenode or ConnectorNode */
+  /**
+   * Data of the active Treenode or ConnectorNode. Its position is stored in
+   * unscaled stack space coordinates.
+   */
   atn : {
     id: null,
     type: null,
@@ -28,13 +31,19 @@ var SkeletonAnnotations = {
 SkeletonAnnotations.MODES = Object.freeze({SKELETON: 0, SYNAPSE: 1});
 SkeletonAnnotations.currentmode = SkeletonAnnotations.MODES.skeleton;
 
+/**
+ * Sets the active node, if node is not null. Otherwise, the active node is
+ * cleared. Since the node passed is expected to come in scaled (!) stack space
+ * coordinates, its position has to be unscaled.
+ */
 SkeletonAnnotations.atn.set = function(node, stack_id) {
   if (node) {
+    var stack = project.getStack(stack_id);
     this.id = node.id;
     this.skeleton_id = node.skeleton_id;
     this.type = node.type;
-    this.x = node.x;
-    this.y = node.y;
+    this.x = node.x / stack.scale;
+    this.y = node.y / stack.scale;
     this.z = node.z;
     this.parent_id = node.parent ? node.parent.id : null;
     this.stack_id = stack_id;
@@ -115,6 +124,10 @@ SkeletonAnnotations.getActiveNodeColor = function() {
   return this.atn_fillcolor;
 };
 
+/**
+ * Returns the positon of the active node in unscaled stack space coordinates.
+ * If there is no active node, null is returned.
+ */
 SkeletonAnnotations.getActiveNodePosition = function() {
   if (null === this.atn.id) {
     return null;
@@ -123,16 +136,16 @@ SkeletonAnnotations.getActiveNodePosition = function() {
   }
 };
 
-SkeletonAnnotations.getActiveStackId = function() {
-  return this.atn.stack_id;
+SkeletonAnnotations.getActiveNodeVector3 = function() {
+  var stack = project.getStack(this.atn.stack_id);
+  return new THREE.Vector3(
+      stack.stackToProjectX(this.atn.z, this.atn.y, this.atn.x),
+      stack.stackToProjectY(this.atn.z, this.atn.y, this.atn.x),
+      stack.stackToProjectZ(this.atn.z, this.atn.y, this.atn.x));
 };
 
-/**
- * Open the skeleton node in the Object Tree if the Object Tree is visible
- * and if the Object Tree synchronize_object_tree checkbox is checked.
- */
-SkeletonAnnotations.maybeOpenSkeletonNodeInObjectTree = function(node) {
-  if (node) ObjectTree.maybeOpenTreePath(node.skeleton_id);
+SkeletonAnnotations.getActiveStackId = function() {
+  return this.atn.stack_id;
 };
 
 SkeletonAnnotations.exportSWC = function() {
@@ -172,6 +185,9 @@ SkeletonAnnotations.setNeuronNameInTopbar = function(stackID, neuronName, skelet
   $('#neuronName' + stackID).text(neuronName + ' (Skeleton ID: '+ skeletonID +')');
 };
 
+SkeletonAnnotations.clearTopbar = function(stackID) {
+  $('#neuronName' + stackID).text("");
+};
 
 /** The constructor for SVGOverlay. */
 SkeletonAnnotations.SVGOverlay = function(stack) {
@@ -290,16 +306,11 @@ SkeletonAnnotations.SVGOverlay.prototype.renameNeuron = function(skeletonID) {
       function(json) {
           var new_name = prompt("Change neuron name", json['neuronname']);
           if (!new_name) return;
-          self.submit(
-            django_url + project.id + '/object-tree/instance-operation',
-            {operation: "rename_node",
-             id: json['neuronid'],
-             title: new_name,
-             classname: "neuron",
-             pid: project.id},
-            function(json) {
-              SkeletonAnnotations.setNeuronNameInTopbar(self.stack.id, new_name, skeletonID);
-            });
+          neuronNameService.renameNeuron(json['neuronid'], [skeletonID],
+              new_name, function() {
+                  SkeletonAnnotations.setNeuronNameInTopbar(self.stack.id,
+                          new_name, skeletonID);
+              });
       });
 };
 
@@ -364,6 +375,8 @@ SkeletonAnnotations.SVGOverlay.prototype.ensureFocused = function() {
 
 SkeletonAnnotations.SVGOverlay.prototype.destroy = function() {
   this.unregister();
+  // Show warning in case of pending request
+
   this.submit = null;
   // Release
   if (this.graphics) {
@@ -435,9 +448,7 @@ SkeletonAnnotations.SVGOverlay.prototype.activateNode = function(node) {
       statusBar.replaceLast("Activated treenode with id " + node.id + " and skeleton id " + node.skeleton_id);
       // If changing skeletons:
       if (atn.skeleton_id !== node.skeleton_id) {
-        // 1. Open the object tree node if synchronizing:
-        SkeletonAnnotations.maybeOpenSkeletonNodeInObjectTree(node);
-        // 2. Update the status with the ancestry of that skeleton:
+        // Update the status with the ancestry of that skeleton:
         var stackID = this.stack.getId();
         this.submit(
             django_url + project.id + '/skeleton/ancestry',
@@ -466,12 +477,9 @@ SkeletonAnnotations.SVGOverlay.prototype.activateNode = function(node) {
   } else {
     // Deselect
     atn.set(null, null);
-    // Deselect all from Object Tree. It is necessary because the neuron ID
-    // would be used to create the next skeleton, and it would fail
-    // if the neuron doesn't exist.
     project.setSelectObject( null, null );
-    $('#tree_object').jstree("deselect_all");
     this.recolorAllNodes();
+    SkeletonAnnotations.clearTopbar(this.stack.getId());
   }
 
   // (de)highlight in SkeletonSource instances if any if different from the last activated skeleton
@@ -598,12 +606,11 @@ SkeletonAnnotations.SVGOverlay.prototype.splitSkeleton = function(nodeID) {
           django_url + project.id + '/skeleton/split',
           {
             treenode_id: nodeID,
-            upstream_annotation_set: upstream_set,
-            downstream_annotation_set: downstream_set,
+            upstream_annotation_map: JSON.stringify(upstream_set),
+            downstream_annotation_map: JSON.stringify(downstream_set),
           },
           function () {
             self.updateNodes();
-            ObjectTree.refresh();
             self.selectNode(nodeID);
           },
           true); // block UI
@@ -637,11 +644,10 @@ SkeletonAnnotations.SVGOverlay.prototype.createTreenodeLink = function (fromid, 
               {
                 from_id: fromid,
                 to_id: toid,
-                annotation_set: annotation_set,
+                annotation_set: JSON.stringify(annotation_set),
               },
               function (json) {
                 self.updateNodes(function() {
-                  ObjectTree.refresh();
                   self.selectNode(toid);
                 });
               },
@@ -685,7 +691,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createTreenodeLink = function (fromid, 
                   } else {
                     NeuronAnnotations.retrieve_annotations_for_skeleton(
                         from_model.id, function(annotations) {
-                            merge(annotations.map(function(e) { return e.name; }));
+                            merge(annotations.reduce(function(o, e) { o[e.name] = e.users[0].id; return o; }, {}));
                         });
                   }
                 });
@@ -812,20 +818,38 @@ SkeletonAnnotations.SVGOverlay.prototype.createInterpolatedNodeFn = function () 
           // Invoke the oldest of any accumulated calls
           requester(json.treenode_id, queue[0]);
         } else {
-          // Start a new continuation to update the nodes,
-          // ensuring that the desired active node will be loaded
-          // (Could not be loaded if the user scrolled away between
-          // the creation of the node and its activation)
+          var handleLastRequest = function(q, retries) {
+            // If the node update was successful, handle the last queue element.
+            var success = function () {
+              q.self.selectNode(json.treenode_id);
+              // Remove this call now that the active node is set properly
+              queue.shift();
+              // Invoke the oldest of any accumulated calls
+              if (queue.length > 0) {
+                requester(json.treenode_id, queue[0]);
+              }
+            };
+            // This error call back makes sure there is no dead-lock when
+            // updateNodes() (or another request in the submitter queue it
+            // is in) fails.
+            var error = function() {
+              if (retries > 0) {
+                handleLastRequest(q, retries - 1);
+              } else {
+                new ErrorDialog("A required update of the node failed. " +
+                    "Please reload CATMAID.").show();
+              }
+            };
+            // Start a new continuation to update the nodes,
+            // ensuring that the desired active node will be loaded
+            // (Could not be loaded if the user scrolled away between
+            // the creation of the node and its activation).
+            q.self.updateNodes(success, json.treenode_id, error);
+          };
+
+          // Try three times to update the node data and finish the queue
           var q = queue[0];
-          q.self.updateNodes(function () {
-            q.self.selectNode(json.treenode_id);
-            // Remove this call now that the active node is set properly
-            queue.shift();
-            // Invoke the oldest of any accumulated calls
-            if (queue.length > 0) {
-              requester(json.treenode_id, queue[0]);
-            }
-          }, json.treenode_id);
+          handleLastRequest(q, 3);
         }
       }
     }
@@ -865,7 +889,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createInterpolatedNodeFn = function () 
                 phys_y: phys_y,
                 phys_z: phys_z,
                 nearestnode_id: nearestnode_id,
-                annotation_set: annotation_set,
+                annotation_set: JSON.stringify(annotation_set),
                 self: this});
 
     if (queue.length > 1) {
@@ -1173,8 +1197,7 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
     if (null !== atn.id) {
       statusBar.replaceLast("Deactivated node #" + atn.id);
     }
-    $('#neuronName').text('');
-    ObjectTree.deselectAll();
+    SkeletonAnnotations.clearTopbar(this.stack.getId());
     this.activateNode(null);
     if (!e.shiftKey) {
       e.stopPropagation();
@@ -1277,7 +1300,8 @@ SkeletonAnnotations.SVGOverlay.prototype.hide = function () {
 /** Update treeline nodes by querying them from the server
  * with the bounding volume of the current view.
  * Will also push editions (if any) to nodes to the database. */
-SkeletonAnnotations.SVGOverlay.prototype.updateNodes = function (callback, future_active_node_id) {
+SkeletonAnnotations.SVGOverlay.prototype.updateNodes = function (callback,
+    future_active_node_id, errCallback) {
   var self = this;
 
   this.updateNodeCoordinatesinDB(function () {
@@ -1333,7 +1357,8 @@ SkeletonAnnotations.SVGOverlay.prototype.updateNodes = function (callback, futur
         }
       },
       false,
-      true);
+      true,
+      errCallback);
   });
 };
 
@@ -1559,8 +1584,15 @@ SkeletonAnnotations.SVGOverlay.prototype.printTreenodeInfo = function(nodeID) {
                 ", last edited by " + jso.editor.first_name + " " + jso.editor.last_name + " (" + jso.editor.username +
                 ") on " + jso.edition_time +
                 ", reviewed by ";
-        if (jso.reviewer) {
-          msg += jso.reviewer.first_name + " " + jso.reviewer.last_name + " (" + jso.reviewer.username + ") on " + jso.review_time;
+        // Add review information
+        if (jso.reviewers.length > 0) {
+          var reviews = []
+          for (var i=0; i<jso.reviewers.length; ++i) {
+            reviews.push(jso.reviewers[i].first_name + " " +
+                jso.reviewers[i].last_name + " (" +
+                jso.reviewers[i].username + ") on " + jso.review_times[i]);
+          }
+          msg += reviews.join(', ');
         } else {
           msg += "no one";
         }
@@ -1590,11 +1622,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createInterpolatedTreenode = function(e
         }
         var nearestnode_id = nearestnode.id;
         var nearestnode_skid = nearestnode.skeleton_id;
-        var atn_id = atn.id;
         var atn_skid = atn.skeleton_id;
-        var atn_x = atn.x;
-        var atn_y = atn.y;
-        var atn_z = atn.z;
         var self = this;
         // Make sure the user has permissions to edit both the from and the to
         // skeleton.
@@ -1663,7 +1691,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createInterpolatedTreenode = function(e
                     } else {
                       NeuronAnnotations.retrieve_annotations_for_skeleton(
                           atn.skeleton_id, function(from_annotations) {
-                              merge(from_annotations.map(function(e) { return e.name; }));
+                              merge(from_annotations.reduce(function(o, e) { o[e.name] = e.users[0].id; return o; }, {}));
                           });
                     }
                   });
@@ -1826,8 +1854,6 @@ SkeletonAnnotations.SVGOverlay.prototype.deleteTreenode = function (node, wasAct
             } else {
               self.activateNode(null);
             }
-            // Refresh object tree as well, given that the node had no parent and therefore the deletion of its skeleton perhaps was triggered
-            ObjectTree.refresh();
           }
         }
         // capture ID prior to refreshing nodes and connectors
@@ -1896,7 +1922,11 @@ SkeletonAnnotations.Tag = new (function() {
 
   this.handle_tagbox = function(atn, svgOverlay) {
     var atnID = SkeletonAnnotations.getActiveNodeId();
-    this.tagbox = $("<div class='tagBox' id='tagBoxId" + atnID + "' style='z-index: 8; border: 1px solid #B3B2B2; padding: 5px; left: " + atn.x + "px; top: " + atn.y + "px;' />");
+    var stack = project.getStack(atn.stack_id);
+    var screenPos = [atn.x * stack.scale, atn.y * stack.scale];
+    this.tagbox = $("<div class='tagBox' id='tagBoxId" + atnID +
+        "' style='z-index: 8; border: 1px solid #B3B2B2; padding: 5px; left: " +
+        screenPos[0] + "px; top: " + screenPos[1] + "px;' />");
     this.tagbox.append("Tag: ");
     var input = $("<input id='Tags" + atnID + "' name='Tags' type='text' value='' />");
     this.tagbox.append(input).append("<div style='color:#949494'>(Save&Close: Enter)</div>");
@@ -2016,14 +2046,18 @@ window.OptionsDialog.prototype.show = function(width, height, modal) {
     width: width ? width : 300,
     height: height ? height : 200,
     modal: modal ? modal : true,
+    close: function() {
+      if (self.onCancel) self.onCancel();
+      $(this).dialog("destroy");
+    },
     buttons: {
       "Cancel": function() {
-        $(this).dialog("close");
         if (self.onCancel) self.onCancel();
+        $(this).dialog("destroy");
       },
       "OK": function() {
-        $(this).dialog("close");
         if (self.onOK) self.onOK();
+        $(this).dialog("destroy");
       }
     }
   });
@@ -2080,6 +2114,18 @@ window.OptionsDialog.prototype.appendField = function(title, fieldID,
     }).bind(this));
   }
   return input;
+};
+
+window.OptionsDialog.prototype.appendCheckbox = function(title, checkboxID, selected) {
+  var p = document.createElement('p');
+  var checkbox = document.createElement('input');
+  checkbox.setAttribute('type', 'checkbox');
+  checkbox.setAttribute('id', checkboxID);
+  checkbox.setAttribute('checked', selected);
+  p.appendChild(checkbox);
+  p.appendChild(document.createTextNode(title));
+  this.dialog.appendChild(p);
+  return checkbox;
 };
 
 
@@ -2185,6 +2231,7 @@ SplitMergeDialog.prototype.populate = function(extension) {
               cb.checked = checked;
               cb.setAttribute('class', 'split_skeleton_annotation');
               cb.setAttribute('annotation', a_info.name);
+              cb.setAttribute('annotator', a_info.users[0].id);
               cb.setAttribute('type', 'checkbox');
               cb_label.appendChild(cb);
               // There should only be one user who has used this annotation
@@ -2338,9 +2385,13 @@ SplitMergeDialog.prototype.get_annotation_set = function(over) {
   var over_checkboxes = $(this.dialog).find('#split_merge_dialog_' +
       tag + '_annotations input[type=checkbox]').toArray();
   var annotations = over_checkboxes.reduce(function(o, cb) {
-    if (cb.checked) o.push($(cb).attr('annotation'));
+    // Create a list of objects, containing each the annotation an its
+    // annotator ID.
+    if (cb.checked) {
+      o[$(cb).attr('annotation')] = parseInt($(cb).attr('annotator'));
+    }
     return o;
-  }, []);
+  }, {});
 
   return annotations;
 }
@@ -2359,11 +2410,12 @@ SplitMergeDialog.prototype.get_combined_annotation_set = function() {
   var under_set = this.get_under_annotation_set();
   // Combine both, avoid duplicates
   var combined_set = over_set;
-  under_set.forEach(function(a) {
-    if (combined_set.indexOf(a) === -1) {
-      combined_set.push(a);
+  for (var a in under_set) {
+    if (combined_set.hasOwnProperty(a)) {
+      continue;
     }
-  });
+    combined_set[a] = under_set[a];
+  }
 
   return combined_set;
 }
@@ -2407,10 +2459,15 @@ SplitMergeDialog.prototype.show = function(extension) {
     width: self.width,
     height: self.height,
     modal: true,
+    close: function(ev, ui) {
+      if (self.webglapp) {
+        self.webglapp.space.destroy();
+      }
+      $(this).dialog("destroy");
+    },
     buttons: {
       "Cancel": function() {
-        if (self.webglapp) self.webglapp.space.destroy();
-        $(this).dialog("destroy");
+        $(this).dialog("close");
         if (self.onCancel) self.onCancel();
       },
       "OK": function() {
@@ -2421,8 +2478,7 @@ SplitMergeDialog.prototype.show = function(extension) {
           alert("The selected annotation configuration isn't valid. " +
               "One part has to keep all annotations.");
         } else {
-          if (self.webglapp) self.webglapp.space.destroy();
-          $(this).dialog("destroy");
+          $(this).dialog("close");
           if (self.onOK) self.onOK();
         }
       }

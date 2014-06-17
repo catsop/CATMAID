@@ -81,7 +81,9 @@ class RGBAWidget(forms.MultiWidget):
     def decompress(self, value):
         from catmaid.fields import RGBA
         if value:
-            if isinstance(value, str) or isinstance(value, unicode):
+            if isinstance(value, tuple) or isinstance(value, list):
+                return value
+            elif isinstance(value, str) or isinstance(value, unicode):
                 try:
                    # Expect value to be of the form '(0,0,0,0)'
                    str_list = value.replace('(', '').replace(')', '').split(',')
@@ -94,12 +96,19 @@ class RGBAWidget(forms.MultiWidget):
 
     def format_output(self, rendered_widgets):
         return  (u'R: %s G: %s B: %s A: %s' % tuple(rendered_widgets) + 
-            u'''<div id="id_userprofile-0-color-swatch" style="background-color:#000000; border-style:inset; border-width:thin; padding-left:1em; width:100px; height:20px; display:inline-block;">&nbsp;</div>
-            <script>update_color_swatch = function() {
-                var r = parseInt(parseFloat(document.getElementById("id_userprofile-0-color_0").value) * 255), 
-                    g = parseInt(parseFloat(document.getElementById("id_userprofile-0-color_1").value) * 255), 
-                    b = parseInt(parseFloat(document.getElementById("id_userprofile-0-color_2").value) * 255);
-                document.getElementById("id_userprofile-0-color-swatch").style.backgroundColor = "rgb(" + r + ", " + g + ", " + b + ")";
-            };
-            update_color_swatch();
-            </script>''')
+            u'''<input id="id_userprofile-0-color-swatch"
+                    type="text" disabled="disabled"
+                    style="background-color:#000000; margin-left:1em;">
+                </input>
+                <script>update_color_swatch = function() {
+                    var r = parseInt(parseFloat(document.getElementById(
+                            "id_userprofile-0-color_0").value) * 255),
+                        g = parseInt(parseFloat(document.getElementById(
+                            "id_userprofile-0-color_1").value) * 255),
+                        b = parseInt(parseFloat(document.getElementById(
+                            "id_userprofile-0-color_2").value) * 255);
+                    document.getElementById("id_userprofile-0-color-swatch").
+                            style.backgroundColor = "rgb("+r+","+g+","+b+")";
+                    };
+                    update_color_swatch();
+                </script>''')

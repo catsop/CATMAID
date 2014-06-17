@@ -9,8 +9,13 @@ from catmaid.control.neuron import _delete_if_empty
 from catmaid.control.neuron_annotations import create_annotation_query
 from catmaid.control.neuron_annotations import _annotate_entities
 from catmaid.control.neuron_annotations import _update_neuron_annotations
+from catmaid.control.review import get_treenodes_to_reviews, get_review_status
+from catmaid.control.treenode import _create_interpolated_treenode
 from collections import defaultdict
+
+import decimal
 import json
+
 from operator import itemgetter
 import networkx as nx
 from tree_util import reroot, edge_count_to_root
@@ -183,7 +188,6 @@ def check_new_annotations(project_id, user, entity_id, annotation_set):
     # Build annotation name indexed dict to the link's id and user
     annotations = {l[0]:(l[1], l[2]) for l in annotation_links}
     current_annotation_set = frozenset(annotations.keys())
-    print(annotations)
 
     # If the current annotation set is not included completely in the new
     # set, we have to check if the user has permissions to edit the missing
@@ -213,15 +217,14 @@ def split_skeleton(request, project_id=None):
     """ The split is only possible if the neuron is not locked or if it is
     locked by the current user or if the current user belongs to the group
     of the user who locked it. Of course, the split is also possible if
-    the current user is a super-user.
+    the current user is a super-user. Also, all reviews of the treenodes in the
+    new neuron are updated to refer to the new skeleton.
     """
     treenode_id = int(request.POST['treenode_id'])
     treenode = Treenode.objects.get(pk=treenode_id)
     skeleton_id = treenode.skeleton_id
-    upstream_annotation_set = frozenset([v for k,v in request.POST.iteritems()
-            if k.startswith('upstream_annotation_set[')])
-    downstream_annotation_set = frozenset([v for k,v in request.POST.iteritems()
-            if k.startswith('downstream_annotation_set[')])
+    upstream_annotation_map = json.loads(request.POST.get('upstream_annotation_map'))
+    downstream_annotation_map = json.loads(request.POST.get('downstream_annotation_map'))
     cursor = connection.cursor()
 
     # Check if the treenode is root!
@@ -230,7 +233,8 @@ def split_skeleton(request, project_id=None):
 
     # Check if annotations are valid
     if not check_annotations_on_split(project_id, skeleton_id,
-            upstream_annotation_set, downstream_annotation_set):
+            frozenset(upstream_annotation_map.keys()),
+            frozenset(downstream_annotation_map.keys())):
         raise Exception("Annotation distribution is not valid for splitting. " \
           "One part has to keep the whole set of annotations!")
 
@@ -306,11 +310,14 @@ def split_skeleton(request, project_id=None):
 
     # Update annotations of existing neuron to have only over set
     _update_neuron_annotations(project_id, request.user, neuron.id,
-            upstream_annotation_set)
+            upstream_annotation_map)
+
+    # Update all reviews of the treenodes that are moved to a new neuron to
+    # refer to the new skeleton.
+    Review.objects.filter(treenode_id__in=change_list).update(skeleton=new_skeleton)
 
     # Update annotations of under skeleton
-    _annotate_entities(project_id, request.user, [new_neuron.id],
-            downstream_annotation_set)
+    _annotate_entities(project_id, [new_neuron.id], downstream_annotation_map)
 
     # Log the location of the node at which the split was done
     insert_into_log( project_id, request.user.id, "split_skeleton", treenode.location, "Split skeleton with ID {0} (neuron: {1})".format( skeleton_id, neuron.name ) )
@@ -404,7 +411,8 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
         def __init__(self):
             self.name = None
             self.num_nodes = 0
-            self.reviewed = 0 # percentage reviewed
+            self.union_reviewed = 0 # total number reviewed nodes
+            self.reviewed = {} # number of reviewed nodes per reviewer
             self.skids = defaultdict(int) # skid vs synapse count
 
     # Dictionary of partner skeleton ID vs Partner
@@ -454,24 +462,29 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
     for row in cursor.fetchall():
         partners[row[0]].num_nodes = row[1]
 
-    # Count reviewed nodes of each skeleton
+    # Count nodes that have been reviewed by each user in each partner skeleton
+    cursor.execute('''
+    SELECT skeleton_id, reviewer_id, count(skeleton_id)
+    FROM review
+    WHERE skeleton_id IN (%s)
+    GROUP BY reviewer_id, skeleton_id
+    ''' % skids_string) # no need to sanitize
+    for row in cursor.fetchall():
+        partner = partners[row[0]]
+        partner.reviewed[row[1]] = row[2]
+
+    # Count total number of reviewed nodes per skeleton
     cursor.execute('''
     SELECT skeleton_id, count(skeleton_id)
-    FROM treenode
-    WHERE skeleton_id IN (%s)
-      AND reviewer_id=-1
+    FROM (SELECT skeleton_id, treenode_id
+          FROM review
+          WHERE skeleton_id IN (%s)
+          GROUP BY skeleton_id, treenode_id) AS sub
     GROUP BY skeleton_id
     ''' % skids_string) # no need to sanitize
-    seen = set()
     for row in cursor.fetchall():
-        seen.add(row[0])
         partner = partners[row[0]]
-        partner.reviewed = int(100.0 * (1 - float(row[1]) / partner.num_nodes))
-    # If 100%, it will not be there, so add it
-    for partnerID in set(partners.keys()) - seen:
-        partner = partners[partnerID]
-        if 0 == partner.reviewed:
-            partner.reviewed = 100
+        partner.union_reviewed = row[1]
 
     # Obtain name of each skeleton's neuron
     cursor.execute('''
@@ -488,7 +501,7 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
 
     return partners
 
-def _skeleton_info_raw(project_id, skeletons, synaptic_count_high_pass, op):
+def _skeleton_info_raw(project_id, skeletons, op):
     cursor = connection.cursor()
 
     # Obtain the IDs of the 'presynaptic_to', 'postsynaptic_to' and 'model_of' relations
@@ -506,17 +519,12 @@ def _skeleton_info_raw(project_id, skeletons, synaptic_count_high_pass, op):
     incoming = _connected_skeletons(skeletons, op, relation_ids['postsynaptic_to'], relation_ids['presynaptic_to'], relation_ids['model_of'], cursor)
     outgoing = _connected_skeletons(skeletons, op, relation_ids['presynaptic_to'], relation_ids['postsynaptic_to'], relation_ids['model_of'], cursor)
 
-    # TODO this filtering should be done in the client
-    # Remove skeleton IDs under synaptic_count_high_pass and jsonize class instances
     def prepare(partners):
         for partnerID in partners.keys():
             partner = partners[partnerID]
             skids = partner.skids
-            for skid in skids.keys():
-                if skids[skid] < synaptic_count_high_pass:
-                    del skids[skid]
             # jsonize: swap class instance by its dict of members vs values
-            if skids:
+            if partner.skids or partner.reviewed:
                 partners[partnerID] = partner.__dict__
             else:
                 del partners[partnerID]
@@ -531,11 +539,10 @@ def skeleton_info_raw(request, project_id=None):
     # sanitize arguments
     project_id = int(project_id)
     skeletons = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('source['))
-    synaptic_count_high_pass = int( request.POST.get( 'threshold', 0 ) )
     op = request.POST.get('boolean_op') # values: AND, OR
     op = {'AND': 'AND', 'OR': 'OR'}[op[6:]] # sanitize
 
-    incoming, outgoing = _skeleton_info_raw(project_id, skeletons, synaptic_count_high_pass, op)
+    incoming, outgoing = _skeleton_info_raw(project_id, skeletons, op)
 
     return HttpResponse(json.dumps({'incoming': incoming, 'outgoing': outgoing}), mimetype='text/json')
 
@@ -595,27 +602,8 @@ def review_status(request, project_id=None):
     """ Return the review status for each skeleton in the request
     as a value between 0 and 100 (integers). """
     skeleton_ids = set(int(v) for k,v in request.POST.iteritems() if k.startswith('skeleton_ids['))
-    cursor = connection.cursor()
-    cursor.execute('''
-    SELECT skeleton_id, reviewer_id, count(*)
-    FROM treenode
-    WHERE skeleton_id IN (%s)
-    GROUP BY skeleton_id, reviewer_id
-    ''' % ",".join(str(skid) for skid in skeleton_ids))
-
-    s = defaultdict(dict)
-    for row in cursor.fetchall():
-        s[row[0]][row[1]] = row[2]
-
-    status = {}
-    for skid, reviewers in s.iteritems():
-        pending = reviewers.get(-1, 0)
-        if 0 == pending:
-            status[skid] = 100
-        elif pending > 0 and 1 == len(reviewers):
-            status[skid] = 0
-        else:
-            status[skid] = int(100 * (1 - (float(pending) / sum(reviewers.itervalues()))))
+    user_ids = set(int(v) for k,v in request.POST.iteritems() if k.startswith('user_ids['))
+    status = get_review_status(skeleton_ids, user_ids)
 
     return HttpResponse(json.dumps(status))
 
@@ -630,10 +618,13 @@ def reroot_skeleton(request, project_id=None):
     try:
         if treenode:
             response_on_error = 'Failed to log reroot.'
-            insert_into_log(project_id, request.user.id, 'reroot_skeleton', treenode.location, 'Rerooted skeleton for treenode with ID %s' % treenode.id)
+            insert_into_log(project_id, request.user.id, 'reroot_skeleton',
+                            treenode.location, 'Rerooted skeleton for '
+                            'treenode with ID %s' % treenode.id)
             return HttpResponse(json.dumps({'newroot': treenode.id}))
         # Else, already root
-        return HttpResponse(json.dumps({'error': 'Node #%s is already root!' % treenode_id}))
+        return HttpResponse(json.dumps({'error': 'Node #%s is already '
+                                                 'root!' % treenode_id}))
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
 
@@ -729,8 +720,8 @@ def join_skeleton(request, project_id=None):
     try:
         from_treenode_id = int(request.POST.get('from_id', None))
         to_treenode_id = int(request.POST.get('to_id', None))
-        annotation_set = frozenset([v for k,v in request.POST.iteritems()
-                if k.startswith('annotation_set[')])
+        annotation_set = json.loads(request.POST.get('annotation_set'))
+
         _join_skeleton(request.user, from_treenode_id, to_treenode_id,
                 project_id, annotation_set)
 
@@ -746,12 +737,16 @@ def join_skeleton(request, project_id=None):
 
 
 def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
-        annotation_set):
+        annotation_map):
     """ Take the IDs of two nodes, each belonging to a different skeleton, and
     make to_treenode be a child of from_treenode, and join the nodes of the
     skeleton of to_treenode into the skeleton of from_treenode, and delete the
     former skeleton of to_treenode. All annotations in annotation_set will be
-    linked to the skeleton of to_treenode."""
+    linked to the skeleton of to_treenode. It is expected that <annotation_map>
+    is a dictionary, mapping an annotation to an annotator ID. Also, all
+    reviews of the skeleton that changes ID are changed to refer to the new
+    skeleton ID.
+    """
     if from_treenode_id is None or to_treenode_id is None:
         raise Exception('Missing arguments to _join_skeleton')
 
@@ -784,7 +779,8 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
 
         # Check if annotations are valid
         if not check_annotations_on_join(project_id, user,
-                from_neuron['neuronid'], to_neuron['neuronid'], annotation_set):
+                from_neuron['neuronid'], to_neuron['neuronid'],
+                frozenset(annotation_map.keys())):
             raise Exception("Annotation distribution is not valid for joining. " \
               "Annotations for which you don't have permissions have to be kept!")
 
@@ -805,6 +801,10 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
         TreenodeConnector.objects.filter(
             skeleton=to_skid).update(skeleton=from_skid)
 
+        # Update reviews from 'losing' neuron to now belong to the new neuron
+        response_on_error = 'Couldn not update reviews with new skeleton IDs for joined treenodes.'
+        Review.objects.filter(skeleton_id=to_skid).update(skeleton=from_skid)
+
         # Remove skeleton of to_id (deletes cicic part_of to neuron by cascade,
         # leaving the parent neuron dangling in the object tree).
         response_on_error = 'Could not delete skeleton with ID %s.' % to_skid
@@ -821,74 +821,172 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
         response_on_error = 'Could not update annotations of neuron ' \
                 'with ID %s' % from_neuron['neuronid']
         _update_neuron_annotations(project_id, user, from_neuron['neuronid'],
-                annotation_set)
+                annotation_map)
 
         insert_into_log(project_id, user.id, 'join_skeleton',
                 from_treenode.location, 'Joined skeleton with ID %s (neuron: ' \
                 '%s) into skeleton with ID %s (neuron: %s, annotations: %s)' % \
                 (to_skid, to_neuron['neuronname'], from_skid,
-                        from_neuron['neuronname'], ', '.join(annotation_set)))
+                        from_neuron['neuronname'], ', '.join(annotation_map.keys())))
 
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
 
-
 @requires_user_role(UserRole.Annotate)
-def reset_reviewer_ids(request, project_id=None, skeleton_id=None):
-    """ Reset the reviewer_id column to -1 for all nodes of the skeleton.
-    Only a superuser can do it when all nodes are not own by the user.
-    """
-    skeleton_id = int(skeleton_id) # sanitize
-    if not request.user.is_superuser:
-        # Check that the user owns all the treenodes to edit
-        cursor = connection.cursor()
-        cursor.execute('''
-        SELECT treenode.user_id,
-               count(treenode.user_id) c,
-               "auth_user".username
-        FROM treenode,
-             "auth_user"
-        WHERE skeleton_id=%s
-          AND treenode.user_id = "auth_user".id
-        GROUP BY user_id, "auth_user".username
-        ORDER BY c DESC''' % skeleton_id)
-        rows = tuple(cursor.fetchall())
-        if rows:
-            if 1 == len(rows) and rows[0] == request.user.id:
-                pass # All skeleton nodes are owned by the user
-            else:
-                total = "/" + str(sum(row[1] for row in rows))
-                return HttpResponse(json.dumps({"error": "User %s does not own all nodes.\nOnwership: %s" % (request.user.username, {str(row[2]): str(row[1]) + total for row in rows})}))
-    # Reset reviewer_id to -1
-    Treenode.objects.filter(skeleton_id=skeleton_id).update(reviewer_id=-1)
-    return HttpResponse(json.dumps({}), mimetype='text/json')
+def join_skeletons_interpolated(request, project_id=None):
+    """ Join two skeletons, adding nodes in between the two nodes to join
+    if they are separated by more than one section in the Z axis."""
+    # Parse parameters
+    decimal_values = {
+            'x': 0,
+            'y': 0,
+            'z': 0,
+            'resx': 0,
+            'resy': 0,
+            'resz': 0,
+            'stack_translation_z': 0,
+            'radius': -1}
+    int_values = {
+            'from_id': 0,
+            'to_id': 0,
+            'stack_id': 0,
+            'confidence': 5}
+    params = {}
+    for p in decimal_values.keys():
+        params[p] = decimal.Decimal(request.POST.get(p, decimal_values[p]))
+    for p in int_values.keys():
+        params[p] = int(request.POST.get(p, int_values[p]))
+    # Copy of the id for _create_interpolated_treenode
+    params['parent_id'] = params['from_id']
+    params['skeleton_id'] = Treenode.objects.get(pk=params['from_id']).skeleton_id
+
+    # Create interpolate nodes skipping the last one
+    last_treenode_id, skeleton_id = _create_interpolated_treenode(request, params, project_id, True)
+
+    # Get set of annoations the combinet skeleton should have
+    annotation_map = json.loads(request.POST.get('annotation_set'))
+
+    # Link last_treenode_id to to_id
+    _join_skeleton(request.user, last_treenode_id, params['to_id'], project_id,
+            annotation_map)
+
+    return HttpResponse(json.dumps({'treenode_id': params['to_id']}))
+
 
 @requires_user_role(UserRole.Annotate)
 def reset_own_reviewer_ids(request, project_id=None, skeleton_id=None):
-    """ Reset the reviewer_id column to -1 for all nodes owned by the user.
+    """ Remove all reviews done by the requsting user in the skeleten with ID
+    <skeleton_id>.
     """
     skeleton_id = int(skeleton_id) # sanitize
-    Treenode.objects.filter(skeleton_id=skeleton_id, user=request.user).update(reviewer_id=-1)
-    return HttpResponse(json.dumps({}), mimetype='text/json')
+    Review.objects.filter(skeleton_id=skeleton_id, reviewer=request.user).delete();
+    return HttpResponse(json.dumps({'status': 'success'}), mimetype='text/json')
+
 
 @requires_user_role(UserRole.Annotate)
-def reset_other_reviewer_ids(request, project_id=None, skeleton_id=None):
-    """ Reset the reviewer_id column to -1 for all nodes not owned by the user.
-    """
-    skeleton_id = int(skeleton_id) # sanitize
-    if not request.user.is_superuser:
-        return HttpResponse(json.dumps({"error": "Only a superuser can do that!"}))
-    Treenode.objects.filter(skeleton_id=skeleton_id).exclude(reviewer_id=request.user.id).update(reviewer_id=-1)
-    return HttpResponse(json.dumps({}), mimetype='text/json')
+def fetch_treenodes(request, project_id=None, skeleton_id=None, with_reviewers=None):
+    """ Fetch the topology only, optionally with the reviewer IDs. """
+    skeleton_id = int(skeleton_id)
 
-@requires_user_role(UserRole.Annotate)
-def fetch_treenodes(request, skeleton_id=None, with_reviewer=None):
-    """ Fetch the topology only, optionally with the reviewer ID. """
     cursor = connection.cursor()
     cursor.execute('''
-    SELECT id, parent_id %s
+    SELECT id, parent_id
     FROM treenode
     WHERE skeleton_id = %s
-    ''' % (', reviewer_id' if with_reviewer else '', int(skeleton_id)))
-    return HttpResponse(json.dumps(tuple(cursor.fetchall())))
+    ''' % skeleton_id)
 
+    if with_reviewers:
+        reviews = get_treenodes_to_reviews(skeleton_ids=[skeleton_id])
+        treenode_data = tuple([r[0], r[1], reviews.get(r[0], [])] \
+                for r in cursor.fetchall())
+    else:
+        treenode_data = tuple(cursor.fetchall())
+
+    return HttpResponse(json.dumps(treenode_data))
+
+
+@requires_user_role(UserRole.Annotate)
+def annotation_list(request, project_id=None):
+    """ Returns a JSON serialized object that contains information about the
+    given skeletons.
+    """
+    skeleton_ids = [v for k,v in request.POST.iteritems()
+            if k.startswith('skeleton_ids[')]
+    annotations = bool(int(request.POST.get("annotations", 0)))
+    metaannotations = bool(int(request.POST.get("metaannotations", 0)))
+
+    classes = dict(Class.objects.filter(project_id=project_id).values_list('class_name', 'id'))
+    relations = dict(Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id'))
+
+    annotation_query = ClassInstance.objects.filter(project_id=project_id,
+            class_column__id=classes['annotation'])
+
+    # Query for annotations of the given skeletons
+    annotation_query = annotation_query.filter(
+            cici_via_b__relation_id = relations['annotated_with'],
+            cici_via_b__class_instance_a__cici_via_b__relation_id = relations['model_of'],
+            cici_via_b__class_instance_a__cici_via_b__class_instance_a__id__in = skeleton_ids)
+
+    # Request only skeleton ID, annotation ID, annotation Name
+    annotation_query = annotation_query.values_list(
+        'cici_via_b__class_instance_a__cici_via_b__class_instance_a',
+        'cici_via_b__user__id',
+        'id',
+        'name')
+
+    # Build result dictionaries: one that maps annotation IDs to annotation
+    # names and another one that lists annotation IDs and annotator IDs for
+    # each skeleton ID.
+    annotations = {}
+    skeletons = {}
+    for skid, auid, aid, aname in annotation_query:
+        if aid not in annotations:
+            annotations[aid] = aname
+        skeleton = skeletons.get(skid)
+        if not skeleton:
+            skeleton = {'annotations': []}
+            skeletons[skid] = skeleton
+        skeleton['annotations'].append({
+            'uid': auid,
+            'id': aid,
+        })
+
+    # Assemble response
+    response = {
+        'annotations': annotations,
+        'skeletons': skeletons,
+    }
+
+    # If wanted, get the meta annotations for each annotation
+    if metaannotations:
+        # Get only annotations of the given project
+        metaannotation_query = ClassInstance.objects.filter(project_id=project_id,
+                class_column__id=classes['annotation'])
+
+        # Query for meta annotations on the given annotations
+        metaannotation_query = metaannotation_query.filter(
+                cici_via_b__relation_id=relations['annotated_with'],
+                cici_via_b__class_instance_a__in=annotations.keys())
+
+        # Request only ID of annotated annotation, annotator ID, meta
+        # annotation ID, meta annotation Name
+        metaannotation_query = metaannotation_query.values_list(
+            'cici_via_b__class_instance_a', 'cici_via_b__user__id',
+            'id', 'name')
+
+        # Add this to the response
+        metaannotations = {}
+        for aaid, auid, maid, maname in metaannotation_query:
+            if maid not in annotations:
+                annotations[maid] = maname
+            annotation = metaannotations.get(aaid)
+            if not annotation:
+                annotation = {'annotations': []}
+                metaannotations[aaid] = annotation
+            annotation['annotations'].append({
+                'uid': auid,
+                'id': maid,
+            })
+        response['metaannotations'] = metaannotations
+
+    return HttpResponse(json.dumps(response), mimetype="text/json")

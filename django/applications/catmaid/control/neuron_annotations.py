@@ -3,7 +3,7 @@ from string import upper
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.db import connection
 
 from catmaid.models import *
@@ -25,66 +25,68 @@ def create_basic_annotated_entity_query(project, params, relations, classes,
     annotations = set()
     annotations_to_expand = set()
 
-    # Construct three Q objects to represent the final query: general filters,
-    # annotation filters and sub-annotation filters. The result will match the
-    # general filters that are annotated by the annotation filters or the
-    # sub-annotation filters.
-    entities =  ClassInstance.objects.filter(project = project,
-            class_column__id__in = allowed_class_ids)
+    # Get name, annotator and time constraints, if available
+    name = params.get('neuron_query_by_name', "").strip()
+    annotator_id = params.get('neuron_query_by_annotator', None)
+    start_date = params.get('neuron_query_by_start_date', "").strip()
+    end_date = params.get('neuron_query_by_end_date', "").strip()
 
+    # Collect annotations and sub-annotation information
     for key in params:
-        if key.startswith('neuron_query_by_name'):
-            name = params[key].strip()
-            if len(name):
-                entities = entities.filter(name__iregex=name)
-        elif key.startswith('neuron_query_by_annotation'):
+        if key.startswith('neuron_query_by_annotation'):
             annotations.add(int(params[key]))
         elif key.startswith('neuron_query_include_subannotation'):
             annotations_to_expand.add(int(params[key]))
-        elif key == 'neuron_query_by_annotator':
-            userID = int(params[key])
-            if userID >= 0:
-                entities = entities.filter(
-                        cici_via_a__relation_id = annotated_with,
-                        cici_via_a__user = userID)
-        elif key == 'neuron_query_by_start_date':
-            startDate = params[key].strip()
-            if len(startDate) > 0:
-                entities = entities.filter(
-                        cici_via_a__relation_id = annotated_with,
-                        cici_via_a__creation_time__gte = startDate)
-        elif key == 'neuron_query_by_end_date':
-            endDate = params[key].strip()
-            if len(endDate) > 0:
-                entities = entities.filter(
-                        cici_via_a__relation_id = annotated_with,
-                        cici_via_a__creation_time__lte = endDate)
+
+    # Construct a dictionary that contains all the filters needed for the
+    # current query.
+    filters = {
+        'project': project,
+        'class_column_id__in': allowed_class_ids,
+    }
+
+    # If a name is given, add this to the query
+    if name:
+        filters['name__iregex'] = name
+
+    # Add annotator and time constraints, if available
+    if annotator_id:
+        filters['cici_via_a__user'] = annotator_id
+    if start_date:
+        filters['cici_via_a__creation_time__gte'] = start_date
+    if end_date:
+        filters['cici_via_a__creation_time__lte'] = end_date
 
     # Get map of annotations to expand and their sub-annotations
     sub_annotation_ids = get_sub_annotation_ids(project, annotations_to_expand,
             relations, classes)
-    # Build annotation query by ANDing every annotation. If an annotation should
-    # get expanded, AND this annotation OR it's sub-annotations.
-    annotation_q = Q()
+
+    # Collect all possible annotation and sub-annotation IDs
+    annotation_ids = set()
     for a in annotations:
-        ls_a = [a]
+        annotation_ids.add(a)
         # Add sub annotations, if requested
         sa_ids = sub_annotation_ids.get(a)
         if sa_ids and len(sa_ids):
-            ls_a += sa_ids
-        entities = entities.filter(
-                cici_via_a__relation_id=annotated_with,
-                cici_via_a__class_instance_b_id__in=ls_a)
+            annotation_ids.update(sa_ids)
+
+    # Add filter for annotation constraints, if any
+    if annotation_ids:
+        filters['cici_via_a__relation_id'] = annotated_with
+        filters['cici_via_a__class_instance_b_id__in'] = annotation_ids
 
     # Create final query. Without any restriction, the result set will contain
     # all instances of the given set of allowed classes.
-    return entities
+    return ClassInstance.objects.filter(**filters)
 
 def get_sub_annotation_ids(project_id, annotation_set, relations, classes):
     """ Sub-annotations are annotations that are annotated with an annotation
     from the annotation_set passed. Additionally, transivitely annotated
     annotations are returned as well.
     """
+    if not annotation_set:
+        return {}
+
     aaa_tuples = ClassInstanceClassInstance.objects.filter(
             project_id=project_id,
             class_instance_a__class_column=classes['annotation'],
@@ -275,8 +277,10 @@ def query_neurons_by_annotations_datatable(request, project_id=None):
 
     return HttpResponse(json.dumps(response), mimetype='text/json')
 
-def _update_neuron_annotations(project_id, user, neuron_id, annotations):
+def _update_neuron_annotations(project_id, user, neuron_id, annotation_map):
     """ Ensure that the neuron is annotated_with only the annotations given.
+    These annotations are expected to come as dictornary of annotation name
+    versus annotator ID.
     """
     qs = ClassInstanceClassInstance.objects.filter(
             class_instance_a__id=neuron_id,
@@ -286,13 +290,13 @@ def _update_neuron_annotations(project_id, user, neuron_id, annotations):
 
     existing_annotations = dict(qs)
 
-    annotations = set(annotations)
+    update = set(annotation_map.iterkeys())
     existing = set(existing_annotations.iterkeys())
 
-    missing = annotations - existing
-    _annotate_entities(project_id, user, [neuron_id], missing)
+    missing = {k:v for k,v in annotation_map.items() if k in update - existing}
+    _annotate_entities(project_id, [neuron_id], missing)
 
-    to_delete = existing - annotations
+    to_delete = existing - update
     to_delete_ids = tuple(aid for name, aid in existing_annotations.iteritems() \
         if name in to_delete)
 
@@ -302,29 +306,36 @@ def _update_neuron_annotations(project_id, user, neuron_id, annotations):
             class_instance_b_id__in=to_delete_ids).delete()
 
 
-def _annotate_entities(project_id, user, entity_ids, annotations):
+def _annotate_entities(project_id, entity_ids, annotation_map):
+    """ Annotate the entities with the given <entity_ids> with the given
+    annotations. These annotations are expected to come as dictornary of
+    annotation name versus annotator ID. A listof all annotation class
+    instances that have been used is returned.
+    """
     r = Relation.objects.get(project_id = project_id,
             relation_name = 'annotated_with')
 
     annotation_class = Class.objects.get(project_id = project_id,
                                          class_name = 'annotation')
-    annotation_objects = []
-    for annotation in annotations:
+    annotation_objects = {}
+    for annotation, annotator_id in annotation_map.items():
         # Make sure the annotation's class instance exists.
         ci, created = ClassInstance.objects.get_or_create(
                 project_id=project_id, name=annotation,
                 class_column=annotation_class,
-                defaults={'user': user});
-        annotation_objects.append(ci)
-        # Annotate each of the entities. Avoid duplicates for the current user,
-        # but it's OK for multiple users to annotate with the same instance.
+                defaults={'user_id': annotator_id})
+        newly_annotated = set()
+        # Annotate each of the entities. Don't allow duplicates.
         for entity_id in entity_ids:
             cici, created = ClassInstanceClassInstance.objects.get_or_create(
                     project_id=project_id, relation=r,
-                    class_instance_a__id=entity_id,
-                    class_instance_b=ci, user=user,
-                    defaults={'class_instance_a_id': entity_id})
-            cici.save() # update the last edited time
+                    class_instance_a__id=entity_id, class_instance_b=ci,
+                    defaults={'class_instance_a_id': entity_id,
+                              'user_id': annotator_id})
+            if created:
+                newly_annotated.add(entity_id)
+        # Remember which entities got newly annotated
+        annotation_objects[ci] = newly_annotated
 
     return annotation_objects
 
@@ -340,7 +351,7 @@ def annotate_entities(request, project_id = None):
             if k.startswith('entity_ids[')]
     skeleton_ids = [int(v) for k,v in request.POST.iteritems()
             if k.startswith('skeleton_ids[')]
-    
+
     if any(skeleton_ids):
         entity_ids += ClassInstance.objects.filter(project = p,
                 class_column__class_name = 'neuron',
@@ -349,33 +360,72 @@ def annotate_entities(request, project_id = None):
                         'id', flat=True)
 
     # Annotate enties
-    annotations = _annotate_entities(project_id, request.user, entity_ids,
-            annotations)
+    annotation_map = {a: request.user.id for a in annotations}
+    annotation_objs = _annotate_entities(project_id, entity_ids, annotation_map)
     # Annotate annotations
     if meta_annotations:
-        annotation_ids = [a.id for a in annotations]
-        _annotate_entities(project_id, request.user, annotation_ids,
-                meta_annotations)
+        annotation_ids = [a.id for a in annotation_objs.keys()]
+        meta_annotation_map = {ma: request.user.id for ma in meta_annotations}
+        meta_annotation_objs = _annotate_entities(project_id, annotation_ids,
+                meta_annotation_map)
+        # Update used annotation objects set
+        for ma, me in meta_annotation_objs.items():
+            entities = annotation_objs.get(ma)
+            if entities:
+                entities.update(me)
+            else:
+                annotation_objs[ma] = me
 
-    return HttpResponse(json.dumps({'message': 'success'}), mimetype='text/json')
+    result = {
+        'message': 'success',
+        'annotations': [{'name': a.name, 'id': a.id, 'entities': list(e)} \
+                for a,e in annotation_objs.items()],
+    }
+
+    return HttpResponse(json.dumps(result), mimetype='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
-def remove_annotation(request, project_id=None, annotation_id=None,
-        entity_id=None):
-    """ Removes an annotation from an entity.
+def remove_annotation(request, project_id=None, annotation_id=None):
+    """ Removes an annotation from one or more entities.
     """
     p = get_object_or_404(Project, pk=project_id)
 
+    entity_ids = [int(v) for k,v in request.POST.iteritems()
+            if k.startswith('entity_ids[')]
+
     # Get CICI instance representing the link
     cici_n_a = ClassInstanceClassInstance.objects.filter(project=p,
-            class_instance_a__id=entity_id, class_instance_b__id=annotation_id)
+            class_instance_a__id__in=entity_ids,
+            class_instance_b__id=annotation_id)
     # Make sure the current user has permissions to remove the annotation.
+    missed_cicis = []
+    cicis_to_delete = []
     for cici in cici_n_a:
-        can_edit_or_fail(request.user, cici.id, 'class_instance_class_instance')
-    # Remove link between entity and annotation.
-    cici_n_a.delete()
+        try:
+            can_edit_or_fail(request.user, cici.id,
+                             'class_instance_class_instance')
+            cicis_to_delete.append(cici)
+        except Exception:
+            # Remember links for which permissions are missing
+            missed_cicis.append(cici)
 
-    message = "Removed annotation from entity."
+    # Remove link between entity and annotation for all links on which the user
+    # the necessary permissions has.
+    if cicis_to_delete:
+        ClassInstanceClassInstance.objects \
+                .filter(id__in=[cici.id for cici in cicis_to_delete]) \
+                .delete()
+
+    if len(cicis_to_delete) > 1:
+        message = "Removed annotation from %s entities." % len(cicis_to_delete)
+    elif len(cicis_to_delete) == 1:
+        message = "Removed annotation from one entity."
+    else:
+        message = "No annotation removed."
+
+    if missed_cicis:
+        message += " Couldn't de-annotate %s entities, due to the lack of " \
+                "permissions." % len(missed_cicis)
 
     # Remove the annotation class instance, regardless of the owner, if there
     # are no more links to it
@@ -544,7 +594,7 @@ def generate_co_annotation_query(project_id, co_annotation_ids, classIDs, relati
     """
 
     rest = """
-    FROM 
+    FROM
         class_instance a,
         class_instance_class_instance cc,
         class_instance neuron,
@@ -663,7 +713,7 @@ def list_annotations_datatable(request, project_id=None):
     if display_length < 0:
         display_length = 2000  # Default number of result rows
 
-    
+
     # Speed hack
     if 'parallel_annotations[0]' in request.POST:
         return _fast_co_annotations(request, project_id, display_start, display_length)
@@ -674,25 +724,37 @@ def list_annotations_datatable(request, project_id=None):
     should_sort = request.POST.get('iSortCol_0', False)
     search_term = request.POST.get('sSearch', '')
 
-    # Annotate last used time
+
+    # Additional information should also be constrained by neurons and user
+    # names. E.g., when viewing the annotation list for a user, the usage count
+    # should only display the number of times the user has used an annotation.
+    conditions = ""
+    if request.POST.get('neuron_id'):
+        conditions += "AND cici.class_instance_a = %s " % \
+                request.POST.get('neuron_id')
+    if request.POST.get('user_id'):
+        conditions += "AND cici.user_id = %s " % \
+                request.POST.get('user_id')
+
+    # Add last used time
     annotation_query = annotation_query.extra(
         select={'last_used': 'SELECT MAX(edition_time) FROM ' \
             'class_instance_class_instance cici WHERE ' \
-            'cici.class_instance_b = class_instance.id'})
+            'cici.class_instance_b = class_instance.id %s' % conditions})
 
-    # Annotate username of last user
+    # Add user ID of last user
     annotation_query = annotation_query.extra(
         select={'last_user': 'SELECT auth_user.id FROM auth_user, ' \
             'class_instance_class_instance cici ' \
             'WHERE cici.class_instance_b = class_instance.id ' \
-            'AND cici.user_id = auth_user.id ' \
-            'ORDER BY cici.edition_time DESC LIMIT 1'})
+            'AND cici.user_id = auth_user.id %s' \
+            'ORDER BY cici.edition_time DESC LIMIT 1' % conditions})
 
-    # Annotate usage count
+    # Add usage count
     annotation_query = annotation_query.extra(
         select={'num_usage': 'SELECT COUNT(*) FROM ' \
             'class_instance_class_instance cici WHERE ' \
-            'cici.class_instance_b = class_instance.id'})
+            'cici.class_instance_b = class_instance.id %s' % conditions})
 
     if len(search_term) > 0:
         annotation_query = annotation_query.filter(name__regex=search_term)
@@ -744,3 +806,32 @@ def list_annotations_datatable(request, project_id=None):
             annotation[0]]) # ID
 
     return HttpResponse(json.dumps(response), mimetype='text/json')
+
+
+@requires_user_role([UserRole.Browse])
+def annotations_for_skeletons(request, project_id=None):
+    skids = tuple(int(skid) for key, skid in request.POST.iteritems() if key.startswith('skids['))
+    cursor = connection.cursor()
+    cursor.execute("SELECT id FROM relation WHERE project_id=%s AND relation_name='annotated_with'" % int(project_id))
+    annotated_with_id = cursor.fetchone()[0]
+
+    # Select pairs of skeleton_id vs annotation name
+    cursor.execute('''
+    SELECT skeleton_neuron.class_instance_a,
+           annotation.name
+    FROM class_instance_class_instance skeleton_neuron,
+         class_instance_class_instance neuron_annotation,
+         class_instance annotation
+    WHERE skeleton_neuron.class_instance_a IN (%s)
+      AND skeleton_neuron.class_instance_b = neuron_annotation.class_instance_a
+      AND neuron_annotation.relation_id = %s
+      AND neuron_annotation.class_instance_b = annotation.id
+    ''' % (",".join(str(skid) for skid in skids), annotated_with_id))
+
+    # Group by skeleton ID
+    m = defaultdict(list)
+    for skid, name in cursor.fetchall():
+        m[skid].append(name)
+
+    return HttpResponse(json.dumps(m, separators=(',', ':')))
+

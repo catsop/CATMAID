@@ -100,27 +100,56 @@ def user_list_datatable(request):
     return HttpResponse(json.dumps(response), mimetype='text/json')
 
 
-initial_colors = [(1, 0, 0, 1), 
-                  (0, 1, 0, 1), 
-                  (0, 0, 1, 1), 
-                  (1, 0, 1, 1), 
-                  (0, 1, 1, 1), 
-                  (1, 1, 0, 1), 
-                  (1, 1, 1, 1), 
-                  (1, 0.5, 0, 1), 
-                  (1, 0, 0.5, 1), 
-                  (0.5, 1, 0, 1), 
-                  (0, 1, 0.5, 1), 
-                  (0.5, 0, 1, 1), 
-                  (0, 0.5, 1, 1)];
+initial_colors = ((1, 0, 0, 1),
+                  (0, 1, 0, 1),
+                  (0, 0, 1, 1),
+                  (1, 0, 1, 1),
+                  (0, 1, 1, 1),
+                  (1, 1, 0, 1),
+                  (1, 1, 1, 1),
+                  (1, 0.5, 0, 1),
+                  (1, 0, 0.5, 1),
+                  (0.5, 1, 0, 1),
+                  (0, 1, 0.5, 1),
+                  (0.5, 0, 1, 1),
+                  (0, 0.5, 1, 1))
 
 
 def distinct_user_color():
-    users = User.objects.exclude(id__exact=-1).order_by('id')
-    
-    if len(users) < len(initial_colors):
-        distinct_color = initial_colors[len(users)]
+    """ Returns a color for a new user. If there are less users registered than
+    entries in the initial_colors list, the next free color is used. Otherwise,
+    a random color is generated.
+    """
+    nr_users = User.objects.exclude(id__exact=-1).count()
+
+    if nr_users < len(initial_colors):
+        distinct_color = initial_colors[nr_users]
     else:
         distinct_color = colorsys.hsv_to_rgb(random(), random(), 1.0) + (1,)
     
     return distinct_color
+
+def update_user_profile(request):
+    """ Allows users to update some of their user settings, e.g. whether
+    reference lines should be visible. If the request is done by the anonymous
+    user, nothing is updated, but no error is raised.
+    """
+    # Ignore anonymous user
+    if request.user.is_anonymous():
+        return HttpResponse(json.dumps({'success': "The user profile of the " +
+                "anonymous user won't be updated"}), mimetype='text/json')
+
+    # Display stack reference lines
+    display_stack_reference_lines = request.POST.get(
+            'display_stack_reference_lines', None)
+    if display_stack_reference_lines:
+        display_stack_reference_lines = bool(int(display_stack_reference_lines))
+        # Set new user profile values
+        request.user.userprofile.display_stack_reference_lines = \
+                display_stack_reference_lines
+
+    # Save user profile
+    request.user.userprofile.save()
+
+    return HttpResponse(json.dumps({'success': 'Updated user profile'}),
+            mimetype='text/json')

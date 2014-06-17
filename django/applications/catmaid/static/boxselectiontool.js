@@ -264,11 +264,8 @@ function BoxSelectionLayer( stack, tool, crop_box)
         return opacity;
     }
 
-    this.redraw = function()
+    this.redraw = function(completionCallback)
     {
-        if( !self.visible )
-            return;
-
         var cropBoxBB = tool.getCropBoxBoundingBox(stack);
 
         // Size and positioning
@@ -310,6 +307,10 @@ function BoxSelectionLayer( stack, tool, crop_box)
                 tool.convertWorld( cropBoxBB.top_world ).toFixed( 3 ) + " -> " +
                 tool.convertWorld( cropBoxBB.right_world ).toFixed( 3 ) + "," +
                 tool.convertWorld( cropBoxBB.bottom_world ).toFixed( 3 ) );
+        }
+
+        if (completionCallback) {
+            completionCallback();
         }
 
         return;
@@ -384,7 +385,7 @@ function BoxSelectionLayer( stack, tool, crop_box)
     view.appendChild( textScreen );
 
     // internal opacity variable
-    var opacity = 100;
+    var opacity = 1;
     this.visible = true;
 
     // add view to DOM
@@ -392,3 +393,10 @@ function BoxSelectionLayer( stack, tool, crop_box)
         stack.getView().appendChild( view );
 };
 
+/**
+ * Return friendly name of this layer.
+ */
+BoxSelectionLayer.prototype.getLayerName = function()
+{
+  return "Rectangular selection";
+};

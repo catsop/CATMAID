@@ -273,12 +273,12 @@ function Stack(
 		return {
 			min : {
 				x : self.x - w2,
-				y : self.y - w2,
+				y : self.y - h2,
 				z : self.z - 0.5
 			},
 			max : {
 				x : self.x + w2,
-				y : self.y + w2,
+				y : self.y + h2,
 				z : self.z + 0.5
 			}
 		}
@@ -399,6 +399,10 @@ function Stack(
 		for ( var key in layers ) {
 			if (layers.hasOwnProperty(key)) {
 				layer = layers[key];
+				// If a layer is invisble, continue with the next one.
+				if (layer.hasOwnProperty('visible') && !layer.visible) {
+					continue;
+				}
 				++ semaphore;
 				layer.redraw(onAnyCompletion);
 			}
@@ -525,6 +529,16 @@ function Stack(
 		return Math.max( 0, Math.min( MAX_Z, z3 ) );
 	}
 
+	/**
+	 * Move this stack to the given project coordinates and call the completion
+	 * callback as a continuation of the update() call. Before the actual move,
+	 * all layers in <layersWithBeforeMove> are notified about the upcoming move
+	 * with the help of their beforeMove() function. When doing so, this function
+	 * passes a call to itself as a continuation to beforeMove(). That is to wait
+	 * for the return of potential asynchronous calls during beforeMove().
+	 * Similar to the moveTo functionality in project.js, this wouldn't be
+	 * possible to do with loops.
+	 */
 	this.moveToAfterBeforeMoves = function( zp, yp, xp, sp, completionCallback, layersWithBeforeMove )
 	{
 		var layerWithBeforeMove;
@@ -548,8 +562,8 @@ function Stack(
 		}
 		else
 		{
-			// Otherwise do the next layer's beforeMove():
-
+			// Otherwise do the next layer's beforeMove() and call self recursively as
+			// a continuation of it.
 			layerWithBeforeMove = layersWithBeforeMove.shift();
 			layerWithBeforeMove.beforeMove( function() {
 				self.moveToAfterBeforeMoves( zp, yp, xp, sp, completionCallback, layersWithBeforeMove );
@@ -558,10 +572,13 @@ function Stack(
 	}
 
 	/**
-	 * move to project-coordinates
+	 * Move to project-coordinates and execute a completion callback when
+	 * finished.
 	 */
 	this.moveTo = function( zp, yp, xp, sp, completionCallback )
 	{
+		// Collect all layers in this stack that require a call before the stack is
+		// moved (that is all the layers that have a beforeMove() function).
 		var layersWithBeforeMove = [], l;
 		for ( var key in layers ) {
 			if (layers.hasOwnProperty(key)) {
@@ -646,6 +663,7 @@ function Stack(
 		if ( layers[ key ] )
 			layers[ key ].unregister();
 		layers[ key ] = layer;
+		self.tilelayercontrol.refresh();
 		return;
 	}
 
@@ -823,15 +841,6 @@ function Stack(
 	indicatorbar.className = "indicatorbar";
 	indicatorbar.id = "indicatorbar";
 	view.appendChild( indicatorbar );
-
-	var neuronnameDisplay = document.createElement( "div" );
-	neuronnameDisplay.className = "neuronname";
-	neuronnameDisplay.appendChild( document.createElement( "p" ) );
-	var spanName = document.createElement( "span" );
-	spanName.id = "neuronName";
-	neuronnameDisplay.firstChild.appendChild( spanName );
-	neuronnameDisplay.firstChild.firstChild.appendChild( document.createTextNode( "" ) );
-	view.appendChild( neuronnameDisplay );
 
 	// Display horizontal and vertical reference lines if wanted.
 	var vert = document.createElement( "div" );

@@ -289,7 +289,7 @@ class Relation(models.Model):
     relation_name = models.CharField(max_length=255)
     uri = models.TextField()
     description = models.TextField()
-    isreciprocal = models.BooleanField()
+    isreciprocal = models.BooleanField(default=False)
 
 class RelationInstance(models.Model):
     class Meta:
@@ -414,8 +414,6 @@ class Location(UserFocusedModel):
         db_table = "location"
     editor = models.ForeignKey(User, related_name='location_editor', db_column='editor_id')
     location = Double3DField()
-    reviewer_id = models.IntegerField(default=-1)
-    review_time = models.DateTimeField()
 
 class Treenode(UserFocusedModel):
     class Meta:
@@ -426,8 +424,6 @@ class Treenode(UserFocusedModel):
     radius = models.FloatField()
     confidence = models.IntegerField(default=5)
     skeleton = models.ForeignKey(ClassInstance)
-    reviewer_id = models.IntegerField(default=-1)
-    review_time = models.DateTimeField()
 
 
 class Connector(UserFocusedModel):
@@ -436,8 +432,6 @@ class Connector(UserFocusedModel):
     editor = models.ForeignKey(User, related_name='connector_editor', db_column='editor_id')
     location = Double3DField()
     confidence = models.IntegerField(default=5)
-    reviewer_id = models.IntegerField(default=-1)
-    review_time = models.DateTimeField()
 
 
 class TreenodeClassInstance(UserFocusedModel):
@@ -468,6 +462,20 @@ class TreenodeConnector(UserFocusedModel):
     connector = models.ForeignKey(Connector)
     skeleton = models.ForeignKey(ClassInstance)
     confidence = models.IntegerField(default=5)
+
+class Review(models.Model):
+    """ This model represents the review of a user of one particular tree node
+    of a specific skeleton. Technically, the treenode ID is enough to get the
+    skeleton and the project. However, both of them are included for
+    performance reasons (to avoid a join in the database for retrieval).
+    """
+    class Meta:
+        db_table = "review"
+    project = models.ForeignKey(Project)
+    reviewer = models.ForeignKey(User)
+    review_time = models.DateTimeField(default=datetime.now)
+    skeleton = models.ForeignKey(ClassInstance)
+    treenode = models.ForeignKey(Treenode)
 
 class RegionOfInterest(UserFocusedModel):
     class Meta:
@@ -794,29 +802,6 @@ def create_user_profile(sender, instance, created, **kwargs):
 # Connect the a User object's post save signal to the profile
 # creation
 post_save.connect(create_user_profile, sender=User)
-
-# ------------------------------------------------------------------------
-
-# There is a problem in that guardian creates an anonymous user when
-# its initial migrations are run, but a corresponding UserProfile will
-# not be created.  To make sure that this happens, we monkey-patch
-# guardian.management.create_anonymous_user and do just that.
-
-from guardian.management import create_anonymous_user as old_create_anonymous_user
-
-def new_create_anonymous_user(sender, **kwargs):
-    old_create_anonymous_user(sender, **kwargs)
-
-    # Make sure Guardian's anonymous user has a user profile
-    if UserProfile.objects.filter( \
-            user__id=settings.ANONYMOUS_USER_ID).count() == 0:
-        anonymous_user = User.objects.get(pk=settings.ANONYMOUS_USER_ID)
-        create_user_profile(User, anonymous_user, True)
-
-import guardian
-guardian.management.create_anonymous_user = new_create_anonymous_user
-
-# ------------------------------------------------------------------------
 
 # Prevent interactive question about wanting a superuser created.  (This code
 # has to go in this "models" module so that it gets processed by the "syncdb"

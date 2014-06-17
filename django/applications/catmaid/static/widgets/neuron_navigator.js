@@ -428,7 +428,7 @@ NeuronNavigator.Node.prototype.add_menu_table = function(entries, container)
 };
 
 NeuronNavigator.Node.prototype.add_annotation_list_table = function($container,
-    table_id, filters, display_annotator, unlink_handler, callback)
+    table_id, filters, display_usage, display_annotator, unlink_handler, callback)
 {
   var content = document.createElement('div');
   content.setAttribute('id', 'navigator_annotationlist_content' +
@@ -436,7 +436,7 @@ NeuronNavigator.Node.prototype.add_annotation_list_table = function($container,
 
   // Prepare column definition, depending on whether there is a removal handler
   // and if the annotator should be displayed.
-  var columns = ['Annotation', 'Last used', '# used'];
+  var columns = ['Annotation', 'Last used'];
   var column_params = [
       { // Annotation name
         "bSearchable": true,
@@ -445,12 +445,16 @@ NeuronNavigator.Node.prototype.add_annotation_list_table = function($container,
       { // Last used date
         "bSearchable": false,
         "bSortable": true
-      },
-      { // Usage
-        "bSearchable": false,
-        "bSortable": true
-      },
+      }
     ];
+  if (display_usage) {
+      columns.push('# used');
+      column_params.push(
+        { // Usage
+          "bSearchable": false,
+          "bSortable": true
+        });
+  }
   if (display_annotator) {
       columns.push('Annotator');
       column_params.push(
@@ -724,6 +728,20 @@ NeuronNavigator.Node.prototype.add_neuron_list_table = function($container,
   annotate_button.setAttribute('value', 'Annotate');
   $container.append(annotate_button);
 
+  // Create button to remove annotations, based on the filters
+  var deannotate_buttons = [];
+  if (filters.annotations) {
+    filters.annotations.forEach(function(aid, i) {
+      var deannotate_button = document.createElement('input');
+      deannotate_button.setAttribute('type', 'button');
+      deannotate_button.setAttribute('value', 'De-annotate ' +
+          annotations.getName(aid));
+      deannotate_button.setAttribute('data-annotationid', aid);
+      $container.append(deannotate_button);
+      deannotate_buttons.push(deannotate_button);
+    });
+  }
+
   var content = document.createElement('div');
   content.setAttribute('id', 'navigator_neuronlist_content' +
       this.navigator.widgetID);
@@ -831,20 +849,41 @@ NeuronNavigator.Node.prototype.add_neuron_list_table = function($container,
   // Make self accessible in callbacks more easily
   var self = this;
 
-  $(annotate_button).click(function() {
+  var getSelectedNeurons = function() {
     var cb_selector = '#navigator_neuronlist_table' +
         self.navigator.widgetID + ' tbody td.selector_column input';
-    var selected_neurons = $(cb_selector).toArray().reduce(function(ret, cb) {
+    return $(cb_selector).toArray().reduce(function(ret, cb) {
       if ($(cb).prop('checked')) {
         ret.push($(cb).attr('neuron_id'));
       }
       return ret;
     }, []);
+  };
 
+  $(annotate_button).click(function() {
+    var selected_neurons = getSelectedNeurons();
     if (selected_neurons.length > 0) {
       NeuronAnnotations.prototype.annotate_entities(selected_neurons);
     } else {
       alert("Please select at least one neuron to annotate first!");
+    }
+  });
+
+  $(deannotate_buttons).click(function() {
+    var selected_neurons = getSelectedNeurons();
+    if (selected_neurons.length > 0) {
+      // Get annotation ID
+      var annotation_id = parseInt(this.getAttribute('data-annotationid'));
+      // Unlink the annotation from the current neuron
+      NeuronAnnotations.remove_annotation_from_entities(selected_neurons,
+          annotation_id, function(message) {
+              // Display message returned by the server
+              growlAlert('Information', message);
+              // Refresh node
+              self.navigator.select_node(self);
+          });
+    } else {
+      alert("Please select at least one neuron to remove the annotation from first!");
     }
   });
 
@@ -1052,7 +1091,7 @@ NeuronNavigator.AnnotationListNode.prototype.add_content = function(container,
 
   // Add annotation data table based on filters above
   var datatable = this.add_annotation_list_table(container, table_id, filters,
-      false, null, null);
+      true, false, null, null);
 
   // Make self accessible in callbacks more easily
   var self = this;
@@ -1402,24 +1441,14 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
   rename_button.onclick = (function() {
     var new_name = prompt("Rename", this.neuron_name);
     if (!new_name) return;
-    requestQueue.register(django_url + project.id + '/object-tree/instance-operation',
-      'POST',
-      {operation: "rename_node",
-       id: this.neuron_id,
-       title: new_name,
-       classname: "neuron",
-       pid: project.id},
-      (function(status, text) {
-        if (200 !== status) return;
-        var json = $.parseJSON(text);
-        if (json.error) return new ErrorDialog(json.error, json.detail).show();
+    neuronNameService.renameNeuron(this.neuron_id, this.skeleton_ids, new_name, (function() {
         // Update UI
         if (this.skeleton_ids.some(function(skid) { return skid === SkeletonAnnotations.getActiveSkeletonId();})) {
           SkeletonAnnotations.setNeuronNameInTopbar(project.focusedStack.id, new_name, SkeletonAnnotations.getActiveSkeletonId());
         }
         $('div.nodeneuronname', container).html('Name: ' + new_name);
         this.neuron_name = new_name;
-      }).bind(this));
+    }).bind(this));
   }).bind(this);
 
   var activate_button = document.createElement('input');
@@ -1485,7 +1514,7 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
 
   // Create skeleton table
   var columns = ['Skeleton ID', 'N nodes', 'N branch nodes', 'N end nodes',
-      'N open end nodes', '% reviewed'];
+      'N open end nodes'];
   var table_header = document.createElement('thead');
   table_header.appendChild(this.create_header_row(columns));
   var skeleton_table_id = 'navigator_skeletonlist_table' + this.navigator.widgetID;
@@ -1530,11 +1559,6 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
           var nodes = json[1],
               tags = json[2],
               arbor = new Arbor(),
-              n_reviewed = nodes.reduce(function(count, row) {
-            if (row[1]) arbor.edges[row[0]] = row[1];
-            else arbor.root = row[1];
-            return count + (row[3] !== -1 ? 1 : 0);
-          }, 0),
               eb = arbor.findBranchAndEndNodes(),
               tagged = ['ends', 'uncertain end', 'not a branch', 'soma'].reduce(function(o, tag) {
                 if (tag in tags) return tags[tag].reduce(function(o, nodeID) { o[nodeID] = true; return o; }, o);
@@ -1551,7 +1575,6 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
             eb.branching.length,
             eb.ends.length + 1, // count the soma
             eb.ends.length + 1 - n_tagged_ends,
-            ((n_reviewed / nodes.length) * 100).toFixed(0) + "%",
           ]);
         });
   };
@@ -1585,7 +1608,7 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
 
   // Add annotation data table based on filters above
   var annotation_datatable = this.add_annotation_list_table(container,
-      annotation_table_id, filters, true, function(annotation_id) {
+      annotation_table_id, filters, false, true, function(annotation_id) {
           // Unlink the annotation from the current neuron
           NeuronAnnotations.remove_annotation(self.neuron_id,
               annotation_id, function(message) {

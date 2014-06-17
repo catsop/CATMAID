@@ -16,9 +16,6 @@ var NeuronAnnotations = function()
   this.entity_selection_map = {};
   this.pid = project.id;
 
-  // Map of annotation name vs its ID
-  this.annotation_ids = {};
-
   // Limit the result set
   this.display_length = 50;
   this.display_start = 0;
@@ -247,7 +244,7 @@ NeuronAnnotations.prototype.add_result_table_row = function(entity, add_row_fn,
         // and replace the clicked on annotation with the result. Pagination
         // will not be applied to expansions.
         var query_data = {
-          'neuron_query_by_annotation': self.annotation_ids[$(this).attr('annotation')],
+          'neuron_query_by_annotation': annotations.getID($(this).attr('annotation')),
         };
         requestQueue.register(django_url + project.id + '/neuron/query-by-annotations',
             'POST', query_data, function(status, text, xml) {
@@ -355,17 +352,22 @@ NeuronAnnotations.prototype.query = function(initialize)
   if (initialize) {
     this.display_start = 0;
     this.total_n_results = 0;
+    // Reset "select all" check box
+    $('#neuron_annotations_toggle_neuron_selections_checkbox' + this.widgetID)
+        .prop('checked', false);
+    // Reset "sync to" select box
+    $('#neuron_annotations_add_to_selection' + this.widgetID + ' select')
+        .val("None").trigger("change");
   }
-
-  var annotation_ids = this.annotation_ids;
 
   var form_data = $('#neuron_query_by_annotations' +
       this.widgetID).serializeArray().reduce(function(o, e) {
         if (0 === e.name.indexOf('neuron_query_by_annotation')) {
-          o[e.name] = annotation_ids[e.value];
+          o[e.name] = annotations.getID(e.value);
         } else if (0 === e.name.indexOf('neuron_query_include_subannotation')) {
           // Expect the annotation field to be read out before this
-          var ann_input_name = e.name.replace(new RegExp(e.name),
+          var ann_input_name = e.name.replace(
+              new RegExp('neuron_query_include_subannotation'),
               'neuron_query_by_annotation');
           o[e.name] = o[ann_input_name];
         } else {
@@ -386,8 +388,11 @@ NeuronAnnotations.prototype.query = function(initialize)
         empty_val = '-2';
       }
       if (form_data[field] && form_data[field] != empty_val) {
+        // We found at least one constraint
         has_constraints = true;
-        break;
+      } else {
+        // Delete empty fields
+        delete form_data[field];
       }
     }
   }
@@ -495,7 +500,13 @@ NeuronAnnotations.prototype.add_query_field = function()
   $("#neuron_query_by_annotator" + this.widgetID).before($newRow);
 
   // By default, sub-annotations should not be included
-  $newRow.find('input[type=checkbox]').attr('checked', false);
+  $newRow.find('input[type=checkbox]').attr({
+      checked: false,
+      id: 'neuron_query_include_subannotation' + this.widgetID + '_' +
+          this.nextFieldID,
+      name: 'neuron_query_include_subannotation' + this.widgetID + '_' +
+          this.nextFieldID,
+  });
 
   this.nextFieldID += 1;
 };
@@ -673,10 +684,35 @@ NeuronAnnotations.prototype.annotate = function(entity_ids, skeleton_ids,
             if (e.error) {
               new ErrorDialog(e.error, e.detail).show();
             } else {
-              if (annotations.length == 1)
-                growlAlert('Information', 'Annotation ' + annotations[0] + ' added.');
+              var ann_names = e.annotations.map(function(a) { return a.name; });
+              var used_annotations = e.annotations.reduce(function(o, a) {
+                if (a.entities.length > 0) o.push(a.name);
+                return o;
+              }, []);
+              if (e.annotations.length == 1)
+                if (used_annotations.length > 0) {
+                  growlAlert('Information', 'Annotation ' + ann_names[0] +
+                      ' added to ' + e.annotations[0].entities.length +
+                       (e.annotations[0].entities.length > 1 ? ' entities.' : ' entity.'));
+                } else {
+                  growlAlert('Information', 'Couldn\'t add annotation ' +
+                      ann_names[0] + '.');
+                }
               else
-                growlAlert('Information', 'Annotations ' + annotations.join(', ') + ' added.');
+                if (used_annotations.length > 0) {
+                  growlAlert('Information', 'Annotations ' +
+                      used_annotations.join(', ') + ' added.');
+                } else {
+                  growlAlert('Information', 'Couldn\'t add any of the annotations' +
+                      ann_names.join(', ') + '.');
+                }
+              // Update the annotation cache with new annotations, if any
+              try {
+                window.annotations.push(e.annotations);
+              } catch(err) {
+                new ErrorDialog("There was a problem updating the annotation " +
+                    "cache, please close and re-open the tool", err).show();
+              }
               // Execute callback, if any
               if (callback) callback();
             }
@@ -693,13 +729,29 @@ NeuronAnnotations.prototype.annotate = function(entity_ids, skeleton_ids,
 NeuronAnnotations.remove_annotation = function(entity_id,
     annotation_id, callback)
 {
-  if (!confirm('Are you sure you want to remove this annotation?')) {
+  NeuronAnnotations.remove_annotation_from_entities([entity_id],
+      annotation_id, callback);
+};
+
+/**
+ * This neuron annotation namespace method removes an annotation from a list of
+ * entities. It is not dependent on any context, but asks the user for
+ * confirmation. A callback can be executed in the case of success.
+ */
+NeuronAnnotations.remove_annotation_from_entities = function(entity_ids,
+    annotation_id, callback)
+{
+  if (!confirm('Are you sure you want to remove annotation "' +
+        annotations.getName(annotation_id) + '"?')) {
     return;
   }
 
   requestQueue.register(django_url + project.id + '/annotations/' +
-      annotation_id + '/entity/' + entity_id + '/remove',
-      'POST', {}, $.proxy(function(status, text, xml) {
+      annotation_id + '/remove',
+      'POST', {
+        entity_ids: entity_ids
+      },
+      $.proxy(function(status, text, xml) {
         if (status === 200) {
           var e = $.parseJSON(text);
           if (e.error) {
@@ -712,7 +764,7 @@ NeuronAnnotations.remove_annotation = function(entity_id,
 };
 
 /**
- * A neuron annotation namespac method to retrieve annotations from the backend
+ * A neuron annotation namespace method to retrieve annotations from the backend
  * for the neuron modeled by a particular skeleton. If the call was successfull,
  * the passed handler is called with the annotation set as parameter.
  */
@@ -734,50 +786,21 @@ NeuronAnnotations.retrieve_annotations_for_skeleton = function(skid, handler) {
     });
 };
 
+/**
+ * Refresh display and auto-completion with updated annotation information.
+ */
+NeuronAnnotations.prototype.refresh_annotations = function() {
+  // Update auto completion for input fields
+  $('.neuron_query_by_annotation_name' + this.widgetID).autocomplete(
+      "option", {source: annotations.getAllNames()});
+};
+
 NeuronAnnotations.prototype.add_autocomplete_to_input = function(input)
 {
-  // Get a JSON list with all available annotations and initialize
-  // autocompletion for the name field.
-
-  // 'annotation_ids' does not exist when this function is invoked by other widgets as a prototype function.
-  var annotation_ids = this.annotation_ids;
-
-  if (annotation_ids) {
-    var names = Object.keys(annotation_ids);
-    if (names.length > 0) {
-      $(input).autocomplete({
-        source: names
-      });
-      return;
-    }
-  }
-
-  requestQueue.register(django_url + project.id + '/annotations/list',
-      'POST', {}, function (status, data, text) {
-        var e = $.parseJSON(data);
-        if (status !== 200) {
-            alert("The server returned an unexpected status (" +
-              status + ") " + "with error message:\n" + text);
-        } else {
-          if (e.error) {
-            new ErrorDialog(e.error, e.detail).show();
-          } else {
-            var names;
-            if (annotation_ids) {
-              // Create the array of names, and populate the cached list as a side effect.
-              names = e.annotations.map(function(a) {
-                annotation_ids[a.name] = a.id;
-                return a.name;
-              });
-            } else {
-              names = e.annotations.map(function(a) { return a.name; });
-            }
-            $(input).autocomplete({
-              source: names
-            });
-          }
-        }
-      });
+  // Expects the annotation cache to be up-to-date
+  $(input).autocomplete({
+    source: annotations.getAllNames()
+  });
 };
 
 /**

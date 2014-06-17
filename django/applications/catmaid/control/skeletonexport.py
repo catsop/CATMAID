@@ -8,6 +8,7 @@ from catmaid.fields import Double3D
 from catmaid.control.authentication import *
 from catmaid.control.common import *
 from catmaid.control import export_NeuroML_Level3
+from catmaid.control.review import get_treenodes_to_reviews
 
 import networkx as nx
 from tree_util import edge_count_to_root, partition
@@ -63,7 +64,7 @@ def export_skeleton_response(request, project_id=None, skeleton_id=None, format=
         raise Exception, "Unknown format ('%s') in export_skeleton_response" % (format,)
 
 
-def _skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=True, lean=0):
+def _skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=True, lean=0, all_field=False):
     """ with_connectors: when False, connectors are not returned
         lean: when not zero, both connectors and tags are returned as empty arrays. """
     skeleton_id = int(skeleton_id) # sanitize
@@ -88,18 +89,26 @@ def _skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=True, lean=
 
     name = row[0]
 
+    if all_field:
+        added_fields = ', creation_time, edition_time'
+    else:
+        added_fields = ''
+
     # Fetch all nodes, with their tags if any
     cursor.execute(
-        '''SELECT id, parent_id, user_id, reviewer_id, (location).x, (location).y, (location).z, radius, confidence
+        '''SELECT id, parent_id, user_id, (location).x, (location).y, (location).z, radius, confidence %s
           FROM treenode
           WHERE skeleton_id = %s
-        ''' % skeleton_id)
+        ''' % (added_fields, skeleton_id) )
 
-    # array of properties: id, parent_id, user_id, reviewer_id, x, y, z, radius, confidence
+    # array of properties: id, parent_id, user_id, x, y, z, radius, confidence
     nodes = tuple(cursor.fetchall())
 
     tags = defaultdict(list) # node ID vs list of tags
     connectors = []
+
+    # Get all reviews for this skeleton
+    reviews = get_treenodes_to_reviews(skeleton_ids=[skeleton_id])
 
     if 0 == lean: # meaning not lean
         # Text tags
@@ -119,31 +128,36 @@ def _skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=True, lean=
             tags[row[1]].append(row[0])
 
         if with_connectors:
+            if all_field:
+                added_fields = ', c.creation_time'
+            else:
+                added_fields = ''
+
             # Fetch all connectors with their partner treenode IDs
             cursor.execute(
-                ''' SELECT tc.treenode_id, tc.connector_id, r.relation_name, c.location, c.reviewer_id
+                ''' SELECT tc.treenode_id, tc.connector_id, r.relation_name, c.location %s
                     FROM treenode_connector tc,
                          connector c,
                          relation r
                     WHERE tc.skeleton_id = %s
                       AND tc.connector_id = c.id
                       AND tc.relation_id = r.id
-                ''' % skeleton_id)
+                ''' % (added_fields, skeleton_id) )
             # Above, purposefully ignoring connector tags. Would require a left outer join on the inner join of connector_class_instance and class_instance, and frankly connector tags are pointless in the 3d viewer.
 
             # List of (treenode_id, connector_id, relation_id, x, y, z)n with relation_id replaced by 0 (presynaptic) or 1 (postsynaptic)
             # 'presynaptic_to' has an 'r' at position 1:
             for row in cursor.fetchall():
                 x, y, z = imap(float, row[3][1:-1].split(','))
-                connectors.append((row[0], row[1], 0 if 'r' == row[2][1] else 1, x, y, z, row[4]))
-            return name, nodes, tags, connectors
+                connectors.append((row[0], row[1], 0 if 'r' == row[2][1] else 1, x, y, z))
+            return name, nodes, tags, connectors, reviews
 
-    return name, nodes, tags, connectors
+    return name, nodes, tags, connectors, reviews
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeleton_for_3d_viewer(request, project_id=None, skeleton_id=None):
-    return HttpResponse(json.dumps(_skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=request.POST.get('with_connectors', True), lean=int(request.POST.get('lean', 0))), separators=(',', ':')))
+    return HttpResponse(json.dumps(_skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=request.POST.get('with_connectors', True), lean=int(request.POST.get('lean', 0)), all_field=request.POST.get('all_fields', False)), separators=(',', ':')))
 
 
 def _measure_skeletons(skeleton_ids):
@@ -302,143 +316,6 @@ def measure_skeletons(request, project_id=None):
     def asRow(skid, sk):
         return (skid, int(sk.raw_cable), int(sk.smooth_cable), sk.n_pre, sk.n_post, len(sk.nodes), sk.n_ends, sk.n_branch, sk.principal_branch_cable)
     return HttpResponse(json.dumps([asRow(skid, sk) for skid, sk in _measure_skeletons(skeleton_ids).iteritems()]))
-
-
-def generate_extended_skeleton_data( project_id=None, skeleton_id=None ):
-
-    treenode_qs, labels_as, labelconnector_qs = get_treenodes_qs(project_id, skeleton_id, with_labels=True)
-
-    labels={}
-    for tn in labels_as:
-        lab = str(tn.class_instance.name).lower()
-        if tn.treenode_id in labels:
-            labels[tn.treenode_id].append( lab )
-        else:
-            labels[tn.treenode_id] = [ lab ]
-            # whenever the word uncertain is in the tag, add it
-            # here. This is used in the 3d webgl viewer
-    for cn in labelconnector_qs:
-        lab = str(cn.class_instance.name).lower()
-        if cn.connector_id in labels:
-            labels[cn.connector_id].append( lab )
-        else:
-            labels[cn.connector_id] = [ lab ]
-            # whenever the word uncertain is in the tag, add it
-        # here. this is used in the 3d webgl viewer
-
-
-    # represent the skeleton as JSON
-    vertices={}; connectivity={}
-    for tn in treenode_qs:
-        if tn.id in labels:
-            lab = labels[tn.id]
-        else:
-            # Fake label for WebGL 3d viewer to show a sphere
-            if tn.confidence < 5:
-                lab = ['uncertain']
-            else:
-                lab = []
-
-        vertices[tn.id] = {
-            'x': tn.location.x,
-            'y': tn.location.y,
-            'z': tn.location.z,
-            'radius': max(tn.radius, 0),
-            'type': 'skeleton',
-            'labels': lab,
-            'user_id': tn.user_id,
-            'reviewer_id': tn.reviewer_id
-            
-            # 'review_time': tn.review_time
-            # To submit the review time, we would need to encode the datetime as string
-            # http://stackoverflow.com/questions/455580/json-datetime-between-python-and-javascript
-        }
-
-        if not tn.parent_id is None:
-            if connectivity.has_key(tn.id):
-                connectivity[tn.id][tn.parent_id] = {
-                    'type': 'neurite'
-                }
-            else:
-                connectivity[tn.id] = {
-                    tn.parent_id: {
-                        'type': 'neurite'
-                    }
-                }
-
-    qs_tc = TreenodeConnector.objects.filter(
-        project=project_id,
-        relation__relation_name__endswith = 'synaptic_to',
-        skeleton__in=[skeleton_id]
-    ).select_related('treenode', 'connector', 'relation')
-
-    #print >> sys.stderr, 'vertices, connectivity', vertices, connectivity
-
-    for tc in qs_tc:
-        #print >> sys.stderr, 'vertex, connector', tc.treenode_id, tc.connector_id
-        #print >> sys.stderr, 'relation name', tc.relation.relation_name
-
-        if tc.treenode_id in labels:
-            lab1 = labels[tc.treenode_id]
-        else:
-            lab1 = []
-        if tc.connector_id in labels:
-            lab2 = labels[tc.connector_id]
-        else:
-            lab2 = []
-
-        if not vertices.has_key(tc.treenode_id):
-            raise Exception('Vertex was not in the result set. This should never happen.')
-
-        if not vertices.has_key(tc.connector_id):
-            vertices[tc.connector_id] = {
-                'x': tc.connector.location.x,
-                'y': tc.connector.location.y,
-                'z': tc.connector.location.z,
-                'type': 'connector',
-                'labels': lab2,
-                'reviewer_id': tc.connector.reviewer_id
-                #'review_time': tn.review_time
-            }
-
-        # if it a single node without connection to anything else,
-        # but to a connector, add it
-        if not connectivity.has_key(tc.treenode_id):
-            connectivity[tc.treenode_id] = {}
-
-        if connectivity[tc.treenode_id].has_key(tc.connector_id):
-            # print >> sys.stderr, 'only for postsynaptic to the same skeleton multiple times'
-            # print >> sys.stderr, 'for connector', tc.connector_id
-            connectivity[tc.treenode_id][tc.connector_id] = {
-                'type': tc.relation.relation_name
-            }
-        else:
-            # print >> sys.stderr, 'does not have key', tc.connector_id, connectivity[tc.treenode_id]
-            connectivity[tc.treenode_id][tc.connector_id] = {
-                'type': tc.relation.relation_name
-            }
-
-    # retrieve neuron name
-    p = get_object_or_404(Project, pk=project_id)
-    sk = get_object_or_404(ClassInstance, pk=skeleton_id, project=project_id)
-
-    neuron = ClassInstance.objects.filter(
-        project=p,
-        cici_via_b__relation__relation_name='model_of',
-        cici_via_b__class_instance_a=sk)
-    n = { 'neuronname': neuron[0].name }
-
-    return {'vertices':vertices,'connectivity':connectivity, 'neuron': n }
-
-def export_extended_skeleton_response(request, project_id=None, skeleton_id=None, format=None):
-
-    data=generate_extended_skeleton_data( project_id, skeleton_id )
-
-    if format == 'json':
-        json_return = json.dumps(data, sort_keys=True, indent=4)
-        return HttpResponse(json_return, mimetype='text/json')
-    else:
-        raise Exception, "Unknown format ('%s') in export_extended_skeleton_response" % (format,)
 
 
 def _skeleton_neuroml_cell(skeleton_id, preID, postID):
@@ -615,16 +492,24 @@ def skeleton_json(*args, **kwargs):
     return export_extended_skeleton_response(*args, **kwargs)
 
 def _export_review_skeleton(project_id=None, skeleton_id=None, format=None):
-    treenodes = Treenode.objects.filter(skeleton_id=skeleton_id).values_list('id', 'location', 'parent_id', 'reviewer_id')
+    """ Returns a list of segments for the requested skeleton. Each segment
+    contains information about the review status of this part of the skeleton.
+    """
+    # Get all treenodes of the requested skeleton
+    treenodes = Treenode.objects.filter(skeleton_id=skeleton_id).values_list('id', 'location', 'parent_id')
+    # Get all reviews for the requested skeleton
+    reviews = get_treenodes_to_reviews(skeleton_ids=[skeleton_id])
 
+    # Add each treenode to a networkx graph and attach reviewer information to
+    # it.
     g = nx.DiGraph()
     reviewed = set()
     for t in treenodes:
         loc = Double3D.from_str(t[1])
-        # While at it, send the reviewer ID, which is useful to iterate fwd
+        # While at it, send the reviewer IDs, which is useful to iterate fwd
         # to the first unreviewed node in the segment.
-        g.add_node(t[0], {'id': t[0], 'x': loc.x, 'y': loc.y, 'z': loc.z, 'rid': t[3]})
-        if -1 != t[3]:
+        g.add_node(t[0], {'id': t[0], 'x': loc.x, 'y': loc.y, 'z': loc.z, 'rids': reviews[t[0]]})
+        if reviews[t[0]]:
             reviewed.add(t[0])
         if t[2]: # if parent
             g.add_edge(t[2], t[0]) # edge from parent to child
@@ -650,6 +535,8 @@ def _export_review_skeleton(project_id=None, skeleton_id=None, format=None):
 
         if len(sequence) > 1:
             sequences.append(sequence)
+
+    # Calculate status
 
     segments = []
     for sequence in sorted(sequences, key=len, reverse=True):

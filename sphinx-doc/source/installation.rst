@@ -60,7 +60,8 @@ Some of these Python packages depend on system-wide libraries
 that you will need to install in advance, however.  You can do
 this with::
 
-    sudo apt-get install gcc apt-file python2.7-dev postgresql-common \
+    sudo apt-get install gcc gfortran apt-file \
+                         python2.7-dev postgresql-common \
                          libpq-dev libgraphicsmagick++1-dev \
                          libhdf5-serial-dev libboost1.48-dev \
                          libboost-python1.48-dev uuid-dev \
@@ -68,10 +69,20 @@ this with::
                          libtiff-dev virtualenvwrapper \
                          libblas-dev liblapack-dev
 
-Virtual Env Wrapper needs to source your environment. Start a new terminal
+Virtualenv Wrapper needs to source your environment. Start a new terminal
 or if you are using the bash::
 
     source ~/.bashrc
+
+Please test if ``virtualenvwrapper`` is set up correctly, by executing::
+
+    mkvirtualenv --version
+
+If it gives you a version, everything is fine. Otherwise, e.g. if the command
+``mkvirtualenv`` is not found, add the following line to your ``~/.bashrc`` file
+and call ``source ~/.bashrc`` again::
+
+    source /etc/bash_completion.d/virtualenvwrapper
 
 To create a new virtualenv for CATMAID's Python dependencies,
 you can do::
@@ -85,6 +96,14 @@ virtualenv as above, it will be activated for you, but in new
 shells, for example, you will need to activate it by running::
 
     workon catmaid
+
+Ubuntu 12.04 ships a rather old version of Pip, the tool we use to install
+Python packages within the virtualenv. Let's update it therefor first---within
+the virtualenv::
+
+    pip install pip==1.5.4
+
+You can probably use a later version as well, but we tested it with Pip v1.5.4.
 
 Due to `a dependency problem
 <https://github.com/h5py/h5py/issues/96>`_, we need to install
@@ -172,9 +191,8 @@ details requested.  Then you should run::
     ./create_configuration.py
 
 This will output some suggested Apache configuration in the
-terminal, and generate the files ``django.wsgi``,
-``settings.py`` and ``settings_production.py`` in
-``/home/alice/catmaid/django/projects/mysite``.
+terminal, and generate the files ``django.wsgi`` and ``settings.py``
+in ``/home/alice/catmaid/django/projects/mysite``.
 
 5. Create the database tables
 #############################

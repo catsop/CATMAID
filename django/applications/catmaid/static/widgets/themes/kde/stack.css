@@ -140,8 +140,14 @@ div.TilelayerControl
 	position:relative;
     top:10px;
     left:10px;
-    width:100px;
+    width:130px;
     color:#FFFFFF;
+}
+
+div.TilelayerControl .layerControl
+{
+	/*border:solid 2px #0000FF;*/
+	margin:0 0 10px 0;
 }
 
 div.sliceView div.sliceMouseCatcher
@@ -237,30 +243,18 @@ div.sliceView div.indicatorbar
     z-index:10;
 }
 
-div.sliceView div.neuronname
+div.sliceView p.neuronname
 {
-    position:absolute;
-    right:60px;
-    top:15px;
-    height:0.5em;
-    width:auto;
-    border:none;
-    overflow:visible;
-    margin:0px;
-    padding:0px;
-    vertical-align:bottom;
-    z-index:10;
-}
-
-div.sliceView div.neuronname p
-{
-    border:none;
-    margin:0px;
-    margin-top:-12px;
-    padding:3px 6px 3px 14px;
-    color:#FFFFFF;
-    background:url(blue20.png);
-    overflow:hidden;
+	position:absolute;
+	right:60px;
+	top:0px;
+	width:auto;
+	border:none;
+	margin:0px;
+	padding:3px 6px 3px 6px;
+	vertical-align:bottom;
+	z-index:7;
+	color:#ffffff;
 }
 
 div.stackInfo,
@@ -361,3 +355,6 @@ div.sliceView div.cropBox p.close
 	cursor: pointer;
 }
 
+.clear {
+  clear: both;
+}

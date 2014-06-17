@@ -210,6 +210,11 @@ div#data_view td.head
 	background-color: #FFFFFF;
 }
 
+div#data_view .highlight
+{
+	font-weight:bold;
+}
+
 div#data_view figure
 {
 	margin-top: 0px;
@@ -395,4 +400,148 @@ div#classification_graph_object img.roiimage {
 
 .ui-front {
     z-index: 10000 !important;
+}
+
+.buttonpanel input {
+  vertical-align: middle;
+}
+
+.connectivity_widget table {
+  padding: 3px;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+.connectivity_widget .header {
+  margin: 1em 0 1em 1em;
+  clear: left;
+}
+
+.connectivity_widget .header input {
+  margin: 0 3px 0 3px;
+  vertical-align: middle;
+}
+
+.connectivity_widget .header th {
+  border-bottom: 1px solid black;
+}
+
+.connectivity_widget .header th:nth-child(4),
+.connectivity_widget .header th:nth-child(5) {
+  width: 7em;
+}
+
+.connectivity_widget .header tfoot td {
+  border-top: 1px solid #ccc;
+  font-style: italic;
+}
+
+.connectivity_widget label {
+  display: block;
+  padding-right: 10px;
+  padding-left: 22px;
+  text-indent: -22px;
+}
+
+.connectivity_widget .input-container {
+  text-align: center;
+}
+
+.connectivity_widget .table_container_half {
+  display: table-cell;
+  width: 50%;
+  vertical-align: top;
+}
+
+.connectivity_widget .table_container_wide {
+  width: 100%;
+}
+
+.connectivity_widget .content {
+  display: table;
+  clear: both;
+}
+
+.connectivity_widget .partner_table {
+  padding: 3px;
+  border-collapse: collapse;
+  border: 1px solid black;
+  width: 100%;
+  margin-bottom: 1em;
+}
+
+.connectivity_widget .partner_table td,
+.connectivity_widget .partner_table th {
+  border: 1px solid black;
+}
+
+.connectivity_widget .partner_table .syncount {
+  text-align: center;
+}
+
+.connectivity_widget .partner_table tfoot {
+  color: grey;
+}
+
+.clear {
+  clear: both;
+}
+
+.left {
+  float: left;
+}
+
+.right {
+  float: right;
+}
+
+#review_segment_table tr.highlight {
+	font-weight:bold;
+}
+
+#review_segment_table th {
+  white-space: nowrap;
+  vertical-align: baseline;
+  border-bottom: 1px solid black;
+}
+
+#settings_widget .title {
+  font-weight: bold;
+}
+
+#settings_widget .content {
+  margin-left: 3em;
+}
+
+.setting {
+  float: left;
+  clear: left;
+  padding: 0.1em 0 0.1em 0;
+}
+
+.setting .description {
+  width: 15em;
+  display: inline-block
+}
+
+.setting input[type=checkbox] {
+  position: relative;
+  margin-left: 0;
+  margin-bottom: 0;
+  bottom: -0.2em;
+}
+
+.settings-container {
+  clear: both;
+  float: left;
+  display: inline-block;
+}
+
+
+#settings_widget select {
+  min-width:  20em;
+}
+
+#settings_widget select.multiline {
+  height: 8em;
 }

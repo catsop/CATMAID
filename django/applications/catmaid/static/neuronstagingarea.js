@@ -9,6 +9,7 @@ var SelectionTable = function() {
 
   this.skeletons = [];
   this.skeleton_ids = {}; // skeleton_id vs index in skeleton array
+  this.reviews = {};  // skeleton_id vs review percentage
   this.all_visible = true;
   this.all_synapses_visible = {pre: true, post: true};
   this.selected_skeleton_id = null;
@@ -19,6 +20,7 @@ var SelectionTable = function() {
 SelectionTable.prototype = {};
 $.extend(SelectionTable.prototype, new InstanceRegistry());
 $.extend(SelectionTable.prototype, new SkeletonSource());
+$.extend(SelectionTable.prototype, new Colorizer());
 
 SelectionTable.prototype.highlighting_color = "#d6ffb5";
 
@@ -31,6 +33,7 @@ SelectionTable.prototype.destroy = function() {
   this.clear(); // clear after clearing linkTarget, so it doesn't get cleared
   this.unregisterInstance();
   this.unregisterSource();
+  neuronNameService.unregister(this);
 };
 
 SelectionTable.prototype.updateModels = function(models, source_chain) {
@@ -62,6 +65,7 @@ SelectionTable.prototype.SkeletonModel = function( id, neuronname, color ) {
     this.post_visible = true;
     this.text_visible = false;
     this.color = color;
+    this.opacity = 1; // from 0 to 1
 };
 
 SelectionTable.prototype.SkeletonModel.prototype = {};
@@ -79,6 +83,7 @@ SelectionTable.prototype.SkeletonModel.prototype.clone = function() {
   m.pre_visible = this.pre_visible;
   m.post_visible = this.post_visible;
   m.text_visible = this.text_visible;
+  m.opacity = this.opacity;
   return m;
 };
 
@@ -151,48 +156,6 @@ SelectionTable.prototype.SkeletonModel.prototype.skeleton_info = function() {
           }
         }
       });
-};
-
-
-SelectionTable.prototype.COLORS = [[1, 1, 0], // yellow
-                                   [1, 0, 1], // magenta
-                                   [0.5, 0.5, 1], // light blue
-                                   [1, 0, 0], // red
-                                   [1, 1, 1], // white
-                                   [0, 1, 0], // green
-                                   [0, 1, 1], // cyan
-                                   [1, 0.5, 0], // orange
-                                   [0, 0, 1], // blue
-                                   [0.75, 0.75, 0.75], // silver
-                                   [1, 0.5, 0.5], // pinkish
-                                   [0.5, 1, 0.5], // light cyan
-                                   [0.5, 1, 0], // light green
-                                   [0, 1, 0.5], // pale green
-                                   [1, 0, 0.5], // purplish
-                                   [0.5, 0, 0], // maroon
-                                   [0.5, 0.5, 0.5], // grey
-                                   [0.5, 0, 0.5], // purple
-                                   [0, 0, 0.5], // navy blue
-                                   [1, 0.38, 0.28], // tomato
-                                   [0.85, 0.64, 0.12], // gold
-                                   [0.25, 0.88, 0.82], // turquoise
-                                   [1, 0.75, 0.79]]; // pink
-
-
-SelectionTable.prototype.pickColor = function() {
-  var c = this.COLORS[this.next_color_index % this.COLORS.length];
-  var color = new THREE.Color().setRGB(c[0], c[1], c[2]);
-  if (this.next_color_index < this.COLORS.length) {
-    this.next_color_index += 1;
-    return color;
-  }
-  // Else, play a variation on the color's hue (+/- 0.25) and saturation (from 0.5 to 1)
-  var hsl = color.getHSL();
-  color.setHSL((hsl.h + (Math.random() - 0.5) / 2.0) % 1.0,
-               Math.max(0.5, Math.min(1.0, (hsl.s + (Math.random() - 0.5) * 0.3))),
-               hsl.l);
-  this.next_color_index += 1;
-  return color;
 };
 
 SelectionTable.prototype.highlight = function( skeleton_id ) {
@@ -295,8 +258,8 @@ SelectionTable.prototype.sort = function(sortingFn) {
 
 SelectionTable.prototype.sortByName = function() {
   this.sort(function(sk1, sk2) {
-    var name1 = sk1.baseName.toLowerCase(),
-        name2 = sk2.baseName.toLowerCase();
+    var name1 = neuronNameService.getName(sk1.id).toLowerCase(),
+        name2 = neuronNameService.getName(sk2.id).toLowerCase();
     return name1 == name2 ? 0 : (name1 < name2 ? -1 : 1);
   });
 
@@ -375,19 +338,43 @@ SelectionTable.prototype.append = function(models) {
     growlAlert("Info", "No skeletons selected!"); // at source
     return;
   }
-  skeleton_ids.forEach(function(skeleton_id) {
-    if (skeleton_id in this.skeleton_ids) {
-      // Update skeleton
-      this.skeletons[this.skeleton_ids[skeleton_id]] = models[skeleton_id];
-      return;
-    }
-    this.skeletons.push(models[skeleton_id]);
-    this.skeleton_ids[skeleton_id] = this.skeletons.length -1;
-  }, this);
 
+  // Retrieve review status before doing anything else
+  requestQueue.register(django_url + project.id + '/skeleton/review-status', 'POST',
+    {skeleton_ids: skeleton_ids},
+    (function(status, text) {
+      if (200 !== status) return;
+      var json = $.parseJSON(text);
+      if (json.error) {
+        new ErrorDialog(json.error, json.detail).show();
+        return;
+      }
+
+      skeleton_ids.forEach(function(skeleton_id) {
+        if (skeleton_id in this.skeleton_ids) {
+          // Update skeleton
+          this.skeletons[this.skeleton_ids[skeleton_id]] = models[skeleton_id];
+          return;
+        }
+        this.skeletons.push(models[skeleton_id]);
+        this.reviews[skeleton_id] = parseInt(json[skeleton_id]);
+        this.skeleton_ids[skeleton_id] = this.skeletons.length -1;
+      }, this);
+
+      // Add skeletons
+      neuronNameService.registerAll(this, models,
+          this.gui.update.bind(this.gui));
+
+      this.updateLink(models);
+    }).bind(this));
+};
+
+/**
+ * This method is called from the neuron name service, if neuron names are
+ * changed.
+ */
+SelectionTable.prototype.updateNeuronNames = function() {
   this.gui.update();
-
-  this.updateLink(models);
 };
 
 /** ids: an array of Skeleton IDs. */
@@ -432,6 +419,7 @@ SelectionTable.prototype.removeSkeletons = function(ids) {
 SelectionTable.prototype.clear = function(source_chain) {
   this.skeletons = [];
   this.skeleton_ids = {};
+  this.reviews = {};
   this.gui.clear();
   this.selected_skeleton_id = null;
   this.next_color_index = 0;
@@ -472,9 +460,11 @@ SelectionTable.prototype.getSkeletonModels = function() {
 /** Update neuron names and remove stale non-existing skeletons while preserving
  *  ordering and properties of each skeleton currently in the selection. */
 SelectionTable.prototype.update = function() {
+  var self = this;
   var models = this.skeletons.reduce(function(o, sk) { o[sk.id] = sk; return o; }, {});
   var indices = this.skeleton_ids;
-  var self = this;
+  var skeleton_ids = Object.keys(models);
+
   requestQueue.register(django_url + project.id + '/skeleton/neuronnames', 'POST',
     {skids: Object.keys(models)},
     function(status, text) {
@@ -497,8 +487,19 @@ SelectionTable.prototype.update = function() {
         self.skeletons.push(models[skid]);
         self.skeleton_ids[skid] = self.skeletons.length -1;
       });
-      self.gui.update();
-      self.updateLink(new_models);
+
+      // Retrieve review status
+      skeleton_ids = skeleton_ids.concat(Object.keys(new_models));
+      requestQueue.register(django_url + project.id + '/skeleton/review-status', 'POST',
+        {skeleton_ids: skeleton_ids}, jsonResponseHandler(function(json) {
+          // Update review information
+          skeleton_ids.forEach(function(skeleton_id) {
+            self.reviews[skeleton_id] = parseInt(json[skeleton_id]);
+          }, this);
+          // Update user interface
+          self.gui.update();
+          self.updateLink(new_models);
+        }));
     });
 };
 
@@ -656,9 +657,16 @@ SelectionTable.prototype.GUI.prototype.append = function (skeleton) {
   );
   rowElement.append( td );
 
-  rowElement.append(
-    $(document.createElement("td")).text( skeleton.baseName + ' #' + skeleton.id )
-  );
+  // name
+  var name = neuronNameService.getName(skeleton.id);
+  rowElement.append($(document.createElement("td")).text(
+        name ? name : 'undefined'));
+
+  // percent reviewed
+  rowElement.append($('<td/>')
+      .text(this.table.reviews[skeleton.id] + "%")
+      .css('background-color',
+          ReviewSystem.getBackgroundColor(this.table.reviews[skeleton.id])));
 
   // show skeleton
   rowElement.append(
@@ -777,7 +785,7 @@ SelectionTable.prototype.GUI.prototype.append = function (skeleton) {
       .css("background-color", '#' + skeleton.color.getHexString())
   );
   td.append(
-    $('<div id="color-wheel' + widgetID + '-' + skeleton.id + '"><div class="colorwheel' + skeleton.id + '"></div></div>')
+    $('<div id="color-wheel' + widgetID + '-' + skeleton.id + '"><div class="colorwheel' + skeleton.id + '"></div></div>').hide()
   );
   td.append(
     $(document.createElement("button")).attr({
@@ -830,11 +838,6 @@ SelectionTable.prototype.measure = function() {
         return row;
       }));
     });
-};
-
-SelectionTable.prototype.annotate_skeleton_list = function() {
-  var skeleton_ids = this.getSelectedSkeletons();
-  NeuronAnnotations.prototype.annotate_neurons_of_skeletons(skeleton_ids);
 };
 
 /** Filtering by an empty text resets to no filtering. */
