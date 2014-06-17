@@ -29,19 +29,38 @@ Test tasks with random data
 </button>
 
 <h2>
-Create tasks with explicit data
+Create tasks with explicit block indices
 </h2>
 
-Block indices:
-X <input type="text" ng-model="blockX">
-Y <input type="text" ng-model="blockY">
-Z <input type="text" ng-model="blockZ">
+<div class="row">
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">X</span>
+      <input type="text" class="form-control" ng-model="blockX">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Y</span>
+      <input type="text" class="form-control" ng-model="blockY">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Z</span>
+      <input type="text" class="form-control" ng-model="blockZ">
+    </div>
+  </div>
 
-<button type="button" class="btn btn-default"
-    data-ng-click="launchSolutionGuarantorTask(blockX, blockY, blockZ)">
-  <span class="glyphicon glyphicon-play-circle"></span>
-  Solution Guarantor
-</button>
+  <div class="col-sm-2">
+    <button type="button" class="btn btn-default"
+        data-ng-click="launchSolutionGuarantorTask(blockX, blockY, blockZ)">
+      <span class="glyphicon glyphicon-play-circle"></span>
+      Solution Guarantor
+    </button>
+  </div>
+</div>
+
 
 <h2>
 Tasks
