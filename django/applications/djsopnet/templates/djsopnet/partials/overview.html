@@ -29,6 +29,21 @@ Test tasks with random data
 </button>
 
 <h2>
+Create tasks with explicit data
+</h2>
+
+Block indices:
+X <input type="text" ng-model="blockX">
+Y <input type="text" ng-model="blockY">
+Z <input type="text" ng-model="blockZ">
+
+<button type="button" class="btn btn-default"
+    data-ng-click="launchSolutionGuarantorTask(blockX, blockY, blockZ)">
+  <span class="glyphicon glyphicon-play-circle"></span>
+  Solution Guarantor
+</button>
+
+<h2>
 Tasks
 </h2>
 <p>
