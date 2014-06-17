@@ -103,9 +103,6 @@ ROI_AUTO_CREATE_IMAGE = False
 IMPORTER_DEFAULT_TILE_WIDTH = 256
 IMPORTER_DEFAULT_TILE_HEIGHT = 256
 
-# Celery needs to know all the tasks we want it to be able to execute
-CELERY_IMPORTS = ['celerysopnet.tasks']
-
 # Some tools and widgets create files (e.g. cropping, ROIs, NeuroHDF5 and
 # treenode export). These files will be created in a folder for each tool
 # relative to the path defined in Django's MEDIA_ROOT variable. These are
@@ -121,6 +118,7 @@ CELERY_IMPORTS = (
     'catmaid.control.cropping',
     'catmaid.control.roi',
     'catmaid.control.treenodeexport',
+    'celerysopnet.tasks',
 )
 
 # A couple of functions useful for generating default directories to
