@@ -147,7 +147,7 @@ class BlockInfo(UserFocusedModel):
     num_z = models.IntegerField(default=0)
 
 class FeatureName(models.Model):
-    name = models.CharField(max_length=32)
+    name = models.CharField(max_length=128)
 
 class FeatureNameInfo(UserFocusedModel):
     stack = models.ForeignKey(Stack)
