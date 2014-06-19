@@ -1013,7 +1013,7 @@ def test_segmentguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
         'task_id': async_result.id
     }))
 
-def test_solutionguarantor_task(request, pid, raw_id, membrane_sid, x, y, z):
+def test_solutionguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
     config = create_project_config(pid, raw_sid, membrane_sid)
     async_result = SolutionGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
