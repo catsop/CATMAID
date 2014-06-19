@@ -95,7 +95,7 @@ def generate_slices_response(slices):
 
 def generate_segments_response(segments):
     segment_list = [segment_dict(segment) for segment in segments]
-    return HttpResponse(json.dumps({'segments' : segment_list}), mimetype = 'text/json')
+    return HttpResponse(json.dumps({'ok' : True, 'segments' : segment_list}), mimetype = 'text/json')
 
 def generate_block_response(block):
     if block:
@@ -381,20 +381,20 @@ def get_core_solution_flag(request, project_id = None, stack_id = None):
 
 # --- Slices ---
 
-def do_insert_slices(stack, project, user, dict):
+def do_insert_slices(stack, project, user, req_dict):
     try:
-        n = int(dict.get('n'))
+        n = int(req_dict.get('n'))
         for i in range(n):
             i_str = str(i)
-            section = int(dict.get('section_' + i_str))
-            hash_value = dict.get('hash_' + i_str)
-            ctr_x = float(dict.get('cx_' + i_str))
-            ctr_y = float(dict.get('cy_' + i_str))
-            xlist = dict.get('x_' + i_str)
-            ylist = dict.get('y_' + i_str)
+            section = int(req_dict.get('section_' + i_str))
+            hash_value = req_dict.get('hash_' + i_str)
+            ctr_x = float(req_dict.get('cx_' + i_str))
+            ctr_y = float(req_dict.get('cy_' + i_str))
+            xlist = req_dict.get('x_' + i_str)
+            ylist = req_dict.get('y_' + i_str)
             x = [int(xstr) for xstr in xlist.split(',')]
             y = [int(ystr) for ystr in ylist.split(',')]
-            value = float(dict.get('value_' + i_str))
+            value = float(req_dict.get('value_' + i_str))
             if x and y and len(x) > 0 and len(y) > 0:
                 min_x = min(x)
                 min_y = min(y)
@@ -423,6 +423,8 @@ def insert_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     p = get_object_or_404(Project, pk = project_id)
     u = User.objects.get(id = 1)
+
+    print request
 
     if request.method == 'GET':
         return do_insert_slices(s, p, u, request.GET)
