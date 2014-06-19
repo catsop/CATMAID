@@ -8,6 +8,30 @@
         // Provide random number generator to template
         $scope.r = Tools.r;
 
+        $scope.setupForSopnet = function(pid, sid, w, h, d, cw, ch, cd) {
+          var bs = Tools.pstr(w, h, d);
+          var cs = Tools.pstr(cw, ch, cd);
+          $log.info("Setting up stack " + sid + " of project " + pid + ".");
+          return $http({
+            method: 'GET',
+            url: pid + '/stack/' + sid + '/setup_blocks',
+            params: {
+               'width': w,
+               'height': h,
+               'depth': d,
+               'cwidth': cw,
+               'cheight': ch,
+               'cdepth': cd,
+            }
+          }).success(function(data) {
+            return $log.info("Successfully set up stack " + sid + " of project " +
+                pid + " to use block size " + bs + " and core size " + cs ".");
+          }).error(function(data) {
+            return $log.info("Failed to  set up stack " + sid + " of project " +
+                pid + " to use block size " + bs + " and core size " + cs ".");
+          });
+        };
+
         $scope.launchSliceGuarantorTask = function(pid, sid, x, y, z) {
           var p = Tools.pstr(x, y, z);
           $log.info("Launching Slice Guarantor Task for position " + p + ".");

@@ -1,3 +1,7 @@
+<h2>
+General Setup
+</h2>
+
 <div class="row">
   <div class="col-sm-2">
     <div class="input-group">
@@ -10,6 +14,61 @@
       <span class="input-group-addon">Stack ID</span>
       <input type="text" class="form-control" ng-model="stackId">
     </div>
+  </div>
+</div>
+
+<h4>
+Block Size (px) and Core Size (blocks)
+</h4>
+
+<div class="row">
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Block Width</span>
+      <input type="text" class="form-control" ng-model="blockWidth">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Block Height</span>
+      <input type="text" class="form-control" ng-model="blockHeight">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Block Depth</span>
+      <input type="text" class="form-control" ng-model="blockDepth">
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Core Width</span>
+      <input type="text" class="form-control" ng-model="blockWidth">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Core Height</span>
+      <input type="text" class="form-control" ng-model="blockHeight">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Core Depth</span>
+      <input type="text" class="form-control" ng-model="blockDepth">
+    </div>
+  </div>
+
+  <div class="col-sm-2">
+    <button type="button" class="btn btn-default"
+        data-ng-click="setupForSopnet(projectId, stackId,
+        blockWidth, blockHeight, blockDepth, coreWidth, coreHeight, coreDepth)">
+      <span class="glyphicon glyphicon-play-circle"></span>
+      Set
+    </button>
   </div>
 </div>
 
