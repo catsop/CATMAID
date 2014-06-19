@@ -109,7 +109,7 @@ class Core(UserFocusedModel):
 class SegmentSolution(UserFocusedModel):
     core = models.ForeignKey(Core, db_index=True)
     segment = models.ForeignKey(Segment, db_index=True)
-    solution = models.FloatField()
+    solution = models.BooleanField()
 
 class SegmentCost(UserFocusedModel):
     segment = models.OneToOneField(Segment, db_index=True)

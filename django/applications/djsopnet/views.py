@@ -837,7 +837,7 @@ def set_segment_solutions(request, project_id = None, stack_id = None):
             i_str = str(i)
             hash_value = request.GET.get('hash_' + i_str)
             hash_values.append(hash_value)
-            solution_dict[hash_value] = float(request.GET.get('solution_' + i_str))
+            solution_dict[hash_value] = request.GET.get('solution_' + i_str).lower() in ['true', 'yes', '1']
 
         # filter all of the segments out in a single hit. Note that we might not get a Segment object for every
         # requested hash.
