@@ -983,8 +983,6 @@ def create_project_config(project_id, stack_id):
     }
     if hasattr(settings, 'SOPNET_BACKEND_TYPE'):
         config['backend_type'] = settings.SOPNET_BACKEND_TYPE
-    if hasattr(settings, 'SOPNET_DJANGO_URL'):
-        config['django_url'] = settings.SOPNET_DJANGO_URL
     if hasattr(settings, 'SOPNET_CATMAID_HOST'):
         config['catmaid_host'] = settings.SOPNET_CATMAID_HOST
     if hasattr(settings, 'SOPNET_BLOCK_SIZE'):
