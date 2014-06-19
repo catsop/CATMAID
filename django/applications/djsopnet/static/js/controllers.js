@@ -21,14 +21,14 @@
                'depth': d,
                'cwidth': cw,
                'cheight': ch,
-               'cdepth': cd,
+               'cdepth': cd
             }
           }).success(function(data) {
             return $log.info("Successfully set up stack " + sid + " of project " +
-                pid + " to use block size " + bs + " and core size " + cs ".");
+                pid + " to use block size " + bs + " and core size " + cs + ".");
           }).error(function(data) {
             return $log.info("Failed to  set up stack " + sid + " of project " +
-                pid + " to use block size " + bs + " and core size " + cs ".");
+                pid + " to use block size " + bs + " and core size " + cs + ".");
           });
         };
 
