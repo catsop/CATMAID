@@ -5,6 +5,7 @@ from django.http import HttpResponse
 
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
+from django.conf import settings
 
 from catmaid.models import *
 from catmaid.control.stack import get_stack_info
@@ -14,7 +15,7 @@ from celery.task.control import inspect
 
 from celerysopnet.tasks import SliceGuarantorTask, SegmentGuarantorTask
 from celerysopnet.tasks import SolutionGuarantorTask, SolveSubvolumeTask
-from celerysopnet.tasks import TraceNeuronTask, create_project_config
+from celerysopnet.tasks import TraceNeuronTask
 
 from djcelery.models import TaskState
 
@@ -972,24 +973,47 @@ def get_task_list(request):
 
     return HttpResponse(json.dumps(task_data))
 
-def test_sliceguarantor_task(request, x, y, z):
-    config = create_project_config()
+def create_project_config(project_id, stack_id):
+    """
+    Creates a configuration dictionary for Sopnet.
+    """
+    config = {
+        'catmaid_project_id': project_id,
+        'catmaid_stack_id': stack_id,
+    }
+    if settings.SOPNET_BACKEND_TYPE:
+        config['backend_type'] = settings.SOPNET_BACKEND_TYPE
+    if settings.SOPNET_DJANGO_URL:
+        config['django_url'] = settings.SOPNET_DJANGO_URL
+    if settings.SOPNET_CATMAID_HOST:
+        config['catmaid_host'] = settings.SOPNET_CATMAID_HOST
+    if settings.SOPNET_BLOCK_SIZE:
+        config['block_size'] = settings.SOPNET_BLOCK_SIZE
+    if settings.SOPNET_VOLUME_SIZE:
+        config['volume_size'] = settings.SOPNET_VOLUME_SIZE
+    if settings.SOPNET_CORE_SIZE:
+        config['core_size'] = settings.SOPNET_CORE_SIZE
+
+    return config
+
+def test_sliceguarantor_task(request, project_id, stack_id, x, y, z):
+    config = create_project_config(project_id, stack_id)
     async_result = SliceGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued slice guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_segmentguarantor_task(request, x, y, z):
-    config = create_project_config()
+def test_segmentguarantor_task(request, project_id, stack_id, x, y, z):
+    config = create_project_config(project_id, stack_id)
     async_result = SegmentGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued segment guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_solutionguarantor_task(request, x, y, z):
-    config = create_project_config()
+def test_solutionguarantor_task(request, project_id, stack_id, x, y, z):
+    config = create_project_config(project_id, stack_id)
     async_result = SolutionGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued solution guarantor task.",
