@@ -14,7 +14,7 @@ from celery.task.control import inspect
 
 from celerysopnet.tasks import SliceGuarantorTask, SegmentGuarantorTask
 from celerysopnet.tasks import SolutionGuarantorTask, SolveSubvolumeTask
-from celerysopnet.tasks import TraceNeuronTask
+from celerysopnet.tasks import TraceNeuronTask, create_project_config
 
 from djcelery.models import TaskState
 
@@ -973,21 +973,24 @@ def get_task_list(request):
     return HttpResponse(json.dumps(task_data))
 
 def test_sliceguarantor_task(request, x, y, z):
-    async_result = SliceGuarantorTask.delay(x, y, z)
+    config = create_project_config()
+    async_result = SliceGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued slice guarantor task.",
         'task_id': async_result.id
     }))
 
 def test_segmentguarantor_task(request, x, y, z):
-    async_result = SegmentGuarantorTask.delay(x, y, z)
+    config = create_project_config()
+    async_result = SegmentGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued segment guarantor task.",
         'task_id': async_result.id
     }))
 
 def test_solutionguarantor_task(request, x, y, z):
-    async_result = SolutionGuarantorTask.delay(x, y, z)
+    config = create_project_config()
+    async_result = SolutionGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued solution guarantor task.",
         'task_id': async_result.id
