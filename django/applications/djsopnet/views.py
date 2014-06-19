@@ -997,7 +997,7 @@ def create_project_config(project_id, raw_stack_id, membrane_stack_id):
 
     return config
 
-def test_sliceguarantor_task(request, pid, raw_sid, membrane_sid x, y, z):
+def test_sliceguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
     config = create_project_config(pid, raw_sid, membrane_sid)
     async_result = SliceGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
