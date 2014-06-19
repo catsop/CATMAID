@@ -32,7 +32,7 @@
           });
         };
 
-        $scope.setupAllForSopnet = function(pid, rsid, mid, w, h, d, cw, ch, cd) {
+        $scope.setupAllForSopnet = function(pid, rsid, msid, w, h, d, cw, ch, cd) {
             $scope.setupForSopnet(pid, rsid, w, h, d, cw, ch, cd);
             $scope.setupForSopnet(pid, msid, w, h, d, cw, ch, cd);
         }
