@@ -32,12 +32,17 @@
           });
         };
 
-        $scope.launchSliceGuarantorTask = function(pid, sid, x, y, z) {
+        $scope.setupAllForSopnet = function(pid, rsid, mid, w, h, d, cw, ch, cd) {
+            $scope.setupForSopnet(pid, rsid, w, h, d, cw, ch, cd);
+            $scope.setupForSopnet(pid, msid, w, h, d, cw, ch, cd);
+        }
+
+        $scope.launchSliceGuarantorTask = function(pid, rsid, msid, x, y, z) {
           var p = Tools.pstr(x, y, z);
           $log.info("Launching Slice Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
-            url: 'sliceguarantor/' + pid + '/' + sid + '/' + x + '/' + y + '/' + z + '/test',
+            url: 'sliceguarantor/' + pid + '/' + rsid + '/' + msid + '/' + x + '/' + y + '/' + z + '/test',
           }).success(function(data) {
             return $log.info("Successfully launched Slice Guarantor Task for " +
                 "position " + p + ".");
@@ -46,12 +51,12 @@
                 "position " + p + ".");
           });
         };
-        $scope.launchSegmentGuarantorTask = function(pid, sid, x, y, z) {
+        $scope.launchSegmentGuarantorTask = function(pid, rsid, msid, x, y, z) {
           var p = Tools.pstr(x, y, z);
           $log.info("Launching Segment Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
-            url: 'segmentguarantor/' + pid + '/' + sid + '/' + x + '/' + y + '/' + z + '/test',
+            url: 'segmentguarantor/' + pid + '/' + rsid + '/' + msid + '/' + x + '/' + y + '/' + z + '/test',
           }).success(function(data) {
             return $log.info("Successfully launched Segment Guarantor Task " +
                 "for position " + p + ".");
@@ -60,12 +65,12 @@
                 "for position " + p + ".");
           });
         };
-        $scope.launchSolutionGuarantorTask = function(pid, sid, x, y, z) {
+        $scope.launchSolutionGuarantorTask = function(pid, rsid, msid, x, y, z) {
           var p = Tools.pstr(x, y, z);
           $log.info("Launching Solution Guarantor Task for position " + p + ".");
           return $http({
             method: 'GET',
-            url: 'solutionguarantor/' + pid + '/' + sid + '/' + x + '/' + y + '/' + z + '/test',
+            url: 'solutionguarantor/' + pid + '/' + rsid + '/' + msid + '/' + x + '/' + y + '/' + z + '/test',
           }).success(function(data) {
             return $log.info("Successfully launched Solution Guarantor Task " +
                 "for position " + p + ".");

@@ -975,13 +975,14 @@ def get_task_list(request):
 
     return HttpResponse(json.dumps(task_data))
 
-def create_project_config(project_id, stack_id):
+def create_project_config(project_id, raw_stack_id, membrane_stack_id):
     """
     Creates a configuration dictionary for Sopnet.
     """
     config = {
         'catmaid_project_id': project_id,
-        'catmaid_stack_id': stack_id,
+        'catmaid_raw_stack_id': raw_stack_id,
+        'catmaid_membrane_stack_id': membrane_stack_id,
     }
     if hasattr(settings, 'SOPNET_BACKEND_TYPE'):
         config['backend_type'] = settings.SOPNET_BACKEND_TYPE
@@ -996,24 +997,24 @@ def create_project_config(project_id, stack_id):
 
     return config
 
-def test_sliceguarantor_task(request, project_id, stack_id, x, y, z):
-    config = create_project_config(project_id, stack_id)
+def test_sliceguarantor_task(request, pid, raw_sid, membrane_sid x, y, z):
+    config = create_project_config(pid, raw_sid, membrane_sid)
     async_result = SliceGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued slice guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_segmentguarantor_task(request, project_id, stack_id, x, y, z):
-    config = create_project_config(project_id, stack_id)
+def test_segmentguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
+    config = create_project_config(pid, raw_sid, membrane_sid)
     async_result = SegmentGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued segment guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_solutionguarantor_task(request, project_id, stack_id, x, y, z):
-    config = create_project_config(project_id, stack_id)
+def test_solutionguarantor_task(request, pid, raw_id, membrane_sid, x, y, z):
+    config = create_project_config(pid, raw_sid, membrane_sid)
     async_result = SolutionGuarantorTask.delay(config, x, y, z)
     return HttpResponse(json.dumps({
         'success': "Successfully queued solution guarantor task.",

@@ -11,8 +11,14 @@ General Setup
   </div>
   <div class="col-sm-2">
     <div class="input-group">
-      <span class="input-group-addon">Stack ID</span>
-      <input type="text" class="form-control" ng-model="stackId">
+      <span class="input-group-addon">Raw Stack ID</span>
+      <input type="text" class="form-control" ng-model="rstackId">
+    </div>
+  </div>
+  <div class="col-sm-2">
+    <div class="input-group">
+      <span class="input-group-addon">Membrane Stack ID</span>
+      <input type="text" class="form-control" ng-model="mstackId">
     </div>
   </div>
 </div>
@@ -64,7 +70,7 @@ Block Size (px) and Core Size (blocks)
 
   <div class="col-sm-2">
     <button type="button" class="btn btn-default"
-        data-ng-click="setupForSopnet(projectId, stackId,
+        data-ng-click="setupAllForSopnet(projectId, rstackId, mstackId,
         blockWidth, blockHeight, blockDepth, coreWidth, coreHeight, coreDepth)">
       <span class="glyphicon glyphicon-play-circle"></span>
       Set
@@ -77,17 +83,17 @@ Test tasks with random data
 </h2>
 
 <button type="button" class="btn btn-default"
-    data-ng-click="launchSliceGuarantorTask(projectId, stackId, r(), r(), r())">
+    data-ng-click="launchSliceGuarantorTask(projectId, rstackId, mstackId, r(), r(), r())">
   <span class="glyphicon glyphicon-play-circle"></span>
   Slice Guarantor
 </button>
 <button type="button" class="btn btn-default"
-    data-ng-click="launchSegmentGuarantorTask(projectId, stackId, r(), r(), r())">
+    data-ng-click="launchSegmentGuarantorTask(projectId, rstackId, mstackId, r(), r(), r())">
   <span class="glyphicon glyphicon-play-circle"></span>
   Segment Guarantor
 </button>
 <button type="button" class="btn btn-default"
-    data-ng-click="launchSolutionGuarantorTask(projectId, stackId, r(), r(), r())">
+    data-ng-click="launchSolutionGuarantorTask(projectId, rstackId, mstackId, r(), r(), r())">
   <span class="glyphicon glyphicon-play-circle"></span>
   Solution Guarantor
 </button>
@@ -128,8 +134,8 @@ Create tasks with explicit block indices
 
   <div class="col-sm-2">
     <button type="button" class="btn btn-default"
-        data-ng-click="launchSolutionGuarantorTask(projectId, stackId,
-        blockX, blockY, blockZ)">
+        data-ng-click="launchSolutionGuarantorTask(projectId, rstackId,
+        mstackId, blockX, blockY, blockZ)">
       <span class="glyphicon glyphicon-play-circle"></span>
       Solution Guarantor
     </button>
