@@ -8,7 +8,7 @@
         // Provide random number generator to template
         $scope.r = Tools.r;
 
-        $scope.resetDjangopSopnet = function(pid, sid)  {
+        $scope.resetDjangoSopnet = function(pid, sid)  {
           $log.info("Clearing database for stack " + sid + " of project " + pid + ".");
           return $http({
             method: 'GET',
@@ -23,7 +23,7 @@
           });
         };
 
-        $scope.resetAllDjangopSopnet = function(pid, rsid, msid)  {
+        $scope.resetAllDjangoSopnet = function(pid, rsid, msid)  {
           if (!confirm("Do you really want all generated data?")) {
             return;
           }
