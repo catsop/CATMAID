@@ -639,8 +639,8 @@ def associate_segments_to_block(request, project_id = None, stack_id = None):
     u = User.objects.get(id = 1)
 
     try:
-        segment_hashes = request.GET.get('hash').split(',')
-        block_id = int(request.GET.get('block'))
+        segment_hashes = request.POST.get('hash').split(',')
+        block_id = int(request.POST.get('block'))
 
         block = Block.objects.get(id = block_id)
 
