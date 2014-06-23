@@ -424,8 +424,6 @@ def insert_slices(request, project_id = None, stack_id = None):
     p = get_object_or_404(Project, pk = project_id)
     u = User.objects.get(id = 1)
 
-    print request
-
     if request.method == 'GET':
         return do_insert_slices(s, p, u, request.GET)
     else:
