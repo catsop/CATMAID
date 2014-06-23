@@ -23,6 +23,14 @@ from StringIO import StringIO
 import traceback
 
 
+def safe_split(tosplit, name='data', delim=','):
+    """ Tests if $tosplit evaluates to true and if not, raises a value error.
+    Otherwise, it the result of splitting it is returned.
+    """
+    if not tosplit:
+        raise ValueError("No %s provided" % name)
+    return segment_hashes.split(delim)
+
 # --- JSON conversion ---
 def slice_dict(slice):
     sd = {'assembly' : slice.assembly,
@@ -292,8 +300,7 @@ def cores_in_bounding_box(request, project_id = None, stack_id = None):
 def retrieve_blocks_by_id(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
     try:
-        id_list = request.POST.get('ids')
-        ids = [int(id) for id in id_list.split(',')]
+        ids = [int(id) for id in safe_split(request.POST.get('ids'), 'block IDs')]
         blocks = Block.objects.filter(id__in = ids)
         return generate_blocks_response(blocks)
     except:
@@ -302,8 +309,7 @@ def retrieve_blocks_by_id(request, project_id = None, stack_id = None):
 def retrieve_cores_by_id(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
     try:
-        id_list = request.POST.get('ids')
-        ids = [int(id) for id in id_list.split(',')]
+        ids = [int(id) for id in safe_split(request.POST.get('ids'), 'core IDs')]
         cores = Core.objects.filter(id__in = ids)
         return generate_cores_response(cores)
     except:
@@ -435,8 +441,13 @@ def associate_slices_to_block(request, project_id = None, stack_id = None):
     u = User.objects.get(id = 1)
 
     try:
-        slice_hashes = request.POST.get('hash').split(',')
+        slice_hashes = safe_split(request.POST.get('hash'), 'slice hashes')
+
         block_id = int(request.POST.get('block'))
+        if not block_id:
+            raise ValueError("No block ID provided")
+        block_id = int(block_id)
+
 
         block = Block.objects.get(id = block_id)
 
@@ -456,7 +467,8 @@ def associate_slices_to_block(request, project_id = None, stack_id = None):
 
 def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-    hash_values = request.POST.get('hash').split(',')
+    hash_values = safe_split(request.POST.get('hash'), 'hash values')
+
     slices = Slice.objects.filter(stack = s, hash_value__in = hash_values)
     return generate_slices_response(slices)
 
@@ -465,8 +477,7 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
 def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        block_id_list = request.POST.get('block_ids')
-        block_ids = [int(id) for id in block_id_list.split(',')]
+        block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
 
         # filter Blocks by id
         blocks = Block.objects.filter(stack=s, id__in=block_ids)
@@ -481,7 +492,6 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
 
         return generate_slices_response(conflict_slices)
     except:
-        raise ValueError(str(request.POST))
         return error_response()
 
 def store_conflict_set(request, project_id = None, stack_id = None):
@@ -491,14 +501,14 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 
     try:
 
-        conflict_sets = request.POST.get('hash').split(';')
+        conflict_sets = safe_split(request.POST.get('hash'), 'conflict set hashes', ';')
 
         for conflict_set in conflict_sets:
 
           if len(conflict_sets) == 0:
             continue
 
-          slice_hashes = conflict_set.split(',')
+          slice_hashes = safe_split(conflict_set, 'slice hashes')
 
           # Collect slices from ids, then blocks from slices.
           slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
@@ -523,7 +533,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 def retrieve_conflict_sets(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        slice_hashes = request.POST.get('hash').split(',')
+        slice_hashes = safe_split(request.POST.get('hash'), 'slice hashes')
 
         slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
         conflict_relations = SliceConflictRelation.objects.filter(slice__in = slices)
@@ -536,7 +546,7 @@ def retrieve_conflict_sets(request, project_id = None, stack_id = None):
 def retrieve_block_ids_by_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        slice_hashes = request.GET.get('hash').split(',')
+        slice_hashes = safe_split(request.POST.get('hash'), 'slice hashes')
 
         slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
         block_relations = SliceBlockRelation.objects.filter(slice__in = slices)
@@ -640,7 +650,7 @@ def associate_segments_to_block(request, project_id = None, stack_id = None):
     u = User.objects.get(id = 1)
 
     try:
-        segment_hashes = request.POST.get('hash').split(',')
+        segment_hashes = safe_split(request.POST.get('hash'), 'segment hashes')
         block_id = int(request.POST.get('block'))
 
         block = Block.objects.get(id = block_id)
@@ -659,15 +669,14 @@ def associate_segments_to_block(request, project_id = None, stack_id = None):
 
 def retrieve_segments_by_hash(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
-    hash_values = request.POST.get('hash').split(',')
+    hash_values = safe_split(request.POST.get('hash'), 'segment hashes')
     segments = Segment.objects.filter(stack = s, hash_value__in = hash_values)
     return generate_segments_response(segments)
 
 def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        block_id_list = request.POST.get('block_ids')
-        block_ids = [int(id) for id in block_id_list.split(',')]
+        block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
         blocks = Block.objects.filter(stack=s, id__in=block_ids)
 
         segment_block_relations = SegmentBlockRelation.objects.filter(block__in = blocks)
@@ -683,7 +692,8 @@ def set_feature_names(request, project_id = None, stack_id = None):
     names = []
 
     try:
-        names = request.POST.get('names').split(',')
+        names = safe_split(request.POST.get('names'), 'names')
+
         existing_names = get_feature_names(s, p)
         if existing_names == names:
             return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
@@ -773,7 +783,7 @@ def get_segment_features(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     p = get_object_or_404(Project, pk = project_id)
     try:
-        segment_hashes = request.POST.get('hash').split(',')
+        segment_hashes = safe_split(request.POST.get('hash'), 'segment hashes')
         segments = Segment.objects.filter(stack = s, hash_value__in = segment_hashes)
         features = SegmentFeatures.objects.filter(project = p, segment__in = segments)
         return generate_features_response(features)
@@ -814,7 +824,7 @@ def set_segment_costs(request, project_id = None, stack_id = None):
 
 def retrieve_segment_costs(request, project_id = None, stack_id = None):
     try:
-        hash_values = request.POST.get('hash').split(',')
+        hash_values = safe_split(request.POST.get('hash'), 'segment hashes')
         segments = Segment.objects.filter(hash_value__in = hash_values)
         costs = SegmentCost.objects.filter(segment__in = segments)
         cost_dicts = [{'hash' : cost.segment.hash_value, 'cost' : cost.cost} for cost in costs]
@@ -868,7 +878,7 @@ def set_segment_solutions(request, project_id = None, stack_id = None):
 
 def retrieve_segment_solutions(request, project_id = None, stack_id = None):
     try:
-        hash_values = request.POST.get('hash').split(',')
+        hash_values = safe_split(request.POST.get('hash'), 'segment hashes')
         core_id = int(request.POST.get('core_id'))
         segments = Segment.objects.filter(hash_value__in = hash_values)
         core = Core.objects.get(pk = core_id)
@@ -885,7 +895,7 @@ def retrieve_segment_solutions(request, project_id = None, stack_id = None):
 def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        segment_hashes = request.GET.get('hash').split(',')
+        segment_hashes = safe_split(request.POST.get('hash'), 'segment hashes')
 
         segments = Segment.objects.filter(stack = s, hash_value__in = segment_hashes)
         block_relations = SegmentBlockRelation.objects.filter(segment__in = segments)
