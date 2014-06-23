@@ -481,7 +481,7 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
 
         return generate_slices_response(conflict_slices)
     except:
-        raise ValueError(block_id_list)
+        raise ValueError(str(request.POST))
         return error_response()
 
 def store_conflict_set(request, project_id = None, stack_id = None):
