@@ -257,9 +257,9 @@ def bound_query(model, s, request):
                                 max_x__gt = xmin,
                                 max_y__gt = ymin,
                                 max_z__gt = zmin,
-                                min_x__lte = xmax,
-                                min_y__lte = ymax,
-                                min_z__lte = zmax)
+                                min_x__lt = xmax,
+                                min_y__lt = ymax,
+                                min_z__lt = zmax)
 
 def block_at_location(request, project_id = None, stack_id = None):
 
