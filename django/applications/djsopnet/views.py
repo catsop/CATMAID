@@ -522,7 +522,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 def retrieve_conflict_sets(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        slice_hashes = request.GET.get('hash').split(',')
+        slice_hashes = request.POST.get('hash').split(',')
 
         slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
         conflict_relations = SliceConflictRelation.objects.filter(slice__in = slices)
