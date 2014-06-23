@@ -465,6 +465,8 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
 def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
+        print(request)
+
         block_id_list = request.POST.get('block_ids')
         block_ids = [int(id) for id in block_id_list.split(',')]
         # filter Blocks by id
