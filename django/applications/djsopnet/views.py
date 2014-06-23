@@ -495,25 +495,32 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 
     try:
 
-        slice_hashes = request.POST.get('hash').split(',')
+        conflict_sets = request.POST.get('hash').split(';')
 
-        # Collect slices from ids, then blocks from slices.
-        slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
-        bsrs = SliceBlockRelation.objects.filter(slice__in = slices)
-        blocks = [bsr.block for bsr in bsrs]
+        for conflict_set in conflict_sets:
 
-        # no exception, so far. create the conflict set
-        conflict = SliceConflictSet()
-        conflict.save()
+          if len(conflict_sets) == 0:
+            continue
 
-        # associate each slice and block to the conflict set
-        for slice in slices:
-            sliceConflict = SliceConflictRelation(slice = slice, conflict = conflict, user = u, project = p)
-            sliceConflict.save()
-        for block in blocks:
-            blockConflict = BlockConflictRelation(block = block, conflict = conflict, user = u, project = p)
-            blockConflict.save()
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+          slice_hashes = conflict_set.split(',')
+
+          # Collect slices from ids, then blocks from slices.
+          slices = Slice.objects.filter(stack = s, hash_value__in = slice_hashes)
+          bsrs = SliceBlockRelation.objects.filter(slice__in = slices)
+          blocks = [bsr.block for bsr in bsrs]
+
+          # no exception, so far. create the conflict set
+          conflict = SliceConflictSet()
+          conflict.save()
+
+          # associate each slice and block to the conflict set
+          for slice in slices:
+              sliceConflict = SliceConflictRelation(slice = slice, conflict = conflict, user = u, project = p)
+              sliceConflict.save()
+          for block in blocks:
+              blockConflict = BlockConflictRelation(block = block, conflict = conflict, user = u, project = p)
+              blockConflict.save()
+          return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
     except:
         return error_response()
 
