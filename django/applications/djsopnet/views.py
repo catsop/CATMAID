@@ -466,7 +466,6 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
     s = get_object_or_404(Stack, pk = stack_id)
     try:
         block_id_list = request.POST.get('block_ids')
-        print block_id_list
         block_ids = [int(id) for id in block_id_list.split(',')]
 
         # filter Blocks by id
@@ -482,6 +481,7 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
 
         return generate_slices_response(conflict_slices)
     except:
+        raise ValueError(block_id_list)
         return error_response()
 
 def store_conflict_set(request, project_id = None, stack_id = None):
