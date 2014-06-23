@@ -479,7 +479,7 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
                 SliceConflictRelation.objects.filter( \
                     conflict__blockconflictrelation__block__in=blocks). \
                 values_list('slice', flat=True)
-        conflict_slices = Slice.objects.filter(id__in=conflict_slice_ids)
+        conflict_slices = Slice.objects.filter(hash_value__in=conflict_slice_ids)
 
         return generate_slices_response(conflict_slices)
     except:
