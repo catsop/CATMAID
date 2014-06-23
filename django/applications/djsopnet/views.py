@@ -515,7 +515,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
                 raise ValueError("Couldn't find all requested slices")
 
             bsrs = SliceBlockRelation.objects.filter(slice__in = slices)
-            if len(bsrs) != len(slice_hashes):
+            if len(bsrs) < len(slice_hashes):
                 raise ValueError("Couldn't find all required slice-block-relations")
 
             blocks = [bsr.block for bsr in bsrs]
