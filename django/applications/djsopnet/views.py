@@ -29,7 +29,7 @@ def safe_split(tosplit, name='data', delim=','):
     """
     if not tosplit:
         raise ValueError("No %s provided" % name)
-    return segment_hashes.split(delim)
+    return tosplit.split(delim)
 
 # --- JSON conversion ---
 def slice_dict(slice):
