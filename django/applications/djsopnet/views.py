@@ -469,24 +469,19 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
 
         block_id_list = request.POST.get('block_ids')
         block_ids = [int(id) for id in block_id_list.split(',')]
+
         # filter Blocks by id
         blocks = Block.objects.filter(stack=s, id__in=block_ids)
 
-        ## Step 1: Retrieve Slices associated with the Blocks.
-        slice_block_relations = SliceBlockRelation.objects.filter(block__in = blocks)
-        block_slices = {sbr.slice for sbr in slice_block_relations}
+        # select slice from (SliceConflictSet sc join BlockConflictRelation on
+        # conflict) where sc.block in blocks
+        conflict_slice_ids = \
+                SliceConflictRelation.objects.filter( \
+                    conflict__blockconflictrelation__block__in=blocks). \
+                values_list('slice', flat=True)
+        conflict_slices = Slice.objects.filter(id__in=conflict_slice_ids)
 
-        ## Step 2: Retrieve Slices associated with ConflictSets associated with the Blocks.
-        # filter Block <--> Conflict relationships by Block
-        block_conflict_relations = BlockConflictRelation.objects.filter(block__in=blocks)
-        # collect a set of conflicts. List is ok, because we don't expect duplication.
-        conflicts = [bcr.conflict for bcr in block_conflict_relations]
-        # filter Slice <--> Conflict relationships by Conflict
-        slice_conflict_relations = SliceConflictRelation.objects.filter(conflict__in = conflicts)
-        # now, collect a set of the resulting Slices, then generate a response for the client.
-        conflict_slices = {scr.slice for scr in slice_conflict_relations}
-        slices = block_slices.union(conflict_slices)
-        return generate_slices_response(slices)
+        return generate_slices_response(conflict_slices)
     except:
         return error_response()
 
