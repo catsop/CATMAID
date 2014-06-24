@@ -496,8 +496,6 @@ def store_conflict_set(request, project_id = None, stack_id = None):
         conflict_sets = safe_split(request.POST.get('hash'), 'conflict set hashes', ';')
 
         for conflict_set in conflict_sets:
-            if len(conflict_sets) == 0:
-                continue
 
             slice_hashes = safe_split(conflict_set, 'slice hashes')
 
