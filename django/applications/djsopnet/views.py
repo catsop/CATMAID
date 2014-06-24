@@ -521,8 +521,11 @@ def store_conflict_set(request, project_id = None, stack_id = None):
             for block in blocks:
                 blockConflict = BlockConflictRelation(block = block, conflict = conflict, user = u, project = p)
                 blockConflict.save()
-            return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+
+        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+
     except:
+
         return error_response()
 
 def retrieve_conflict_sets(request, project_id = None, stack_id = None):
