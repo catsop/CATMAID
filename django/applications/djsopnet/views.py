@@ -493,7 +493,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 
     try:
 
-        conflict_sets = safe_split(request.POST.get('hash'), 'conflict set hashes', ';')
+        conflict_sets = safe_split(request.POST.get('hash'), 'conflict set hashes', '|')
 
         for conflict_set in conflict_sets:
 
