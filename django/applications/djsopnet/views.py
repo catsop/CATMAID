@@ -479,8 +479,11 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
     try:
         block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
 
-        conflict_slices = Slice.objects.filter( \
-                sliceconflictrelation__conflict__blockconflictrelation__block__in=block_ids)
+        conflict_slices_ids = SliceConflictRelation.objects \
+		.filter(conflict__blockconflictrelation__block__in=block_ids) \
+		.distinct() \
+		.values_list('slice_id', flat=True)
+        conflict_slices = Slice.objects.filter(hash_value__in=conflict_slices_ids)
 
         return generate_slices_response(conflict_slices)
     except:
