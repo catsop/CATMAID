@@ -1006,6 +1006,8 @@ def create_project_config(project_id, raw_stack_id, membrane_stack_id):
         config['volume_size'] = settings.SOPNET_VOLUME_SIZE
     if hasattr(settings, 'SOPNET_CORE_SIZE'):
         config['core_size'] = settings.SOPNET_CORE_SIZE
+    if hasattr(settings, 'SOPNET_LOGLEVEL'):
+        config['loglevel'] = settings.SOPNET_LOGLEVEL
 
     return config
 
