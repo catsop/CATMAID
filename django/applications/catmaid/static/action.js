@@ -322,6 +322,21 @@ var createEditToolActions = function() {
         }
       }));
   }
+
+  if (userprofile.show_area_tool) {
+    editToolActions.push(
+      new Action({
+	    helpText: "Show area tracing tool",
+	    buttonID: "area_tool_button",
+	    buttonName: 'area_tool',
+	    run: function (e) {
+          WindowMaker.show('area-tool');
+          project.setTool(new AreaTool());
+          return true;
+	    }
+      }));
+  }
+
 };
 
 /* Edit tools are dependent on the current user. Therefore,
@@ -417,7 +432,7 @@ var tracingWindowActions = [
       }
   }),*/
 
-  new Action({ 
+  new Action({
       helpText: "Skeleton Analytics widget",
       buttonID: "button_skeleton_analytics_widget",
       buttonName: 'skeleton_analytics_widget',
