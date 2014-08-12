@@ -93,6 +93,7 @@ PROFILE_SHOW_CROPPING_TOOL = False
 PROFILE_SHOW_SEGMENTATION_TOOL = False
 PROFILE_SHOW_TRACING_TOOL = False
 PROFILE_SHOW_ONTOLOGY_TOOL = False
+PROFILE_SHOW_AREA_TOOL = False
 
 # Defines if a cropped image of a ROI should be created
 # automatically when the ROI is created. If set to False

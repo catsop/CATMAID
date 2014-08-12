@@ -757,6 +757,8 @@ class UserProfile(models.Model):
         default=settings.PROFILE_SHOW_TRACING_TOOL)
     show_ontology_tool = models.BooleanField(
         default=settings.PROFILE_SHOW_ONTOLOGY_TOOL)
+    show_area_tool = models.BooleanField(
+        default=settings.PROFILE_SHOW_AREA_TOOL)
     color = RGBAField(default=distinct_user_color)
 
     def __unicode__(self):

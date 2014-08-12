@@ -1400,6 +1400,54 @@ var WindowMaker = new function()
     return win;
   };
 
+    
+  var createAreaWidget = function()
+  {
+    var win = new CMWWindow( "Area Tool" );
+    var content = win.getFrame();
+    content.style.backgroundColor = "#ffffff";
+    
+    var container = createContainer( "area_tool_widget" );
+    content.appendChild( container );
+    
+    container.innerHTML =         
+        '<div id="toolbar_area" class="toolbar" style="display:none;">' +
+        '<div id="area_paint_radius_box"></div>' +
+        '<div class="toolbar_fill"></div>' +
+        '</div>' +
+        '<div id="area_segment_tree"></div>'+
+        '<div id="add_areaclass_button" style="display:block; cursor:default">' +
+        '  <p><input type="button" id="add_areaclass_button" value="Create New Area Class..."/></p>' +
+        '</div>' +
+        '<div id="area_view_properties">'+
+        '<div id="area_view_caption">Display Properties</div>'+        
+        '<div id="area_colorwheel"></div>'+
+        '<div id="toolbar_area_opacity" class="toolbar">'+
+        '<div id="area_opacity_box"></div>'+
+        '<div class="toolbar_fill"></div>'+
+        '</div>'+
+        '</div>'+
+        '<div id="area_add_dialog" style="display:none; cursor:default">' +
+        '<div id="input_area_object"><p>New object name: <input type="text" id="areaname" /></p></div>' +
+        '<p><input type="button" id="area_cancel" value="Cancel" />' +
+        '<input type="button" id="area_add" value="Add" /></p></div>' +
+        '<div id="areaclass_add_dialog" style="display:none; cursor:default">' +
+        '  <div id="input_area_class">' +
+        '    <p>New class name: <input type="text" id="areaclassname" /></p>' +
+        '  </div>' + 
+        '  <p><input type="button" id="areaclass_cancel" value="Cancel" />' +
+        '  <input type="button" id="areaclass_add" value="Add" /></p>' +
+        '</div>';
+      addListener(win, container);
+        
+      addLogic(win);
+      
+      //VolumeTracingPalette.init(project.getId());
+      //VolumeTracingPalette.setWindow(win);
+      
+      return win;
+  }
+
   var appendSelect = function(div, name, entries) {
     var select = document.createElement('select');
     select.setAttribute("id", div.id + "_" + name);
@@ -2446,6 +2494,7 @@ var WindowMaker = new function()
     "neuron-annotations": createNeuronAnnotationsWindow,
     "neuron-navigator": createNeuronNavigatorWindow,
     "settings": createSettingsWindow,
+    "area-tool": createAreaWidget,
   };
 
   /** If the window for the given name is already showing, just focus it.

@@ -32,5 +32,6 @@ class Command(NoArgsCommand):
             up.show_segmentation_tool = settings.PROFILE_SHOW_SEGMENTATION_TOOL
             up.show_tracing_tool = settings.PROFILE_SHOW_TRACING_TOOL
             up.show_ontology_tool = settings.PROFILE_SHOW_ONTOLOGY_TOOL
+            up.show_area_tool = settings.PROFILE_SHOW_AREA_TOOL
             # Save the changes
             up.save()
