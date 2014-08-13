@@ -779,6 +779,7 @@ class UserProfile(models.Model):
         pdict['show_segmentation_tool'] = self.show_segmentation_tool
         pdict['show_tracing_tool'] = self.show_tracing_tool
         pdict['show_ontology_tool'] = self.show_ontology_tool
+        pdict['show_area_tool'] = self.show_area_tool
         return pdict
 
     # Fix a problem with duplicate keys when new users are added.
