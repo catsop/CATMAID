@@ -142,6 +142,7 @@
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/neuron_annotations.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/neuron_navigator.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}layers/gridlayer.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}areatool.js"></script>
 	</head>
 	<body onload="realInit();"><a></a>
 		<div id="growl-alert" class="growl-message" style="display: none"></div>
@@ -177,6 +178,7 @@
 				<div class="box" id="toolbox_edit" style="display:none"></div>
 				<div class="box" id="toolbox_segmentation" style="display:none"></div>
 				<div class="box" id="toolbox_ontology" style="display:none"></div>
+				<div class="box" id="toolbox_area" style="display:none"></div>
 				<div class="box" id="toolbox_data" style="display:none"></div>
 
 				<div id="spinner_box" class="box_right" style="width:20px; height: 20px; position:relative">
@@ -288,6 +290,7 @@
 			<!--
 			*******************************************************************
 			-->
+
 		</div>
 
 		<!-- Main screen, project list, forms etc.

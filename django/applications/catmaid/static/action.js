@@ -327,7 +327,7 @@ var createEditToolActions = function() {
     editToolActions.push(
       new Action({
         helpText: "Show area tracing tool",
-        buttonID: "area_tool_button",
+        buttonID: "edit_button_area",
         buttonName: 'area_tool',
         run: function (e) {
           project.setTool( new AreaTool() );
