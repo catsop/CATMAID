@@ -253,13 +253,13 @@ var WindowMaker = new function()
     annotate.style.marginLeft = '1em';
     annotate.onclick = ST.annotate_skeleton_list.bind(ST);
     buttons.appendChild(annotate);
-    
+
     var random = document.createElement('input');
     random.setAttribute("type", "button");
     random.setAttribute("value", "Randomize colors");
     random.onclick = ST.randomizeColorsOfSelected.bind(ST);
     buttons.appendChild(random);
-    
+
     var measure = document.createElement('input');
     measure.setAttribute('type', 'button');
     measure.setAttribute('value', 'Measure');
@@ -296,7 +296,7 @@ var WindowMaker = new function()
 
     win.getFrame().appendChild(buttons);
     content.appendChild(container);
-    
+
     var tab = document.createElement('table');
     tab.setAttribute("id", "skeleton-table" + ST.widgetID);
     tab.innerHTML =
@@ -415,7 +415,7 @@ var WindowMaker = new function()
     var buttons = document.createElement( "div" );
     buttons.id = "buttons_in_3d_webgl_widget";
     content.appendChild(buttons);
-    
+
     var container = createContainer("view_in_3d_webgl_widget" + WA.widgetID);
     content.appendChild(container);
 
@@ -440,7 +440,7 @@ var WindowMaker = new function()
     append.setAttribute("value", "Clear");
     append.onclick = WA.clear.bind(WA);
     buttons.appendChild(append);
-    
+
     var center = document.createElement('input');
     center.setAttribute("type", "button");
     center.setAttribute("value", "Center active");
@@ -494,7 +494,7 @@ var WindowMaker = new function()
     options.style.marginLeft = '1em';
     options.onclick = WA.configureParameters.bind(WA);
     buttons.appendChild(options);
-    
+
     var shadingLabel = document.createElement('div');
     shadingLabel.innerHTML = 'Shading:';
     shadingLabel.style.display = 'inline';
@@ -999,7 +999,7 @@ var WindowMaker = new function()
 
 
   var createMorphologyPlotWindow = function() {
-  
+
     var MA = new MorphologyPlot();
 
     var win = new CMWWindow(MA.getName());
@@ -1099,7 +1099,7 @@ var WindowMaker = new function()
   };
 
   var createVennDiagramWindow = function() {
-  
+
     var VD = new VennDiagram();
 
     var win = new CMWWindow(VD.getName());
@@ -1196,7 +1196,7 @@ var WindowMaker = new function()
     var container = createContainer("segments_table_widget");
     content.appendChild(container);
 
-    
+
     var graph = document.createElement('div');
     graph.setAttribute("id", "segmentstable-div");
     graph.style.height = "100%";
@@ -1400,18 +1400,17 @@ var WindowMaker = new function()
     return win;
   };
 
-    
+
   var createAreaWidget = function()
   {
     var win = new CMWWindow( "Area Tool" );
     var content = win.getFrame();
     content.style.backgroundColor = "#ffffff";
-    
+
     var container = createContainer( "area_tool_widget" );
     content.appendChild( container );
-    
-    container.innerHTML =         
-        '<div id="toolbar_area" class="toolbar" style="display:none;">' +
+
+    container.innerHTML =
         '<div id="area_paint_radius_box"></div>' +
         '<div class="toolbar_fill"></div>' +
         '</div>' +
@@ -1420,7 +1419,7 @@ var WindowMaker = new function()
         '  <p><input type="button" id="add_areaclass_button" value="Create New Area Class..."/></p>' +
         '</div>' +
         '<div id="area_view_properties">'+
-        '<div id="area_view_caption">Display Properties</div>'+        
+        '<div id="area_view_caption">Display Properties</div>'+
         '<div id="area_colorwheel"></div>'+
         '<div id="toolbar_area_opacity" class="toolbar">'+
         '<div id="area_opacity_box"></div>'+
@@ -1434,17 +1433,16 @@ var WindowMaker = new function()
         '<div id="areaclass_add_dialog" style="display:none; cursor:default">' +
         '  <div id="input_area_class">' +
         '    <p>New class name: <input type="text" id="areaclassname" /></p>' +
-        '  </div>' + 
+        '  </div>' +
         '  <p><input type="button" id="areaclass_cancel" value="Cancel" />' +
-        '  <input type="button" id="areaclass_add" value="Add" /></p>' +
-        '</div>';
+        '  <input type="button" id="areaclass_add" value="Add" /></p>';
       addListener(win, container);
-        
+
       addLogic(win);
-      
+
       //VolumeTracingPalette.init(project.getId());
       //VolumeTracingPalette.setWindow(win);
-      
+
       return win;
   }
 
@@ -1596,7 +1594,7 @@ var WindowMaker = new function()
           var option = document.createElement("option");
             option.text = operation_type_array[i];
             option.value = operation_type_array[i];
-            sync.appendChild(option);            
+            sync.appendChild(option);
         }
         contentbutton.appendChild(sync);
         content.appendChild( contentbutton );
@@ -2145,8 +2143,8 @@ var WindowMaker = new function()
 
     return win;
   };
-  
-  
+
+
   var createNotificationsWindow = function()
   {
     var win = new CMWWindow( "Notifications" );
@@ -2164,11 +2162,11 @@ var WindowMaker = new function()
             '<th>description</th>' +
             '<th>status' +
               '<select name="search_type" id="search_type" class="search_init">' +
-                '<option value="">Any</option>' + 
-                '<option value="0">Open</option>' + 
+                '<option value="">Any</option>' +
+                '<option value="0">Open</option>' +
                 '<option value="1">Approved</option>' +
-                '<option value="2">Rejected</option>' + 
-                '<option value="3">Invalid</option>' + 
+                '<option value="2">Rejected</option>' +
+                '<option value="3">Invalid</option>' +
               '</select>' +
             '</th>' +
             '<th>x</th>' +
@@ -2207,17 +2205,17 @@ var WindowMaker = new function()
     addLogic(win);
 
     NotificationsTable.init();
-    
+
     return win;
   };
-  
+
   var createNeuronAnnotationsWindow = function()
   {
     var NA = new NeuronAnnotations();
     var win = new CMWWindow(NA.getName());
     var content = win.getFrame();
     content.style.backgroundColor = "#ffffff";
-    
+
     var queryFields = document.createElement('div');
     queryFields.setAttribute('id', 'neuron_annotations_query_fields' + NA.widgetID);
     // Create the query fields HTML and use {{NA-ID}} as template for the
@@ -2275,7 +2273,7 @@ var WindowMaker = new function()
     // Replace {{NA-ID}} with the actual widget ID
     queryFields.innerHTML = queryFields_html.replace(/{{NA-ID}}/g, NA.widgetID);
     content.appendChild(queryFields);
-    
+
     var container = createContainer("neuron_annotations_query_results" + NA.widgetID);
     // Create container HTML and use {{NA-ID}} as template for the
     // actual NA.widgetID which will be replaced afterwards.
@@ -2332,7 +2330,7 @@ var WindowMaker = new function()
     content.appendChild(no_results);
     $(no_results).hide();
 
-    
+
     // Wire it up.
     addListener(win, container, queryFields.id, NA.destroy.bind(NA));
     addLogic(win);
@@ -2400,7 +2398,7 @@ var WindowMaker = new function()
         NA.toggle_annotation_display(val != 'show_all', val);
       }
     });
-    
+
     $( "#neuron_query_by_start_date" + NA.widgetID ).datepicker(
         { dateFormat: "yy-mm-dd" });
     $( "#neuron_query_by_end_date" + NA.widgetID ).datepicker(
@@ -2462,7 +2460,7 @@ var WindowMaker = new function()
 
     return win;
   };
-  
+
   var creators = {
     "keyboard-shortcuts": createKeyboardShortcutsWindow,
     "search": createSearchWindow,
@@ -2494,7 +2492,7 @@ var WindowMaker = new function()
     "neuron-annotations": createNeuronAnnotationsWindow,
     "neuron-navigator": createNeuronNavigatorWindow,
     "settings": createSettingsWindow,
-    "area-tool": createAreaWidget,
+    "area-editting-tool": createAreaWidget,
   };
 
   /** If the window for the given name is already showing, just focus it.
