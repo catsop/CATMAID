@@ -3,6 +3,8 @@ function AreaTool()
 {
   this.prototype = new Navigator();
   this.toolname = "Area Tracing Tool";
+  this.width = 10;
+
   var self = this;
   var actions = new Array();
 
@@ -33,6 +35,39 @@ function AreaTool()
     $( "#toolbox_area" ).replaceWith( box );
   }
 
+  var createCanvasLayer = function()
+  {
+    self.canvasLayer = new CanvasLayer( self.stack, self);
+    var canvas = self.canvasLayer.canvas;
+
+    canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+    canvas.freeDrawingBrush.width = self.width;
+    canvas.isDrawingMode = true;
+
+    canvas.on('path:created', function(e){
+      logArray = [];
+      for (i = 0; i < e.path.path.length; ++i)
+      {
+        logArray.push(e.path.path[i][1]);
+        logArray.push(e.path.path[i][2]);
+      }
+      console.log(logArray);
+    });
+
+    self.canvasLayer.view.onmousedown = function(e){
+      return true
+    };
+
+    self.canvasLayer.view.onmouseup = function(e){
+      return true
+    };
+
+    //canvas.interactive = true;
+
+    self.stack.addLayer("AreaLayer", self.canvasLayer);
+    self.stack.resize();
+  }
+
   this.register = function(parentStack)
   {
     self.stack = parentStack;
@@ -40,7 +75,9 @@ function AreaTool()
     $("#toolbox_area").show();
 
     $("#edit_button_area").switchClass("button", "button_active", 0);
+
     setupSubTools();
+    createCanvasLayer();
 
     self.prototype.register( parentStack, "edit_button_area" );
 
@@ -55,7 +92,7 @@ function AreaTool()
 
   this.destroy = function()
   {
-    $("#edit_button_area").switchClass("button", "button_active", 0);
+    $("#edit_button_area").switchClass("button_active", "button", 0);
     $("#toolbox_area").hide()
     return;
   }
