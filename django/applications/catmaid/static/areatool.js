@@ -37,7 +37,7 @@ function AreaTool()
 
   var createCanvasLayer = function()
   {
-    self.canvasLayer = new CanvasLayer( self.stack, self);
+    self.canvasLayer = new AreaLayer( self.stack, self);
     var canvas = self.canvasLayer.canvas;
 
     canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
@@ -45,22 +45,23 @@ function AreaTool()
     canvas.isDrawingMode = true;
 
     canvas.on('path:created', function(e){
-      logArray = [];
+      /*logArray = [];
       for (i = 0; i < e.path.path.length; ++i)
       {
         logArray.push(e.path.path[i][1]);
         logArray.push(e.path.path[i][2]);
       }
-      console.log(logArray);
+      console.log(logArray);*/
+      console.log(e);
     });
 
-    self.canvasLayer.view.onmousedown = function(e){
+    /*self.canvasLayer.view.onmousedown = function(e){
       return true
     };
 
     self.canvasLayer.view.onmouseup = function(e){
       return true
-    };
+    };*/
 
     //canvas.interactive = true;
 
@@ -99,11 +100,13 @@ function AreaTool()
 
   this.resize = function(height, width)
   {
+    self.canvasLayer.resize(height, width);
     return;
   }
 
   this.redraw = function()
   {
+
     return;
   }
 
@@ -111,7 +114,7 @@ function AreaTool()
   * This function should return true if there was any action
   * linked to the key code, or false otherwise.
   */
-  this.handleKeyPress = function( e )
+  /*this.handleKeyPress = function( e )
   {
     var keyAction = keyCodeToAction[e.keyCode];
     if (keyAction) {
@@ -119,7 +122,7 @@ function AreaTool()
     } else {
       return false;
     }
-  }
+  }*/
 
   var keyCodeToAction = getKeyCodeToActionMap(actions);
 }
