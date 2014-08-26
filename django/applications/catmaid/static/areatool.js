@@ -81,14 +81,14 @@ function Area(name)
   }
 
   this.setColor = function(c)
-  {
+  {$
     for (var idx = 0; idx < fabricObjects.length; ++i)
     {
       fabricObjects[idx].setColor(c);
     }
     AreaServerModel.pushProperties(self);
   }
-
+  
   this.getColor = function()
   {
     return self.color;
@@ -104,19 +104,34 @@ function Area(name)
   {
     fabricObjects.push(obj);
   }
+  
+  this.translate = function(tX, tY)
+  {
+    for (i = 0; i < fabricObjects.length(); ++i)
+    {
+      obj = fabricObjects[i];
+      x = obj.getLeft();
+      y = obj.getTop();
+      x = x + tX;
+      y = y + tY;
+      obj.setLeft(x);
+      obj.setTop(y);
+    }
+  }
 
 }
 
 /**
 AreaTool class handles area tracing operations
 */
+
 function AreaTool()
 {
   this.prototype = new Navigator();
   this.toolname = "Area Tracing Tool";
-  var area = null;
-  var width = 10;
-
+  this.width = 10;
+  this.currentArea = new Area("Dumb Area");
+  
   var self = this;
   var actions = new Array();
 
@@ -128,7 +143,7 @@ function AreaTool()
     return actions;
   };
 
-  this.addAction = new Action({
+  this.addAction( new Action({
     helpText: "Area editting tool",
     buttonName: "editor",
     buttonID: "area_edit_button",
@@ -136,28 +151,7 @@ function AreaTool()
       WindowMaker.show('area-editting-tool');
       return true;
     }
-  });
-
-  this.getWidth = function()
-  {
-    return width;
-  }
-
-  this.setWidth = function( w )
-  {
-    width = w;
-    self.canvas.freeDrawingBrush.width = w;
-  }
-
-  this.setActiveArea = function(a)
-  {
-    area = a;
-  }
-
-  this.getActiveArea = function()
-  {
-    return area;
-  }
+  }));
 
   var setupSubTools = function()
   {
@@ -174,18 +168,14 @@ function AreaTool()
     var canvas = self.canvasLayer.canvas;
 
     canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-    canvas.freeDrawingBrush.width = width;
+    canvas.freeDrawingBrush.width = self.width;
     canvas.isDrawingMode = true;
 
     canvas.on('path:created', function(e){
-      /*logArray = [];
-      for (i = 0; i < e.path.path.length; ++i)
+      if (self.currentArea)
       {
-        logArray.push(e.path.path[i][1]);
-        logArray.push(e.path.path[i][2]);
+        self.currentArea.addObject(e.path);
       }
-      console.log(logArray);*/
-      console.log(e);
     });
 
     /*self.canvasLayer.view.onmousedown = function(e){
@@ -243,11 +233,21 @@ function AreaTool()
     return;
   }
 
+  this.setArea = function(area)
+  {
+    self.currentArea = area;
+  }
+  
+  this.getArea = function()
+  {
+    return self.currentArea;
+  }
+  
   /**
   * This function should return true if there was any action
   * linked to the key code, or false otherwise.
   */
-  this.handleKeyPress = function( e )
+  /*this.handleKeyPress = function( e )
   {
     var keyAction = keyCodeToAction[e.keyCode];
     if (keyAction) {
@@ -255,7 +255,7 @@ function AreaTool()
     } else {
       return false;
     }
-  }
+  }*/
 
   var keyCodeToAction = getKeyCodeToActionMap(actions);
 }
