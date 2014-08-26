@@ -128,7 +128,7 @@ function AreaTool()
     return actions;
   };
 
-  this.addAction = function( new Action({
+  this.addAction = new Action({
     helpText: "Area editting tool",
     buttonName: "editor",
     buttonID: "area_edit_button",
@@ -136,7 +136,7 @@ function AreaTool()
       WindowMaker.show('area-editting-tool');
       return true;
     }
-  }));
+  });
 
   this.getWidth = function()
   {
