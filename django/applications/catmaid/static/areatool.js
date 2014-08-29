@@ -12,21 +12,21 @@ var AreaServerModel = new function()
      */
     this.pushTrace = function(tool, area, path)
     {
-        return;
-    }
+
+    };
 
     /**
      Sync display properties.
      */
     this.pushProperties = function(area)
     {
-        return;
-    }
+
+    };
 
     this.registerTool = function(tool)
     {
         areaTools.push(tool);
-    }
+    };
 
     this.deregisterTool = function(tool)
     {
@@ -39,27 +39,17 @@ var AreaServerModel = new function()
                 return;
             }
         }
-    }
-
-    /**
-     *
-     *
-     */
-    this.pullAreas = function()
-    {
-
-        return;
-    }
+    };
 
     /**
      * Update the list of areas with respect to the current parameters of the given tool and return a
      * list of visible areas.
      */
-    this.updateAreas = function(tool)
+    this.pullAreas = function(tool)
     {
         // for now, just return the areas.
         return areas;
-    }
+    };
 
     /**
      * Add a new area. This pushes the new area onto the area list, and syncs it with the server.
@@ -67,10 +57,9 @@ var AreaServerModel = new function()
     this.addArea = function(area)
     {
         areas.push(area);
-    }
+    };
 
-
-}
+};
 
 
 /**
@@ -92,7 +81,7 @@ function Area(name)
         {
             fabricObjects[idx].transformMatrix(t);
         }
-    }
+    };
 
     this.setOpacity = function(op)
     {
@@ -101,36 +90,36 @@ function Area(name)
             fabricObjects[idx].opacity = op;
         }
         AreaServerModel.pushProperties(self);
-    }
+    };
 
     this.setColor = function(c)
-    {$
+    {
         for (var idx = 0; idx < fabricObjects.length; ++i)
         {
             fabricObjects[idx].setColor(c);
         }
         AreaServerModel.pushProperties(self);
-    }
+    };
 
     this.getColor = function()
     {
         return self.color;
-    }
+    };
 
     this.setName = function(name)
     {
         self.name = name;
         AreaServerModel.pushProperties(self);
-    }
+    };
 
     this.addObject = function(obj)
     {
         fabricObjects.push(obj);
-    }
+    };
 
     this.translate = function(tX, tY)
     {
-        for (i = 0; i < fabricObjects.length(); ++i)
+        for (i = 0; i < fabricObjects.length; ++i)
         {
             obj = fabricObjects[i];
             x = obj.getLeft();
@@ -144,8 +133,9 @@ function Area(name)
 
 }
 
+
 /**
- AreaTool class handles area tracing operations
+ AreaTraceTool class handles area tracing operations
  */
 
 function AreaTool()
@@ -156,10 +146,13 @@ function AreaTool()
     this.currentArea = new Area("Dumb Area");
     // Replaced when register() is called
     this.stack = null;
+    this.lastPos = null;
 
     var self = this;
-    var actions = new Array();
+    var actions = [];
     var areas = [this.currentArea];
+
+    var proto_mouseCatcher = null;
 
     this.addAction = function ( action ) {
         actions.push( action );
@@ -175,9 +168,53 @@ function AreaTool()
         buttonID: "area_edit_button",
         run: function(e) {
             WindowMaker.show('area-editting-tool');
+            setupProtoControls();
+            createCanvasLayer();
             return true;
         }
     }));
+
+    this.onmousemove = function(e)
+    {
+        if (e.button == 0)
+        {
+
+        }
+    };
+
+    this.onmousedown = function(e)
+    {
+        if (e.button == 1)
+        {
+            proto_onmousedown(e);
+        }
+        else if(e.button == 0)
+        {
+
+        }
+
+    };
+
+    this.onmouseup = function(e) {
+        if (e.button == 1) {
+            proto_onmouseup(e);
+        }
+        else if (e.button == 0)
+        {
+
+        }
+    };
+
+    var setupProtoControls = function()
+    {
+        self.prototype.register( self.stack, "edit_button_area" );
+        proto_mouseCatcher = self.prototype.mouseCatcher;
+        proto_onmouseup = proto_mouseCatcher.onmouseup;
+        proto_onmousedown = proto_mouseCatcher.onmousedown;
+        proto_mouseCatcher.onmouseup = self.onmouseup;
+        proto_mouseCatcher.onmousedown = self.onmousedown;
+        proto_mouseCatcher.onmousemove = self.onmousemove;
+    };
 
     var setupSubTools = function()
     {
@@ -186,7 +223,7 @@ function AreaTool()
             "toolbox_area",
             "area_");
         $( "#toolbox_area" ).replaceWith( box );
-    }
+    };
 
     var createCanvasLayer = function()
     {
@@ -216,12 +253,15 @@ function AreaTool()
 
         self.stack.addLayer("AreaLayer", self.canvasLayer);
         self.stack.resize();
-    }
+
+        self.canvasLayer.view.onmousedown = self.onmousedown;
+        self.canvasLayer.view.onmouseup = self.onmouseup;
+    };
 
     var currentZ = function()
     {
         return self.stack.z * self.stack.resolution.z + self.stack.translation.z;
-    }
+    };
 
     this.register = function(parentStack)
     {
@@ -231,70 +271,77 @@ function AreaTool()
 
         $("#edit_button_area").switchClass("button", "button_active", 0);
 
+        self.prototype.register( parentStack, "edit_button_area" );
+        proto_mouseCatcher = self.prototype.mouseCatcher;
+
         setupSubTools();
-        createCanvasLayer();
+        //createCanvasLayer();
 
         AreaServerModel.addArea(self.currentArea);
         AreaServerModel.registerTool(self);
 
-        self.prototype.register( parentStack, "edit_button_area" );
-
-        return;
-    }
+    };
 
     this.unregister = function()
     {
         self.prototype.destroy( "edit_button_area" );
         return;
-    }
+    };
 
     this.destroy = function()
     {
         $("#edit_button_area").switchClass("button_active", "button", 0);
-        $("#toolbox_area").hide()
+        $("#toolbox_area").hide();
         return;
-    }
+    };
 
     this.resize = function(height, width)
     {
         self.canvasLayer.resize(height, width);
         return;
-    }
+    };
 
     this.cacheScreenParameters = function()
     {
         self.lastPos = self.stack.screenPosition();
         self.lastScale = self.stack.scale;
         self.lastZ = currentZ();
-    }
+    };
 
     this.redraw = function() {
-        lastPos = self.lastPos;
-        lastScale = self.lastScale;
-        lastZ = self.lastZ;
 
-        self.cacheScreenParameters();
-        // Now, self.last* represent the *current* parameters
+        if (self.lastPos)
+        {
+            lastPos = self.lastPos;
+            lastScale = self.lastScale;
+            lastZ = self.lastZ;
 
-        tX = self.lastPos.left - lastPos.left;
-        tY = self.lastPost.top - lastPos.top;
+            self.cacheScreenParameters();
+            // Now, self.last* represent the *current* parameters
 
-        for (i = 0; i < areas.length; ++i) {
-            areas[i].translate(tX, tY);
+            tX = self.lastPos.left - lastPos.left;
+            tY = self.lastPos.top - lastPos.top;
+
+            for (i = 0; i < areas.length; ++i) {
+                areas[i].translate(tX, tY);
+            }
+        }
+        else
+        {
+            self.cacheScreenParameters();
         }
 
-        return;
-    }
+    };
 
     this.setArea = function(area)
     {
         self.currentArea = area;
-    }
+    };
 
     this.getArea = function()
     {
         return self.currentArea;
-    }
+    };
 
     /**
      * This function should return true if there was any action
