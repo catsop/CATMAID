@@ -106,6 +106,11 @@ function Area(name)
         return self.color;
     };
 
+    this.getObjects = function()
+    {
+      return fabricObjects;
+    };
+
     this.setName = function(name)
     {
         self.name = name;
@@ -117,19 +122,20 @@ function Area(name)
         fabricObjects.push(obj);
     };
 
-    this.translate = function(tX, tY)
+    this.updatePosition = function(screenPos, scale)
     {
         for (i = 0; i < fabricObjects.length; ++i)
         {
             obj = fabricObjects[i];
-            x = obj.getLeft();
-            y = obj.getTop();
-            x = x + tX;
-            y = y + tY;
-            obj.setLeft(x);
-            obj.setTop(y);
+            xs = obj.stackLeft;
+            ys = obj.stackTop;
+            xc = (xs - screenPos.left) * scale;
+            yc = (ys - screenPos.top) * scale;
+            obj.scale(scale / obj.originalScale);
+            obj.setLeft(xc);
+            obj.setTop(yc);
         }
-    }
+    };
 
 }
 
@@ -178,7 +184,8 @@ function AreaTool()
     {
         if (e.button == 0)
         {
-
+            self.canvasLayer.canvas._onMouseMoveInDrawingMode(e);
+            return true;
         }
     };
 
@@ -187,22 +194,45 @@ function AreaTool()
         if (e.button == 1)
         {
             proto_onmousedown(e);
+            return true;
         }
         else if(e.button == 0)
         {
-
+            self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
+            return true;
         }
 
     };
 
     this.onmouseup = function(e) {
-        if (e.button == 1) {
+        if (e.button == 1)
+        {
             proto_onmouseup(e);
+            return true;
         }
         else if (e.button == 0)
         {
-
+            self.canvasLayer.canvas._onMouseUpInDrawingMode(e);
+            return true;
         }
+    };
+
+    this.registerFabricObject = function(obj)
+    {
+        screenPos = self.stack.screenPosition();
+        x_s = screenPos.left;
+        y_s = screenPos.top;
+        scale = self.stack.scale;
+
+        obj.originalScale = scale;
+
+        x_o = obj.getLeft();
+        y_o = obj.getTop();
+
+        obj.stackLeft = x_o / scale + x_s;
+        obj.stackTop = y_o / scale + y_s;
+
+        self.currentArea.addObject(obj);
     };
 
     var setupProtoControls = function()
@@ -237,7 +267,7 @@ function AreaTool()
         canvas.on('path:created', function(e){
             if (self.currentArea)
             {
-                self.currentArea.addObject(e.path);
+                self.registerFabricObject(e.path);
             }
         });
 
@@ -265,6 +295,8 @@ function AreaTool()
 
     this.register = function(parentStack)
     {
+        g_Area = self;
+
         self.stack = parentStack;
 
         $("#toolbox_area").show();
@@ -298,7 +330,6 @@ function AreaTool()
     this.resize = function(height, width)
     {
         self.canvasLayer.resize(height, width);
-        return;
     };
 
     this.cacheScreenParameters = function()
@@ -312,18 +343,11 @@ function AreaTool()
 
         if (self.lastPos)
         {
-            lastPos = self.lastPos;
-            lastScale = self.lastScale;
-            lastZ = self.lastZ;
-
             self.cacheScreenParameters();
-            // Now, self.last* represent the *current* parameters
 
-            tX = self.lastPos.left - lastPos.left;
-            tY = self.lastPos.top - lastPos.top;
-
-            for (i = 0; i < areas.length; ++i) {
-                areas[i].translate(tX, tY);
+            for (i = 0; i < areas.length; ++i)
+            {
+                areas[i].updatePosition(self.stack.screenPosition(), self.stack.scale);
             }
         }
         else
@@ -331,6 +355,7 @@ function AreaTool()
             self.cacheScreenParameters();
         }
 
+        self.canvasLayer.canvas.renderAll();
     };
 
     this.setArea = function(area)
