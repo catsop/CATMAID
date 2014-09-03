@@ -107,7 +107,7 @@ function TracingTool()
     spanName.appendChild( document.createTextNode( "" ) );
     neuronnameDisplay.appendChild( spanName );
     stack.getWindow().getFrame().appendChild( neuronnameDisplay );
-    tracingLayer.svgOverlay.updateNeuronNameLabel(stack.getId(), SkeletonAnnotations.getActiveSkeletonId());
+    SkeletonAnnotations.setNeuronNameInTopbar(stack.getId(), SkeletonAnnotations.getActiveSkeletonId());
   };
 
   /**
@@ -287,7 +287,7 @@ function TracingTool()
   this.addAction( new Action({
     helpText: "Move down 1 slice in z (or 10 with Shift held)",
     keyShortcuts: {
-      '.': [ 46, 190 ]
+      '.': [ 190 ]
     },
     run: function (e) {
       self.prototype.slider_z.move((e.shiftKey ? 10 : 1));
@@ -657,6 +657,31 @@ function TracingTool()
   }) );
 
   this.addAction( new Action({
+    helpText: "Delete the active node",
+    keyShortcuts: {
+      'DEL': [ 46 ]
+    },
+    run: function (e) {
+      if (!mayEdit())
+        return false;
+      var node = tracingLayer.svgOverlay.nodes[SkeletonAnnotations.getActiveNodeId()];
+      var nodeType = SkeletonAnnotations.getActiveNodeType();
+      tracingLayer.svgOverlay.activateNode(null);
+
+      switch (nodeType) {
+        case SkeletonAnnotations.TYPE_CONNECTORNODE:
+          tracingLayer.svgOverlay.deleteConnectorNode(node);
+          break;
+        case SkeletonAnnotations.TYPE_NODE:
+          tracingLayer.svgOverlay.deleteTreenode(node, true);
+          break;
+      }
+      
+      return true;
+    }
+  }) );
+
+  this.addAction( new Action({
     helpText: "Retrieve information about the active node.",
     keyShortcuts: {
       'I': [ 73 ]
@@ -777,7 +802,7 @@ function TracingTool()
   }) );
 
   this.addAction( new Action({
-      helpText: "Rename object tree node or current active neuron (Shift key)",
+      helpText: "Rename active neuron",
       keyShortcuts: {
           'F2': [ 113 ]
       },
@@ -785,9 +810,20 @@ function TracingTool()
           if (!mayEdit()) {
               return false;
           }
-          if (e.shiftKey) tracingLayer.svgOverlay.renameNeuron(SkeletonAnnotations.getActiveSkeletonId());
+          tracingLayer.svgOverlay.renameNeuron(SkeletonAnnotations.getActiveSkeletonId());
           return true;
       }
+  }) );
+
+  this.addAction( new Action({
+    helpText: "Open the neuron/annotation search widget",
+    keyShortcuts: {
+      '/': [ 191 ]
+    },
+    run: function (e) {
+      WindowMaker.create('neuron-annotations');
+      return true;
+    }
   }) );
 
 

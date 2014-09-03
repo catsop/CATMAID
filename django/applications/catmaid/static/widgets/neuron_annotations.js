@@ -156,8 +156,12 @@ NeuronAnnotations.prototype.add_result_table_row = function(entity, add_row_fn,
 
   // Annotations column
   var td_ann = document.createElement('td');
-  // Build list of annotations and use layout of jQuery tagbox
-  var ul = entity.annotations.reduce(
+  // Build list of alphabetically sorted annotations and use layout of jQuery
+  // tagbox
+  var sortedAnnotations = entity.annotations.sort(function(a, b) {
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+  var ul = sortedAnnotations.reduce(
     function(o, e) {
       var li = document.createElement('li');
       li.setAttribute('title', 'Show annotation in navigator');
@@ -713,6 +717,10 @@ NeuronAnnotations.prototype.annotate = function(entity_ids, skeleton_ids,
                 new ErrorDialog("There was a problem updating the annotation " +
                     "cache, please close and re-open the tool", err).show();
               }
+
+              // Let the neuron name service update itself
+              NeuronNameService.getInstance().refresh();
+
               // Execute callback, if any
               if (callback) callback();
             }
@@ -757,6 +765,9 @@ NeuronAnnotations.remove_annotation_from_entities = function(entity_ids,
           if (e.error) {
             new ErrorDialog(e.error, e.detail).show();
           } else {
+            // Let the neuron name service update itself
+            NeuronNameService.getInstance().refresh();
+
             if (callback) callback(e.message);
           }
         }

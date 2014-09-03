@@ -11,6 +11,11 @@ import numpy as np
 import copy
 
 try:
+    # Because we don't want to show generated images in a window, we can use
+    # the Agg backend. This avoids some potential threading issues.
+    import matplotlib
+    matplotlib.use('Agg')
+
     import matplotlib.pyplot as plt
     import matplotlib.colors as colors
     from matplotlib.dates import  DateFormatter, DayLocator
@@ -279,7 +284,7 @@ def splitBout(bout,increment):
 def generateErrorImage(msg):
     """ Creates an empty image (based on image nr. 1) and adds a message to it.
     """
-    fig = figure(1, figsize=(6,6))
+    fig = plt.figure(1, figsize=(6,6))
     fig.clf()
     fig.suptitle(msg)
     return fig

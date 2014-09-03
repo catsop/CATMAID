@@ -302,8 +302,7 @@ ActiveSkeleton.prototype.hasSkeleton = function(skeleton_id) {
 ActiveSkeleton.prototype.createModel = function() {
 	var active = SkeletonAnnotations.getActiveSkeletonId();
 	if (!active) return null;
-	var name = $('#neuronName' + SkeletonAnnotations.getActiveStackId()).text();
-	name = name.substring(0, name.lastIndexOf(' (Sk'));
+	var name = NeuronNameService.getInstance().getName(active);
   return new SelectionTable.prototype.SkeletonModel(active, name, new THREE.Color().setRGB(1, 1, 0));
 };
 
@@ -399,421 +398,6 @@ var annotations = new AnnotationCache();
 
 
 /**
- * The neuron name service creates a name for a specific neuron. Based on the
- * user's settings, the name is the regular neuron name or based on annotations.
- * It can be configured with the help of the settings widget.
- */
-var NeuronNameService = function()
-{
-  // All available naming options. If an entry needs a parameter and includes
-  // the pattern "..." in its name, this pattern will be replaced by the
-  // parameter when added to the actual fallback list.
-  var options = [
-    {id: 'neuronname', name: "Neuron name", needsParam: false},
-    {id: 'skeletonid', name: "Skeleton ID", needsParam: false},
-    {id: 'all', name: "All annotations", needsParam: false},
-    {id: 'all-meta', name: "All annotations annotated with ...", needsParam: true},
-    {id: 'own', name: "Own annotations", needsParam: false},
-    {id: 'own-meta', name: "Own annotations annotated with ...", needsParam: true},
-  ];
-
-  // The current fallback/naming list
-  var fallbackList = [
-    {id: 'neuronname', name: "Neuron name"}
-  ];
-
-  // Indicates if the skeleton ID should be appended to every label
-  var appendSkeletonId = false;
-
-  // An object mapping skeleton IDs to objects that contain the current name and
-  // a list of clients, inerested in the particular skeleton.
-  var managedSkeletons = [];
-
-  // A list of all clients
-  var clients = [];
-
-
-  /**
-   * Allows the caller to select whether the skeleton ID should be appende to
-   * every label or not.
-   */
-  this.setAppendSkeletonId = function(append)
-  {
-    appendSkeletonId = append ? true: false;
-
-    // Update the name representation of all neurons
-    this.updateNames(null, this.notifyClients.bind(this));
-  };
-
-  /**
-   * Returns copy of all available naming options.
-   */
-  this.getOptions = function()
-  {
-    return $.extend(true, [], options);
-  };
-
-  /**
-   * Returns a copy of the internal fallback list.
-   */
-  this.getFallbackList = function()
-  {
-    return $.extend(true, [], fallbackList);
-  };
-
-  /**
-   * Adds a labeling option to the fall back list.
-   */
-  this.addLabeling = function(id, option)
-  {
-    // Make sure there is an option with the given ID
-    var type = options.filter(function(o) { return o.id === id; });
-    // Return if no type was found
-    if (type.length === 0) {
-      return;
-    } else {
-      // Expect only one element
-      type = type[0];
-    }
-
-    // Cancel if this type needs a parameter, but non was given
-    if (type.needsParam && !option) {
-      return;
-    }
-
-    // Create new labeling
-    var newLabeling = {id: id};
-    if (option) {
-      newLabeling.option = option;
-      if (type.needsParam) {
-        // If this type needs a parameter, replace '...' in its name with the
-        // given parameter
-        newLabeling.name = type.name.replace(/\.\.\./, "\"" + option + "\"");
-      } else {
-        newLabeling.name = type.name;
-      }
-    } else {
-      newLabeling.name = type.name;
-    }
-
-    // Add new labeling to list
-    fallbackList.push(newLabeling);
-
-    // Update the name representation of all neurons
-    this.updateNames(null, this.notifyClients.bind(this));
-  };
-
-  /**
-   * Removes the labeling at the given index from the fallback list. All items
-   * but the fist on can be removed.
-   */
-  this.removeLabeling = function(index)
-  {
-    if (index < 1 || index >= fallbackList.length) {
-      return;
-    }
-
-    fallbackList.splice(index, 1);
-
-    // Update the name representation of all neurons
-    this.updateNames(null, this.notifyClients.bind(this));
-  };
-
-  /**
-   * Convenience method to make a single skeleton model known to the naming
-   * service and to register the given client as linked to it.
-   */
-  this.register = function(client, model, callback)
-  {
-    this.registerAll(client, [model], callback);
-  }
-
-  /**
-   * Makes all given skeletons known to the naming service and registers the
-   * given client as linked to these skeletons.
-   */
-  this.registerAll = function(client, models, callback)
-  {
-    // Link all skeleton IDs to the client and create a list of unknown
-    // skeletons.
-    var unknownSkids = [];
-    for (var skid in models) {
-      if (skid in managedSkeletons) {
-        if (-1 !== managedSkeletons[skid].clients.indexOf(client)) {
-          managedSkeletons[skid].clients.push(client);
-        }
-      } else {
-        managedSkeletons[skid] = {
-          clients: [client],
-          name: null,
-          model: models[skid],
-        };
-        unknownSkids.push(skid);
-      }
-    };
-
-    // Add client to the list of known clients.
-    if (-1 === clients.indexOf(client)) {
-      clients.push(client);
-    }
-
-    if (0 === unknownSkids.length) {
-      // Execute callback and return if here is no unknown skeleton ID
-      if (callback) {
-        callback();
-      }
-      return;
-    } else {
-      this.updateNames(unknownSkids, callback);
-    }
-  };
-
-  /**
-   * Removes all references to the given client.
-   */
-  this.unregister = function(client)
-  {
-    for (var skid in managedSkeletons) {
-      var cIdx =  managedSkeletons[skid].clients.indexOf(client);
-      if (-1 !== cIdx) {
-        // Remove whole skeleton from managed list, if this is the only client
-        // linked to it.
-        if (1 ===managedSkeletons[skid].clients.length) {
-          delete managedSkeletons[skid];
-        } else {
-          // Delete client from list
-          managedSkeletons[skid].clients.splice(cIdx, 1);
-        }
-      }
-    }
-
-    var cIdx = clients.indexOf(client);
-    if (-1 !== cIdx) {
-      clients.splice(cIdx, 1);
-    }
-  };
-
-  /**
-   * Tries to let every registered client know that there was an update in the
-   * name representation.
-   */
-  this.notifyClients = function() {
-    clients.forEach(function(c) {
-      // If a client has a method called 'updateNeuronNames', call it
-      if (c.updateNeuronNames) {
-        c.updateNeuronNames();
-      }
-    });
-  };
-
-  /**
-   * Updates the name of all known skeletons, if no list of skeleton IDs is
-   * passed.  Otherwise, only the given skeletons will be updated. Can execute a
-   * callback, when the names were successfully updated.
-   */
-  this.updateNames = function(skids, callback)
-  {
-    /**
-     * The actual update function---see below for call.
-     */
-    var update = function(data) {
-      var name = function(skid) {
-        /**
-         * Support function to creat a label, based on meta annotations. Id a
-         * user ID is provided, it is also checked for the user ID. If a label
-         * can't be created, null is returned.
-         */
-        var metaLabel = function(maID, userID) {
-            var ma = data.skeletons[skid].annotations.reduce(function(o, a) {
-              // Test if current annotation has meta annotations
-              if (a.id in data.metaannotations) {
-                var hasID = function(ma) {
-                  return ma.id === maID;
-                };
-                // Remember this annotation for display if is annotated with
-                // the requested meta annotation.
-                if (data.metaannotations[a.id].annotations.some(hasID)) {
-                  // Also test against user ID, if provided
-                  if (undefined === userID) {
-                    o.push(data.annotations[a.id]);
-                  } else if (a.uid === userID) {
-                    o.push(data.annotations[a.id]);
-                  }
-                }
-              }
-              return o;
-            }, []);
-            // Return only if there are own annotations
-            if (ma.length > 0) {
-              return ma.join(', ');
-            }
-
-            return null;
-        };
-
-        var skeleton = managedSkeletons[skid];
-
-        // Walk backwars through fallback list to name the current skeleton
-        for (var i=fallbackList.length - 1; i > -1; --i) {
-          var l = fallbackList[i];
-          if ('neuronname' === l.id) {
-            return skeleton.model.baseName;
-          } else if ('skeletonid' === l.id) {
-            return '' + skid;
-          } else if ('all' === l.id) {
-            if (skid in data.skeletons) {
-              return data.skeletons[skid].annotations.map(function(a) {
-                return data.annotations[a.id];
-              }).join(', ');
-            }
-          } else if ('all-meta' === l.id) {
-            if (skid in data.skeletons) {
-              // Collect all annotations annotated with the requested meta
-              // annotation.
-              var label = metaLabel(annotations.getID(l.option));
-              if (null !== label) {
-                return label
-              }
-            }
-          } else if ('own' === l.id) {
-            if (skid in data.skeletons) {
-              // Collect own annotations
-              var oa = data.skeletons[skid].annotations.reduce(function(o, a) {
-                if (a.uid === session.userid) {
-                  o.push(data.annotations[a.id]);
-                }
-                return o;
-              }, []);
-              // Return only if there are own annotations
-              if (oa.length > 0) {
-                return oa.join(', ');
-              }
-            }
-          } else if ('own-meta' === l.id) {
-            if (skid in data.skeletons) {
-              // Collect all annotations that are annotated with requested meta
-              // annotation.
-              var label = metaLabel(annotations.getID(l.option), session.userid);
-              if (null !== label) {
-                return label
-              }
-            }
-          }
-        }
-
-        // Return the skeleton ID as last option
-        return "" + skid;
-      };
-
-      if (skids) {
-        skids.forEach(function(skid) {
-          managedSkeletons[skid].name = name(skid) +
-               (appendSkeletonId ? " #" + skid : "");
-        });
-      } else {
-        for (var skid in managedSkeletons) {
-          managedSkeletons[skid].name = name(skid) +
-               (appendSkeletonId ? " #" + skid : "");
-        }
-      }
-
-      // Execute callback, if available
-      if (callback) {
-        callback();
-      }
-    };
-
-    // Request information only, if needed
-    var needsNoBackend = 0 === fallbackList.filter(function(l) {
-        return 'neuronname' !== l.id && 'skeletonid' !== l.id;
-    }).length;
-
-    if (needsNoBackend) {
-      // If no back-end is needed, call the update method right away, without
-      // any data.
-      update(null);
-    } else {
-      // Check if we need meta annotations
-      var needsMetaAnnotations = fallbackList.some(function(l) {
-          return 'all-meta' ===  l.id || 'own-meta' === l.id;
-      });
-
-      // Get all data that is needed for the fallback list
-      requestQueue.register(django_url + project.id + '/skeleton/annotationlist',
-        'POST',
-        {
-          skeleton_ids: Object.keys(managedSkeletons),
-          metaannotations: needsMetaAnnotations ? 1 : 0,
-        },
-        jsonResponseHandler(function(json) {
-          update(json);
-        }));
-    }
-  };
-
-  /**
-   * Returns the name for the given skeleton ID, if available. Otherwise, return
-   * null.
-   */
-  this.getName = function(skid)
-  {
-    if (skid in managedSkeletons) {
-      return managedSkeletons[skid].name;
-    } else {
-      return null;
-    }
-  };
-
-  /**
-   * This is a convenience method to rename a neuron. If the neuron in question
-   * is managed by the name service, an update event will be triggered and all
-   * registered widgets will be notified.
-   */
-  this.renameNeuron = function(neuronId, skeletonIds, newName, callback)
-  {
-    requestQueue.register(django_url + project.id + '/object-tree/instance-operation',
-      'POST',
-      {operation: "rename_node",
-       id: neuronId,
-       title: newName,
-       classname: "neuron",
-       pid: project.id
-      },
-      jsonResponseHandler((function(data) {
-        // Update all skeletons of the current neuron that are managed
-        var updatedSkeletons = skeletonIds.filter(function(skid) {
-          if (skid in managedSkeletons) {
-            // Update skeleton model
-            managedSkeletons[skid].model.baseName = newName;
-            return true;
-          }
-          return false;
-        });
-
-        // Only update the names if there was indeed a skeleton update.
-        // Otherwise, execute callback directly.
-        if (updatedSkeletons.length > 0) {
-          // Update the names of the affected skeleton IDs and notify clients if
-          // there was a change. And finally execute the callback.
-          this.updateNames(updatedSkeletons, (function() {
-            this.notifyClients();
-            if (callback) {
-              callback();
-            }
-          }).bind(this));
-        } else {
-          if (callback) {
-            callback();
-          }
-        }
-      }).bind(this)));
-  };
-};
-
-var neuronNameService = new NeuronNameService();
-
-
-/**
  * This a convience constructor to make it very easy to use the neuron name
  * service.
  */
@@ -882,9 +466,10 @@ var parseColorWheel = function(color) {
  * with the ID and the corresponding JSON.
  * If some skeletons fail to load (despite existing), the fnFailedLoading will be invoked with the ID.
  * Finally when all are loaded, fnDone is invoked without arguments.
+ * Note that fnDone is invoked even when the given skeleton_ids array is empty.
  *
  * Additionally, when done if any skeletons don't exist anymore, a dialog will ask to remove them from all widgets that are skeleton sources.*/
-var fetchCompactSkeletons = function(skeleton_ids, lean_mode, fnLoadedOne, fnFailedLoading, fnDone) {
+var fetchSkeletons = function(skeleton_ids, fnMakeURL, fnPost, fnLoadedOne, fnFailedLoading, fnDone) {
   var i = 0,
       missing = [],
       unloadable = [],
@@ -896,9 +481,12 @@ var fetchCompactSkeletons = function(skeleton_ids, lean_mode, fnLoadedOne, fnFai
           alert("Could not load skeletons: " + unloadable.join(', '));
         }
       },
-      post = {lean: lean_mode ? 1 : 0},
+      finish = function() {
+        $.unblockUI();
+        fnMissing();
+      },
       loadOne = function(skeleton_id) {
-        requestQueue.register(django_url + project.id + '/skeleton/' + skeleton_id + '/compact-json', 'POST', post,
+        requestQueue.register(fnMakeURL(skeleton_id), 'POST', fnPost(skeleton_id),
             function(status, text) {
               try {
                 if (200 === status) {
@@ -923,23 +511,24 @@ var fetchCompactSkeletons = function(skeleton_ids, lean_mode, fnLoadedOne, fnFai
                 if (i < skeleton_ids.length) {
                   loadOne(skeleton_ids[i]);
                 } else {
+                  finish();
                   fnDone();
                 }
               } catch (e) {
+                finish();
                 console.log(e, e.stack);
                 growlAlert("ERROR", "Problem loading skeleton " + skeleton_id);
-              } finally {
-                if (skeleton_ids.length > 1) {
-                  $.unblockUI();
-                }
-                fnMissing();
               }
             });
       };
   if (skeleton_ids.length > 1) {
     $.blockUI({message: '<img src="' + STATIC_URL_JS + 'widgets/busy.gif" /> <h2>Loading skeletons <div id="counting-loaded-skeletons">0 / ' + skeleton_ids.length + '</div></h2>'});
   }
-  loadOne(skeleton_ids[0]);
+  if (skeleton_ids.length > 0) {
+    loadOne(skeleton_ids[0]);
+  } else {
+    fnDone();
+  }
 };
 
 var saveDivSVG = function(divID, filename) {
@@ -951,4 +540,167 @@ var saveDivSVG = function(divID, filename) {
     var blob = new Blob([xml], {type : 'text/xml'});
     saveAs(blob, filename);
   }
+};
+
+/** Parse JSON data from compact-skeleton and compact-arbor into an object
+ * that contains an Arbor instance and a number of measurements related
+ * to synapses and synaptic partners. */
+var ArborParser = function() {
+    this.arbor = null;
+    this.inputs = null;
+    this.outputs = null;
+    this.n_inputs = null;
+    // Number of post targets of pre connectors
+    this.n_outputs = null;
+    // Number of pre connectors
+    this.n_presynaptic_sites = null;
+    this.input_partners = null;
+    this.output_partners = null;
+};
+
+ArborParser.prototype = {};
+
+ArborParser.prototype.init = function(url, json) {
+    this.tree(json[0]);
+    switch (url) {
+        case 'compact-skeleton':
+            this.connectors(json[1]);
+            break;
+        case 'compact-arbor':
+            this.synapses(json[1]);
+            break;
+    }
+    return this;
+};
+
+ArborParser.prototype.tree = function(rows) {
+  var arbor = new Arbor(),
+      positions = {};
+  for (var i=0; i<rows.length; ++i) {
+    var row = rows[i],
+        node = row[0],
+        paren = row[1];
+    if (paren) arbor.edges[node] = paren;
+    else arbor.root = node;
+    positions[node] = new THREE.Vector3(row[3], row[4], row[5]);
+  };
+
+  this.arbor = arbor;
+  this.positions = positions;
+  return this;
+};
+
+/** Parse connectors from compact-skeleton.
+ */
+ArborParser.prototype.connectors = function(rows) {
+  var io = [{count: 0},
+            {count: 0}];
+  for (var i=0; i<rows.length; ++i) {
+    var row = rows[i],
+        t = io[row[2]], // 2: type: 0 for pre, 1 for post
+        node = row[0], // 0: ID
+        count = t[node];
+    if (count) t[node] = count + 1;
+    else t[node] = 1;
+    t.count += 1;
+  }
+  this.n_presynaptic_sites = io[0].count;
+  this.n_inputs = io[1].count;
+  delete io[0].count;
+  delete io[1].count;
+  this.outputs = io[0];
+  this.inputs = io[1];
+  return this;
+};
+
+/** Parse connectors from compact-arbor.
+ */
+ArborParser.prototype.synapses = function(rows) {
+  var io = [{partners: {},
+             count: 0,
+             connectors: {}},
+            {partners: {},
+             count: 0,
+             connectors: {}}];
+  for (var i=0; i<rows.length; ++i) {
+    var row = rows[i],
+        t = io[row[6]], // 6: 0 for pre, 1 for post
+        node = row[0], // 0: treenode ID
+        count = t[node];
+    if (count) t[node] = count + 1;
+    else t[node] = 1;
+    t.count += 1;
+    t.partners[row[5]] = true;
+    t.connectors[row[2]] = true; // 2: connector ID
+  }
+  this.n_outputs = io[0].count;
+  this.n_inputs = io[1].count;
+  this.output_partners = io[0].partners;
+  this.input_partners = io[1].partners;
+  this.n_output_connectors = Object.keys(io[0].connectors).length;
+  this.n_input_connectors = Object.keys(io[1].connectors).length;
+  ['count', 'partners', 'connectors'].forEach(function(key) {
+      delete io[0][key];
+      delete io[1][key];
+  });
+  this.outputs = io[0];
+  this.inputs = io[1];
+  return this;
+};
+
+/** Replace in this.arbor the functions defined in the fnNames array by a function
+ * that returns a cached version of their corresponding return values.
+ * Order matters: later functions in the fnNames array will already be using
+ * cached versions of earlier ones.
+ * Functions will be invoked without arguments. */
+ArborParser.prototype.cache = function(fnNames) {
+    if (!this.arbor.__cache__) this.arbor.__cache__ = {};
+    fnNames.forEach(function(fnName) {
+        this.__cache__[fnName] = Arbor.prototype[fnName].bind(this)();
+        this[fnName] = new Function("return this.__cache__." + fnName);
+    }, this.arbor);
+};
+
+/** Will find terminal branches whose end node is tagged with "not a branch"
+ * and remove them from the arbor, transferring any synapses to the branch node.
+ * tags: a map of tag name vs array of nodes with that tag, as retrieved by compact-arbor or compact-skeleton.
+ * Assumes that this.arbor, this.inputs and this.outputs exist. */
+ArborParser.prototype.collapseArtifactualBranches = function(tags) {
+    var notabranch = tags['not a branch'];
+    if (undefined === notabranch) return;
+    var be = this.arbor.findBranchAndEndNodes(),
+        ends = be.ends,
+        branches = be.branches,
+        edges = this.arbor.edges,
+        tagged = {};
+    for (var i=0; i<notabranch.length; ++i) {
+        tagged[notabranch[i]] = true;
+    }
+    for (var i=0; i<ends.length; ++i) {
+        var node = ends[i];
+        if (tagged[node]) {
+            var n_inputs = 0,
+                n_outputs = 0;
+            while (node && !branches[node]) {
+                var nI = this.inputs[node],
+                    nO = this.outputs[node];
+                if (nI) {
+                    n_inputs += nI;
+                    delete this.inputs[node];
+                }
+                if (nO) {
+                    n_outputs += nO;
+                    delete this.outputs[node];
+                }
+                // Continue to parent
+                var paren = edges[node];
+                delete edges[node];
+                node = paren;
+            }
+            // node is now the branch node, or null for a neuron without branches
+            if (!node) node = this.arbor.root;
+            if (n_inputs > 0) this.inputs[node] = n_inputs;
+            if (n_outputs > 0) this.outputs[node] = n_outputs;
+        }
+    }
 };

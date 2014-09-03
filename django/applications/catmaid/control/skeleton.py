@@ -44,12 +44,15 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
     tnid = int(request.POST['tnid'])
     cursor = connection.cursor()
 
+    cursor.execute("SELECT id FROM relation WHERE project_id=%s AND relation_name='labeled_as'" % int(project_id))
+    labeled_as = cursor.fetchone()[0]
+
     # Select all nodes and their tags
     cursor.execute('''
     SELECT t.id, t.parent_id, t.location, ci.name
-    FROM treenode t LEFT OUTER JOIN (treenode_class_instance tci INNER JOIN class_instance ci ON tci.class_instance_id = ci.id) ON t.id = tci.treenode_id
+    FROM treenode t LEFT OUTER JOIN (treenode_class_instance tci INNER JOIN class_instance ci ON tci.class_instance_id = ci.id AND tci.relation_id = %s) ON t.id = tci.treenode_id
     WHERE t.skeleton_id = %s
-    ''' % int(skeleton_id))
+    ''' % (labeled_as, int(skeleton_id)))
 
     # Some entries repeated, when a node has more than one tag
     # Create a graph with edges from parent to child, and accumulate parents
@@ -114,6 +117,46 @@ def skeleton_statistics(request, project_id=None, skeleton_id=None):
         'measure_construction_time': construction_time,
         'percentage_reviewed': "%.2f" % skel.percentage_reviewed() }), mimetype='text/json')
 
+# Will fail if skeleton_id does not exist
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
+def contributor_statistics(request, project_id=None, skeleton_id=None):
+    contributors = defaultdict(int)
+    n_nodes = 0
+    # Count the total number of 60-second intervals with at least one treenode in them
+    minutes = set()
+    epoch = datetime.utcfromtimestamp(0)
+
+    for row in Treenode.objects.filter(skeleton_id=skeleton_id).values_list('id', 'parent_id', 'user_id', 'creation_time'):
+        n_nodes += 1
+        contributors[row[2]] += 1
+        minutes.add(int((row[3] - epoch).total_seconds() / 60))
+
+    relations = {row[0]: row[1] for row in Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id')}
+
+    synapses = {}
+    synapses[relations['presynaptic_to']] = defaultdict(int)
+    synapses[relations['postsynaptic_to']] = defaultdict(int)
+
+    for row in TreenodeConnector.objects.filter(skeleton_id=skeleton_id).values_list('user_id', 'relation_id'):
+        synapses[row[1]][row[0]] += 1
+
+    cq = ClassInstanceClassInstance.objects.filter(
+            relation__relation_name='model_of',
+            project_id=project_id,
+            class_instance_a=int(skeleton_id)).select_related('class_instance_b')
+    neuron_name = cq[0].class_instance_b.name
+
+    return HttpResponse(json.dumps({
+        'name': neuron_name,
+        'construction_minutes': len(minutes),
+        'n_nodes': n_nodes,
+        'node_contributors': contributors,
+        'n_pre': sum(synapses[relations['presynaptic_to']].values()),
+        'n_post': sum(synapses[relations['postsynaptic_to']].values()),
+        'pre_contributors': synapses[relations['presynaptic_to']],
+        'post_contributors': synapses[relations['postsynaptic_to']]}))
+
+
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def node_count(request, project_id=None, skeleton_id=None, treenode_id=None):
     # Works with either the skeleton_id or the treenode_id
@@ -176,7 +219,6 @@ def check_new_annotations(project_id, user, entity_id, annotation_set):
     """ With respect to annotations, the new annotation set is only valid if the
     user doesn't remove annotations for which (s)he has no permissions.
     """
-    print("Testing %s" % entity_id)
     # Get current annotation links
     annotation_links = ClassInstanceClassInstance.objects.filter(
             project_id=project_id,
@@ -464,7 +506,7 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
 
     # Count nodes that have been reviewed by each user in each partner skeleton
     cursor.execute('''
-    SELECT skeleton_id, reviewer_id, count(skeleton_id)
+    SELECT skeleton_id, reviewer_id, count(*)
     FROM review
     WHERE skeleton_id IN (%s)
     GROUP BY reviewer_id, skeleton_id
@@ -475,7 +517,7 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
 
     # Count total number of reviewed nodes per skeleton
     cursor.execute('''
-    SELECT skeleton_id, count(skeleton_id)
+    SELECT skeleton_id, count(*)
     FROM (SELECT skeleton_id, treenode_id
           FROM review
           WHERE skeleton_id IN (%s)
@@ -914,6 +956,7 @@ def annotation_list(request, project_id=None):
             if k.startswith('skeleton_ids[')]
     annotations = bool(int(request.POST.get("annotations", 0)))
     metaannotations = bool(int(request.POST.get("metaannotations", 0)))
+    neuronnames = bool(int(request.POST.get("neuronnames", 0)))
 
     classes = dict(Class.objects.filter(project_id=project_id).values_list('class_name', 'id'))
     relations = dict(Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id'))
@@ -956,6 +999,16 @@ def annotation_list(request, project_id=None):
         'annotations': annotations,
         'skeletons': skeletons,
     }
+
+    # If wanted, get the neuron name of each skeleton
+    if neuronnames:
+        neuronnames_query = ClassInstanceClassInstance.objects.filter(
+                relation=relations['model_of'],
+                project=project_id,
+                class_instance_a__in=skeleton_ids) \
+                        .select_related("class_instance_b") \
+                        .values_list("class_instance_a", "class_instance_b__name")
+        response['neuronnames'] = dict(neuronnames_query)
 
     # If wanted, get the meta annotations for each annotation
     if metaannotations:

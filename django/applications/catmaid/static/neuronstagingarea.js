@@ -33,7 +33,7 @@ SelectionTable.prototype.destroy = function() {
   this.clear(); // clear after clearing linkTarget, so it doesn't get cleared
   this.unregisterInstance();
   this.unregisterSource();
-  neuronNameService.unregister(this);
+  NeuronNameService.getInstance().unregister(this);
 };
 
 SelectionTable.prototype.updateModels = function(models, source_chain) {
@@ -119,43 +119,69 @@ SelectionTable.prototype.SkeletonModel.prototype.skeleton_info = function() {
   // Additionally, the node count should be continued by the user contribution
   // (that is, how many nodes each user contributed). Same for review status.
   // And the "Downstream skeletons" should be split into two: skeletons with more than one node, and skeletons with one single node (placeholder pre- or postsynaptic nodes).
-  requestQueue.register(django_url + project.id + '/skeleton/' + this.id + '/statistics', "POST", {},
-      function (status, text, xml) {
-        if (status === 200) {
-          if (text && text !== " ") {
-            var e = $.parseJSON(text);
-            if (e.error) {
-                alert(e.error);
-            } else {
-              var dialog = document.createElement('div');
-              dialog.setAttribute("id", "dialog-confirm");
-              dialog.setAttribute("title", "Skeleton Information");
-              var msg = document.createElement('p');
-              msg.innerHTML = 
-                  "Neuron Name: " + self.baseName + ' #' + self.id + "<br />" +
-                  "Node count: " + e.node_count + "<br />" +
-                  "Postsynaptic sites: " + e.postsynaptic_sites + "<br />" +
-                  "Upstream skeletons: " + e.input_count + "<br />" +
-                  "Presynaptic sites: " + e.presynaptic_sites + "<br />" +
-                  "Downstream skeletons: " + e.output_count + "<br />" +
-                  "Cable length: " + e.cable_length + " nm <br />" +
-                  "Construction time: " + e.measure_construction_time + "<br />" +
-                  "Reviewed: " + e.percentage_reviewed + " %<br />";
-              dialog.appendChild(msg);
+  requestQueue.register(django_url + project.id + '/skeleton/' + this.id + '/contributor_statistics', "POST", {},
+      (function (status, text, xml) {
+        if (200 !== status) return;
+        if (!text || text === " ") return;
+        var json = $.parseJSON(text);
+        if (json.error) return alert(json.error);
 
-              $(dialog).dialog({
-                height: 440,
-                modal: true,
-                buttons: {
-                  "OK": function() {
-                    $(this).dialog("close");
-                  }
-                }
-              });
+        var dialog = document.createElement('div');
+        dialog.setAttribute("id", "dialog-confirm");
+        dialog.setAttribute("title", "Skeleton Information");
+
+        var users = User.all();
+        var format = function(contributors) {
+          return "<br /><table>" + Object.keys(contributors)
+            .reduce(function(a, user_id) {
+              a.push([users[user_id].login, contributors[user_id]]);
+              return a;
+            }, [])
+            .sort(function(a, b) {
+              return a[1] === b[1] ? 0 : (a[1] < b[1] ? 1 : -1); // descending
+            })
+            .map(function(a) {
+              return '<tr><td>' + a[0] + '</td><td>' + a[1] + '</td></tr>';
+            })
+            .join('') + "</table>";
+        };
+
+        var time = {};
+        time.hour = (json.construction_minutes / 60) | 0;
+        time.minute = json.construction_minutes % 60;
+        var time_string = ['hour', 'minute'].reduce(function(s, unit) {
+          var v = time[unit];
+          return s + (s.length > 0 ? " " : "")
+                   + (0 === v ? "" : v + " " + unit + (v > 1 ? "s" : ""));
+        }, "");
+
+        var table = document.createElement('table');
+        table.style.border = 1;
+        table.innerHTML = [
+          ["Neuron name:", json.name],
+          ["Node count: ", json.n_nodes],
+          ["Nodes contributed by: ", format(json.node_contributors)],
+          ["Number of presynaptic sites: ", json.n_pre],
+          ["Presynapses contributed by: ", format(json.pre_contributors)],
+          ["Number of postsynaptic sites: ", json.n_post],
+          ["Postsynapses contributed by: ", format(json.post_contributors)],
+          ["Construction time: ", time_string],
+        ].map(function(row) {
+          return "<tr><td>" + row[0] + "</td><td>" + row[1] + "</td></tr>";
+        }).join('');
+
+        dialog.appendChild(table);
+
+        $(dialog).dialog({
+          height: 440,
+          modal: true,
+          buttons: {
+            "OK": function() {
+              $(this).dialog("close");
             }
           }
-        }
-      });
+        });
+      }).bind(this));
 };
 
 SelectionTable.prototype.highlight = function( skeleton_id ) {
@@ -200,9 +226,7 @@ SelectionTable.prototype.toggleSelectAllSkeletonsUI = function() {
     this.all_visible = !this.all_visible;
     // Update only skeletons that match the text
     var updated = {};
-    this.skeletons.filter(function(skeleton) {
-      return skeleton.baseName.indexOf(this.match) > -1;
-    }, this).forEach(function(skeleton) {
+    this.filteredSkeletons(false).forEach(function(skeleton) {
         // Update checkboxes
         $("#skeletonshow" + this.widgetID + "-" + skeleton.id).attr('checked', this.all_visible);
         $("#skeletonpre" + this.widgetID + "-" + skeleton.id).attr('checked', this.all_visible);
@@ -226,12 +250,7 @@ SelectionTable.prototype.toggleSelectAllSkeletonsUI = function() {
 SelectionTable.prototype.toggleSynapsesUI = function(type) {
   var state = !this.all_synapses_visible[type];
   this.all_synapses_visible[type] = state;
-  var skeletons = this.skeletons;
-  if (this.match) {
-    skeletons = this.skeletons.filter(function(skeleton) {
-      return skeleton.baseName.indexOf(this.match) > -1;
-    }, this);
-  }
+  var skeletons = this.filteredSkeletons(true);
   skeletons.forEach(function(skeleton) {
     $("#skeleton" + type + this.widgetID + "-" + skeleton.id).attr('checked', state);
     skeleton[type + "_visible"] = state;
@@ -258,8 +277,8 @@ SelectionTable.prototype.sort = function(sortingFn) {
 
 SelectionTable.prototype.sortByName = function() {
   this.sort(function(sk1, sk2) {
-    var name1 = neuronNameService.getName(sk1.id).toLowerCase(),
-        name2 = neuronNameService.getName(sk2.id).toLowerCase();
+    var name1 = NeuronNameService.getInstance().getName(sk1.id).toLowerCase(),
+        name2 = NeuronNameService.getInstance().getName(sk2.id).toLowerCase();
     return name1 == name2 ? 0 : (name1 < name2 ? -1 : 1);
   });
 
@@ -362,7 +381,7 @@ SelectionTable.prototype.append = function(models) {
       }, this);
 
       // Add skeletons
-      neuronNameService.registerAll(this, models,
+      NeuronNameService.getInstance().registerAll(this, models,
           this.gui.update.bind(this.gui));
 
       this.updateLink(models);
@@ -430,11 +449,10 @@ SelectionTable.prototype.clear = function(source_chain) {
 /** Set the color of all skeletons based on the state of the "Color" pulldown menu. */
 SelectionTable.prototype.randomizeColorsOfSelected = function() {
   this.next_color_index = 0; // reset
-  this.skeletons.filter(this.isSelectedFn())
-                .forEach(function(skeleton) {
-                  skeleton.color = this.pickColor();
-                  this.gui.update_skeleton_color_button(skeleton);
-                }, this);
+  this.filteredSkeletons(true).forEach(function(skeleton) {
+    skeleton.color = this.pickColor();
+    this.gui.update_skeleton_color_button(skeleton);
+  }, this);
   this.updateLink(this.getSelectedSkeletonModels());
 };
  
@@ -446,8 +464,10 @@ SelectionTable.prototype.getSkeletonModel = function( id ) {
 
 /** Returns a clone of each model. */
 SelectionTable.prototype.getSelectedSkeletonModels = function() {
-  return this.skeletons.filter(this.isSelectedFn())
-                       .reduce(function(m, sk) { m[sk.id] = sk.clone(); return m; }, {});
+  return this.filteredSkeletons(true).reduce(function(m, sk) {
+    m[sk.id] = sk.clone();
+    return m;
+  }, {});
 };
 
 SelectionTable.prototype.getSkeletonModels = function() {
@@ -508,15 +528,9 @@ SelectionTable.prototype.getSkeletonColor = function( id ) {
   if (sk) return sk.color.clone();
 };
 
-SelectionTable.prototype.isSelectedFn = function() {
-  return (this.match ?
-      function(sk) { return sk.selected && sk.baseName.indexOf(this.match) > -1; }
-    : function(sk) { return sk.selected; }).bind(this);
-};
-
+/** Return an array of selected Skeleton IDs. */
 SelectionTable.prototype.getSelectedSkeletons = function() {
-  return this.skeletons.filter(this.isSelectedFn())
-                       .map(function(s) { return s.id; });
+  return this.filteredSkeletons(true).map(function(s) { return s.id; });
 };
 
 SelectionTable.prototype.hasSkeleton = function(skeleton_id) {
@@ -584,21 +598,8 @@ SelectionTable.prototype.GUI.prototype.update_skeleton_color_button = function(s
 /** Remove all, and repopulate with the current range. */
 SelectionTable.prototype.GUI.prototype.update = function() {
 
-  var skeletons = this.table.skeletons,
-      skeleton_ids = this.table.skeleton_ids;
-
-  if (this.table.match) {
-    // filter skeletons by the matching string
-    skeletons = skeletons.filter(function(skeleton) {
-      return skeleton.baseName && skeleton.baseName.indexOf(this.table.match) > -1;
-    }, this);
-    // recreate the indices
-    var i = 0;
-    skeleton_ids = skeletons.reduce(function(o, skeleton) {
-      o[skeleton.id] = i++;
-      return o;
-    }, {});
-  }
+  var skeletons = this.table.filteredSkeletons(false),
+      skeleton_ids = skeletons.reduce(function(o, sk, i) { o[sk.id] = i; return o; }, {});
 
   // Cope with changes in size
   if (this.first >= skeletons.length) {
@@ -658,7 +659,7 @@ SelectionTable.prototype.GUI.prototype.append = function (skeleton) {
   rowElement.append( td );
 
   // name
-  var name = neuronNameService.getName(skeleton.id);
+  var name = NeuronNameService.getInstance().getName(skeleton.id);
   rowElement.append($(document.createElement("td")).text(
         name ? name : 'undefined'));
 
@@ -820,24 +821,16 @@ SelectionTable.prototype.selectSkeleton = function( skeleton, vis ) {
 };
 
 SelectionTable.prototype.measure = function() {
-  var skids = this.getSelectedSkeletons();
-  if (0 === skids.length) return;
-  var self = this;
-  requestQueue.register(django_url + project.id + '/skeletons/measure', "POST",
-    {skeleton_ids: skids},
-    function(status, text) {
-      if (200 !== status) return;
-      var json = $.parseJSON(text);
-      if (json.error) {
-        alert(json.error);
-        return;
-      }
-      SkeletonMeasurementsTable.populate(json.map(function(row) {
-        var model = self.skeletons[self.skeleton_ids[row[0]]];
-        row.unshift(model.baseName + ' #' + model.id);
-        return row;
-      }));
-    });
+  var models = this.getSelectedSkeletonModels();
+  if (0 === Object.keys(models).length) return;
+
+  if (this.measurements_table && this.measurements_table.table) {
+    this.measurements_table.append(models);
+  } else {
+    WindowMaker.show('skeleton-measurements-table');
+    this.measurements_table = SkeletonMeasurementsTable.prototype.getLastInstance();
+    this.measurements_table.append(models);
+  }
 };
 
 /** Filtering by an empty text resets to no filtering. */
@@ -849,6 +842,27 @@ SelectionTable.prototype.filterBy = function(text) {
     this.first = 0;
   }
   this.gui.update();
+};
+
+/** Returns an array of Skeleton instances,
+ * filtered by this.match if the latter exists,
+ * and containing only those selected if so indicated by only_selected. */
+SelectionTable.prototype.filteredSkeletons = function(only_selected) {
+  if (0 === this.skeletons.length) return this.skeletons;
+  if (this.match) {
+    try {
+      return this.skeletons.filter(function(skeleton) {
+        if (only_selected && !skeleton.selected) return false;
+        var matches = NeuronNameService.getInstance().getName(skeleton.id).match(this);
+        return matches && matches.length > 0;
+      }, new RegExp(this.match));
+    } catch (e) {
+      alert(e.message);
+      return [];
+    }
+  }
+  if (only_selected) return this.skeletons.filter(function(skeleton) { return skeleton.selected; });
+  return this.skeletons;
 };
 
 SelectionTable.prototype.batchColorSelected = function(rgb) {

@@ -936,6 +936,11 @@ NeuronNavigator.Node.prototype.add_neuron_list_table = function($container,
       self.navigator.select_node(node);
   });
 
+  // If search is used, make sure 'select all' checkbox is unselected
+  $('#' + table_id + '_filter').find('input').keyup(function() {
+    $('#' + table_id).find('thead th input,tfoot th input').prop('checked', false);
+  });
+
   return datatable;
 };
 
@@ -1441,11 +1446,7 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
   rename_button.onclick = (function() {
     var new_name = prompt("Rename", this.neuron_name);
     if (!new_name) return;
-    neuronNameService.renameNeuron(this.neuron_id, this.skeleton_ids, new_name, (function() {
-        // Update UI
-        if (this.skeleton_ids.some(function(skid) { return skid === SkeletonAnnotations.getActiveSkeletonId();})) {
-          SkeletonAnnotations.setNeuronNameInTopbar(project.focusedStack.id, new_name, SkeletonAnnotations.getActiveSkeletonId());
-        }
+    NeuronNameService.getInstance().renameNeuron(this.neuron_id, this.skeleton_ids, new_name, (function() {
         $('div.nodeneuronname', container).html('Name: ' + new_name);
         this.neuron_name = new_name;
     }).bind(this));
@@ -1548,7 +1549,7 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
   // Manually request compact-json object for skeleton
   var loader_fn = function(skeleton_id) {
     requestQueue.register(django_url + project.id +
-        '/skeleton/' + skeleton_id + '/compact-json', 'POST', {},
+        '/' + skeleton_id + '/0/1/compact-skeleton', 'POST', {},
         function(status, text) {
           if (200 !== status) return;
           var json = $.parseJSON(text);
@@ -1556,10 +1557,14 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
             new ErrorDialog(json.error, json.detail).show();
             return;
           }
-          var nodes = json[1],
+          var nodes = json[0],
               tags = json[2],
-              arbor = new Arbor(),
-              eb = arbor.findBranchAndEndNodes(),
+              arbor = new Arbor();
+          nodes.forEach(function(row) {
+            if (row[1]) arbor.edges[row[0]] = row[1];
+            else arbor.root = row[0];
+          });
+          var eb = arbor.findBranchAndEndNodes(),
               tagged = ['ends', 'uncertain end', 'not a branch', 'soma'].reduce(function(o, tag) {
                 if (tag in tags) return tags[tag].reduce(function(o, nodeID) { o[nodeID] = true; return o; }, o);
                 return o;
@@ -1572,7 +1577,7 @@ NeuronNavigator.NeuronNode.prototype.add_content = function(container, filters)
           skeleton_datatable.fnAddData([
             skeleton_id,
             nodes.length,
-            eb.branching.length,
+            eb.n_branches,
             eb.ends.length + 1, // count the soma
             eb.ends.length + 1 - n_tagged_ends,
           ]);

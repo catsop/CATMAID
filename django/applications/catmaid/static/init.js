@@ -12,7 +12,7 @@ if (!window.console) {
   window.console.log = function() {}
 }
 
-var global_bottom = 34;
+var global_bottom = 29;
 var statusBar; //!< global statusBar
 var slider_trace_z;
 var slider_trace_s;
@@ -37,6 +37,8 @@ var project_menu;
 var stack_menu;
 
 var message_menu;
+// A menu for user related links
+var user_menu;
 
 var pid;
 var sids = new Array();
@@ -164,6 +166,15 @@ function handle_login(status, text, xml, completionCallback) {
 
       // Check for unread messages
       check_messages();
+
+      // Update user menu
+      user_menu.update({
+        "user_menu_entry_1": {
+          action: django_url + "user/password_change/",
+          title: "Change password",
+          note: "",
+        }
+      });
       
       // Asynchronously get the full list of users.
       // TODO: how to handle failure of this call?
@@ -313,9 +324,6 @@ function handle_updateProjects(status, text, xml) {
 	if (status == 200 && text) {
 		var e = $.parseJSON(text);
 
-		var keep_project_alive = false;
-		var keep_project_editable = false;
-
 		if (e.error) {
 			project_menu.update();
 			alert(e.error);
@@ -331,12 +339,8 @@ function handle_updateProjects(status, text, xml) {
 			project_menu.update(cachedProjectsInfo);
 		}
 		if (project) {
-			if (keep_project_alive) {
-				project.setEditable(keep_project_editable);
-			} else {
-				project.destroy();
-				delete project;
-			}
+			project.destroy();
+			delete project;
 		}
 	}
 	ui.releaseEvents();
@@ -420,10 +424,6 @@ function updateProjectListFromCache() {
     p = cachedProjectsInfo[i];
     display = false;
     toappend = [];
-    if (project && project.id == i) {
-      keep_project_alive = true;
-      keep_project_editable = p.editable;
-    }
 
     dt = document.createElement("dt");
 
@@ -533,9 +533,6 @@ function handle_openProjectStack( status, text, xml )
 				project_view = project.getView();
 				project.register();
 			}
-
-			// TODO: need to check permission of the user to decide on what to display
-			project.setEditable( e.editable );
 
 			var labelupload = '';
 
@@ -982,6 +979,14 @@ var realInit = function()
 	document.body.ondragstart = function( e ){ return false; };
 	*/
 	
+	// If the browser supports everything but webgl, let the user dismiss the warning message
+	if (Modernizr.opacity && Modernizr.canvas && Modernizr.svg && Modernizr.json)
+	{
+		$('#browser_unsupported .message').append($('<p><a href="#">Dismiss<a/></p>').click(function () {
+			$('#browser_unsupported').hide();
+		}));
+	}
+
 	//! analyze the URL
 	var z;
 	var y;
@@ -1113,6 +1118,9 @@ var realInit = function()
 	
 	message_menu = new Menu();
 	document.getElementById( "message_menu" ).appendChild( message_menu.getView() );
+
+	user_menu = new Menu();
+	document.getElementById( "user_menu" ).appendChild( user_menu.getView() );
 
 	// login and thereafter load stacks if requested
 	login(undefined, undefined, function() {

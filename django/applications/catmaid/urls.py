@@ -1,5 +1,6 @@
 from django.conf.urls import patterns, include, url
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.views.generic import TemplateView
 
 from catmaid.views import *
@@ -9,6 +10,8 @@ num = r'[-+]?[0-9]*\.?[0-9]+'
 integer = r'[-+]?[0-9]+'
 # A regular expression matching lists of integers with comma as delimiter
 intlist = r'[0-9]+(,[0-9]+)*'
+# A list of words, not containing commas
+wordlist= r'\w+(,\w+)*'
 
 # Add the main index.html page at the root:
 urlpatterns = patterns('',
@@ -31,6 +34,11 @@ urlpatterns += patterns('catmaid.control.user',
     (r'^user-list$', 'user_list'),
     (r'^user-table-list$', 'user_list_datatable'),
     (r'^user-profile/update$', 'update_user_profile'),
+)
+
+# Django related user URLs
+urlpatterns += patterns('django.contrib.auth.views',
+    url(r'^user/password_change/$', 'password_change', {'post_change_redirect': '/'}),
 )
 
 # Log
@@ -125,6 +133,7 @@ urlpatterns += patterns('catmaid.control.connector',
     (r'^(?P<project_id>\d+)/connector/list/graphedge$', 'graphedge_list'),
     (r'^(?P<project_id>\d+)/connector/list/one_to_many$', 'one_to_many_synapses'),
     (r'^(?P<project_id>\d+)/connector/skeletons$', 'connector_skeletons'),
+    (r'^(?P<project_id>\d+)/connector/edgetimes$', 'connector_associated_edgetimes'),
 )
 
 # Neuron acess
@@ -167,6 +176,7 @@ urlpatterns += patterns('catmaid.control.skeleton',
     (r'^(?P<project_id>\d+)/skeleton/connectivity$', 'skeleton_info_raw'),
     (r'^(?P<project_id>\d+)/skeleton/review-status$', 'review_status'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/statistics$', 'skeleton_statistics'),
+    (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/contributor_statistics$', 'contributor_statistics'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/openleaf$', 'last_openleaf'),
     (r'^(?P<project_id>\d+)/skeleton/split$', 'split_skeleton'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/get-root$', 'root_for_skeleton'),
@@ -184,9 +194,12 @@ urlpatterns += patterns('catmaid.control.skeletonexport',
     (r'^(?P<project_id>\d+)/neuroml/neuroml_level3_v181$', 'export_neuroml_level3_v181'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/swc$', 'skeleton_swc'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/neuroml$', 'skeletons_neuroml'),
-    (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/json$', 'skeleton_json'),
+    (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/json$', 'skeleton_with_metadata'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/compact-json$', 'skeleton_for_3d_viewer'),
+    (r'^(?P<project_id>\d+)/(?P<skeleton_id>\d+)/(?P<with_connectors>\d)/(?P<with_tags>\d)/compact-skeleton$', 'compact_skeleton'),
+    (r'^(?P<project_id>\d+)/(?P<skeleton_id>\d+)/(?P<with_nodes>\d)/(?P<with_connectors>\d)/(?P<with_tags>\d)/compact-arbor$', 'compact_arbor'),
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/review$', 'export_review_skeleton'),
+    (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/reviewed-nodes$', 'export_skeleton_reviews'),
     (r'^(?P<project_id>\d+)/skeletons/measure$', 'measure_skeletons'),
     (r'^(?P<project_id>\d+)/skeleton/connectors-by-partner$', 'skeleton_connectors_by_partner'),
 )
@@ -318,8 +331,14 @@ urlpatterns += patterns('catmaid.control.classification',
         'link_classification_graph', name='link_classification_graph'),
     url(r'^(?P<project_id>{0})/classification/(?P<workspace_pid>{0})/stack/(?P<stack_id>{0})/linkroi/(?P<ci_id>{0})/$'.format(integer),
         'link_roi_to_classification', name='link_roi_to_classification'),
-    url(r'^classification/(?P<workspace_pid>{0})/export'.format(integer),
+    url(r'^classification/(?P<workspace_pid>{0})/export$'.format(integer),
         'export', name='export_classification'),
+    url(r'^classification/(?P<workspace_pid>{0})/export/excludetags/(?P<exclusion_tags>{1})/$'.format(integer, wordlist),
+        'export', name='export_classification'),
+    url(r'^classification/(?P<workspace_pid>{0})/search$'.format(integer),
+        'search', name='search_classifications'),
+    url(r'^classification/(?P<workspace_pid>{0})/export_ontology$'.format(integer),
+        'export_ontology', name='export_ontology'),
 )
 
 # Notifications
@@ -348,6 +367,11 @@ urlpatterns += patterns('catmaid.control.clustering',
     url(r'^clustering/(?P<workspace_pid>{0})/show$'.format(integer),
         TemplateView.as_view(template_name="catmaid/clustering/display.html"),
         name="clustering_display"),
+)
+
+# Front-end tests
+urlpatterns += patterns('',
+    url(r'^tests$', login_required(TemplateView.as_view(template_name="catmaid/tests.html")), name="frontend_tests"),
 )
 
 # Collection of various parts of the CATMAID API. These methods are usually

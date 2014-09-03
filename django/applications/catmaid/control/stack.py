@@ -25,7 +25,6 @@ def get_stack_info(project_id=None, stack_id=None, user=None):
                          'to the project with ID %s, but there should only be ' \
                          'one link.' % (stack_id, project_id)}
     ps=ps_all[0]
-    can_edit = user.has_perm('can_administer', p) or user.has_perm('can_annotate', p)
 
     # https://github.com/acardona/CATMAID/wiki/Convention-for-Stack-Image-Sources
     if int(s.tile_source_type) == 2:
@@ -68,7 +67,6 @@ def get_stack_info(project_id=None, stack_id=None, user=None):
             'image_base': s.image_base,
             'num_zoom_levels': int(s.num_zoom_levels),
             'file_extension': s.file_extension,
-            'editable': can_edit,
             'translation': {
                 'x': ps.translation.x,
                 'y': ps.translation.y,
@@ -135,9 +133,19 @@ def stack_models(request, project_id=None, stack_id=None):
     """ Retrieve Mesh models for a stack
     """
     d={}
-    filename=os.path.join(settings.HDF5_STORAGE_PATH, '%s_%s.hdf' %(project_id, stack_id) )
-    if not os.path.exists(filename):
+    patterns = (('%s_%s.hdf', (project_id, stack_id)),
+                ('%s.hdf', (project_id,)))
+
+    filename = None
+    for p in patterns:
+        test_filename = os.path.join(settings.HDF5_STORAGE_PATH, p[0] % p[1])
+        if os.path.exists(test_filename):
+            filename = test_filename
+            break
+
+    if not filename:
         return HttpResponse(json.dumps(d), mimetype="text/json")
+
     with closing(h5py.File(filename, 'r')) as hfile:
         meshnames=hfile['meshes'].keys()
         for name in meshnames:

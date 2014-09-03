@@ -181,12 +181,24 @@ SkeletonAnnotations.setTracingMode = function (mode) {
   }
 };
 
-SkeletonAnnotations.setNeuronNameInTopbar = function(stackID, neuronName, skeletonID) {
-  $('#neuronName' + stackID).text(neuronName + ' (Skeleton ID: '+ skeletonID +')');
+SkeletonAnnotations.setNeuronNameInTopbar = function(stackID, skeletonID) {
+  if (!skeletonID) return;
+  var label = $('#neuronName' + stackID);
+  NeuronNameService.getInstance().unregister(label.data());
+  label.data('skeleton_id', skeletonID);
+  label.data('updateNeuronNames', function () {
+    label.text(NeuronNameService.getInstance().getName(this.skeleton_id));
+  });
+  var models = {};
+  models[skeletonID] = {};
+  NeuronNameService.getInstance().registerAll(label.data(), models,
+    function () { label.text(NeuronNameService.getInstance().getName(skeletonID)); });
 };
 
 SkeletonAnnotations.clearTopbar = function(stackID) {
-  $('#neuronName' + stackID).text("");
+  var label = $('#neuronName' + stackID);
+  NeuronNameService.getInstance().unregister(label.data());
+  label.text("");
 };
 
 /** The constructor for SVGOverlay. */
@@ -287,16 +299,6 @@ SkeletonAnnotations.SVGOverlay.prototype.executeIfSkeletonEditable = function(
   });
 };
 
-SkeletonAnnotations.SVGOverlay.prototype.updateNeuronNameLabel = function(stackID, skeletonID) {
-  if (!skeletonID) return;
-  this.submit(
-      django_url + project.id + '/skeleton/' + skeletonID + '/neuronname',
-      {},
-      function(json) {
-        SkeletonAnnotations.setNeuronNameInTopbar(stackID, json['neuronname'], skeletonID);
-      });
-};
-
 SkeletonAnnotations.SVGOverlay.prototype.renameNeuron = function(skeletonID) {
   if (!skeletonID) return;
   var self = this;
@@ -306,11 +308,8 @@ SkeletonAnnotations.SVGOverlay.prototype.renameNeuron = function(skeletonID) {
       function(json) {
           var new_name = prompt("Change neuron name", json['neuronname']);
           if (!new_name) return;
-          neuronNameService.renameNeuron(json['neuronid'], [skeletonID],
-              new_name, function() {
-                  SkeletonAnnotations.setNeuronNameInTopbar(self.stack.id,
-                          new_name, skeletonID);
-              });
+          NeuronNameService.getInstance().renameNeuron(json['neuronid'], [skeletonID],
+              new_name);
       });
 };
 
@@ -445,27 +444,8 @@ SkeletonAnnotations.SVGOverlay.prototype.activateNode = function(node) {
     // Else, select the node
     if (SkeletonAnnotations.TYPE_NODE === node.type) {
       // Update statusBar
-      statusBar.replaceLast("Activated treenode with id " + node.id + " and skeleton id " + node.skeleton_id);
-      // If changing skeletons:
-      if (atn.skeleton_id !== node.skeleton_id) {
-        // Update the status with the ancestry of that skeleton:
-        var stackID = this.stack.getId();
-        this.submit(
-            django_url + project.id + '/skeleton/ancestry',
-            {pid: project.id,
-             skeleton_id: node.skeleton_id},
-            function(json) {
-              var message = "Activated treenode with id " + node.id + " and skeleton id " + node.skeleton_id;
-              for (var i = 0, len = json.length; i < len; ++i) {
-                message += " <i>part_of</i> [<strong>" + json[i].name + "</strong>]";
-              }
-              statusBar.replaceLastHTML(message);
-              SkeletonAnnotations.setNeuronNameInTopbar(stackID, json[0].name, node.skeleton_id);
-              project.selectedObjects.selectedneuron = json[0].id;
-              project.selectedObjects.selectedskeleton = parseInt(node.skeleton_id);
-            });
-      }
-
+      this.printTreenodeInfo(node.id, "Node " + node.id + ", skeleton " + node.skeleton_id);
+      SkeletonAnnotations.setNeuronNameInTopbar(this.stack.getId(), node.skeleton_id);
       atn.set(node, this.getStack().getId());
       this.recolorAllNodes();
       WebGLApplication.prototype.staticUpdateActiveNodePosition();
@@ -585,7 +565,7 @@ SkeletonAnnotations.SVGOverlay.prototype.rerootSkeleton = function(nodeID) {
 SkeletonAnnotations.SVGOverlay.prototype.splitSkeleton = function(nodeID) {
   if (!this.checkLoadedAndIsNotRoot(nodeID)) return;
   // Get ID of the first model available
-  var model = SkeletonAnnotations.sourceView.createModel()
+  var model = SkeletonAnnotations.sourceView.createModel();
   var self = this;
   // Make sure we have permissions to edit the neuron
   this.executeIfSkeletonEditable(model.id, (function() {
@@ -610,8 +590,7 @@ SkeletonAnnotations.SVGOverlay.prototype.splitSkeleton = function(nodeID) {
             downstream_annotation_map: JSON.stringify(downstream_set),
           },
           function () {
-            self.updateNodes();
-            self.selectNode(nodeID);
+            self.updateNodes(function () { self.selectNode(nodeID); });
           },
           true); // block UI
     };
@@ -652,7 +631,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createTreenodeLink = function (fromid, 
                 });
               },
               true); // block UI
-          }
+          };
 
           // A method to use when the to-skeleton has multiple nodes
           var merge_multiple_nodes = function() {
@@ -901,7 +880,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createInterpolatedNodeFn = function () 
         return;
     }
     requester(SkeletonAnnotations.getActiveNodeId(), queue[0]);
-  }
+  };
 };
 
 /** Create a node and activate it. */
@@ -1170,6 +1149,15 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
     e.stopPropagation();
     return;
   }
+
+  // Only process the click event, if it was targeted at the view of this
+  // overlay. The event is not stopped from bubbling up to make it possible to
+  // handle at other places. Currently this triggers the activation of the other
+  // view.
+  if (e.currentTarget !== this.view) {
+    return;
+  }
+
   var m = ui.getMouse(e, this.view);
 
   if (!mayEdit()) {
@@ -1213,6 +1201,7 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
       targetTreenodeID = atn.id;
       if (SkeletonAnnotations.TYPE_NODE === atn.type) {
         if (e.shiftKey) {
+          // Create a new connector and a new link
           var synapse_type = e.altKey ? 'post' : 'pre';
           statusBar.replaceLast("created connector, with " + synapse_type + "synaptic treenode id " + atn.id);
           var self = this;
@@ -1545,7 +1534,7 @@ SkeletonAnnotations.SVGOverlay.prototype.goToLastEditedNode = function(skeletonI
      treenode_id: SkeletonAnnotations.getActiveNodeId()},
     function (jso) {
       self.moveTo(jso.z, jso.y, jso.x,
-        function() { self.selectNode(jso.id) });
+        function() { self.selectNode(jso.id); });
     });
 };
 
@@ -1568,25 +1557,29 @@ SkeletonAnnotations.SVGOverlay.prototype.goToNearestOpenEndNode = function(nodeI
           // Parse location string
           var loc = jso[1].slice(1, -1).split(',').map(parseFloat);
           self.moveTo(loc[2], loc[1], loc[0],
-            function() { self.selectNode(jso[0]) });
+            function() { self.selectNode(jso[0]); });
         }
       });
 };
 
-SkeletonAnnotations.SVGOverlay.prototype.printTreenodeInfo = function(nodeID) {
+SkeletonAnnotations.SVGOverlay.prototype.printTreenodeInfo = function(nodeID, prefixMessage) {
   if (this.isIDNull(nodeID)) return;
+  if (typeof prefixMessage === "undefined") {
+    prefixMessage = "Node " + nodeID;
+  }
+  statusBar.replaceLast(prefixMessage + " (loading authorship information)");
   this.submit(
       django_url + project.id + '/node/user-info',
       {treenode_id: nodeID},
       function(jso) {
-        var msg = "Created by " + jso.user.first_name + " " + jso.user.last_name + " (" + jso.user.username +
+        var msg = prefixMessage + " created by " + jso.user.first_name + " " + jso.user.last_name + " (" + jso.user.username +
                 ") on " + jso.creation_time +
                 ", last edited by " + jso.editor.first_name + " " + jso.editor.last_name + " (" + jso.editor.username +
                 ") on " + jso.edition_time +
                 ", reviewed by ";
         // Add review information
         if (jso.reviewers.length > 0) {
-          var reviews = []
+          var reviews = [];
           for (var i=0; i<jso.reviewers.length; ++i) {
             reviews.push(jso.reviewers[i].first_name + " " +
                 jso.reviewers[i].last_name + " (" +
@@ -1895,7 +1888,7 @@ SkeletonAnnotations.Tag = new (function() {
 
   this.hasTagbox = function() {
     return this.tagbox !== null;
-  }
+  };
 
   this.removeTagbox = function() {
     if (this.tagbox) {
@@ -2121,7 +2114,7 @@ window.OptionsDialog.prototype.appendCheckbox = function(title, checkboxID, sele
   var checkbox = document.createElement('input');
   checkbox.setAttribute('type', 'checkbox');
   checkbox.setAttribute('id', checkboxID);
-  checkbox.setAttribute('checked', selected);
+  if (selected) checkbox.setAttribute('checked', 'true');
   p.appendChild(checkbox);
   p.appendChild(document.createTextNode(title));
   this.dialog.appendChild(p);
@@ -2166,8 +2159,8 @@ SplitMergeDialog.prototype.populate = function(extension) {
       big = document.createElement('div'),
       small = document.createElement('div');
 
-  big.setAttribute('id', 'split_merge_dialog_over_annotations')
-  small.setAttribute('id', 'split_merge_dialog_under_annotations')
+  big.setAttribute('id', 'split_merge_dialog_over_annotations');
+  small.setAttribute('id', 'split_merge_dialog_under_annotations');
 
   // Style annotation list boxes
   big.setAttribute('multiple', 'multiple');
@@ -2394,15 +2387,15 @@ SplitMergeDialog.prototype.get_annotation_set = function(over) {
   }, {});
 
   return annotations;
-}
+};
 
 SplitMergeDialog.prototype.get_over_annotation_set = function() {
   return this.get_annotation_set(true);
-}
+};
 
 SplitMergeDialog.prototype.get_under_annotation_set = function() {
   return this.get_annotation_set(false);
-}
+};
 
 SplitMergeDialog.prototype.get_combined_annotation_set = function() {
   // Get both annotation sets
@@ -2418,7 +2411,7 @@ SplitMergeDialog.prototype.get_combined_annotation_set = function() {
   }
 
   return combined_set;
-}
+};
 
 /**
  * The annotation distribution for a split is only valid if one part keeps the
@@ -2451,7 +2444,7 @@ SplitMergeDialog.prototype.check_merge_annotations = function() {
   // At the moment, all combinations of annotations (even selecting none!) are
   // allowed. If a user is shown the dialog, (s)he can do whatever (s)he wants.
   return true;
-}
+};
 
 SplitMergeDialog.prototype.show = function(extension) {
   var self = this;

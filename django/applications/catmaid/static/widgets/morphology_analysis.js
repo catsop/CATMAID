@@ -22,7 +22,7 @@ MorphologyPlot.prototype.getName = function() {
 MorphologyPlot.prototype.destroy = function() {
   this.unregisterInstance();
   this.unregisterSource();
-  neuronNameService.unregister(this);
+  NeuronNameService.getInstance().unregister(this);
   
   Object.keys(this).forEach(function(key) { delete this[key]; }, this);
 };
@@ -105,12 +105,15 @@ MorphologyPlot.prototype.append = function(models) {
     return;
   }
 
-  fetchCompactSkeletons(
+  fetchSkeletons(
       skeleton_ids,
-      false,
+      function(skeleton_id) {
+        return django_url + project.id + '/' + skeleton_id + '/1/0/compact-skeleton';
+      },
+      function(skeleton_id) { return {}; }, // post
       (function(skeleton_id, json) {
-        this.lines[skeleton_id] = {nodes: json[1],
-                                   connectors: json[3]};
+        this.lines[skeleton_id] = {nodes: json[0],
+                                   connectors: json[1]};
       }).bind(this),
       (function(skeleton_id) {
         // Failed loading
@@ -120,7 +123,7 @@ MorphologyPlot.prototype.append = function(models) {
       (function() {
         // Done loading all
         this._populateLines(skeleton_ids);
-        neuronNameService.registerAll(this, models, this.draw.bind(this));
+        NeuronNameService.getInstance().registerAll(this, models, this.draw.bind(this));
       }).bind(this));
 };
 
@@ -160,7 +163,7 @@ MorphologyPlot.prototype._populateLine = function(skeleton_id) {
   });
   var center = this._computeCenter(this.center_mode, arbor, positions, line.connectors);
   if (center.error) {
-    growlAlert('WARNING', center.error + " for " + neuronNameService.getName(skeleton_id));
+    growlAlert('WARNING', center.error + " for " + NeuronNameService.getInstance().getName(skeleton_id));
     center = this._computeCenter(center.alternative_mode, arbor, positions, line.connectors);
   }
 
@@ -187,7 +190,7 @@ MorphologyPlot.prototype._populateLine = function(skeleton_id) {
         return o;
       }, {});
     } else if (endsWith(this.mode, 'branch nodes')) {
-      ps = arbor.findBranchNodes().reduce(function(o, node) {
+      ps = Object.keys(arbor.findBranchNodes()).reduce(function(o, node) {
         o[node] = positions[node];
         return o;
       }, {});
@@ -284,16 +287,16 @@ MorphologyPlot.prototype._computeCenter = function(center_mode, arbor, positions
       return {error: 'No input or output synapses',
               alternative_mode: 'First branch node'};
     }
-    var c = arbor.flowCentrality(io[0], io[1]),
+    var fc = arbor.flowCentrality(io[0], io[1]),
         sorted = Object.keys(positions).sort(function(a, b) {
-          var c1 = c[a],
-              c2 = c[b];
+          var c1 = fc[a].sum,
+              c2 = fc[b].sum;
           return c1 === c2 ? 0 : (c1 > c2 ? 1 : -1);
         }),
         highest = sorted[Math.floor(sorted.length / 2)],
-        max = c[highest],
+        max = fc[highest].sum,
         identical = sorted.filter(function(node) {
-          return max === c[node];
+          return max === fc[node].sum;
         });
     if (identical.length > 1) {
       // Pick the most central
@@ -342,7 +345,7 @@ MorphologyPlot.prototype.draw = function() {
           yMax = Math.max(yMax, d3.max(line.y));
         }
         return {id: id,
-                name: neuronNameService.getName(id),
+                name: NeuronNameService.getInstance().getName(id),
                 hex: '#' + this.models[id].color.getHexString(),
                 xy: zip(line.x, line.y)};
       }, this);
@@ -455,7 +458,7 @@ MorphologyPlot.prototype.createCSV = function() {
                   v[x] = line.y[i];
                   return v;
                 }, {});
-           return neuronNameService.getName(skid) + ',' + xAxis.map(
+           return NeuronNameService.getInstance().getName(skid) + ',' + xAxis.map(
              function(x) {
                var v = values[x];
                return undefined === v ? 0 : v;
@@ -471,4 +474,35 @@ MorphologyPlot.prototype.exportCSV = function() {
 
 MorphologyPlot.prototype.exportSVG = function() {
   saveDivSVG('morphology_plot_div' + this.widgetID, this.mode.replace(/ /g, '_') + ".svg");
+};
+
+/** Perform PCA on a vector for each neuron containing the concatenation of all the following measurements:
+ *
+ * - cable length (smoothed)
+ * - cable length of the topological tree (sum of soma to branch, branch to branch and branch to end nodes).
+ * - cable length of the principal branch (smoothed).
+ * - tortuosity of the principal branch (length of the smoothed principal branch divided by the Euclidean distance between soma and the end node of the branch).
+ * - sum of cable length of all terminal segments.
+ * - number of input synapses
+ * - number of output synapses
+ * - segregation index (measures whether the arbor has cleanly separated input domains and output domains, or how mixed domains are).
+ * - number of branch events (a binary split counts as 2; a trinary split as 3, etc.)
+ * - number of terminal nodes
+ * - sum of the volumes of the 3d convex hull of each synapse cluster for a given bandwidth value.
+ * - centrifugal order: number of branch nodes between a node and the soma (using the topological copy of the tree, and binning the counts for an histogram of 64 bins.
+ * - degree: number of end nodes downstream of a branch node (binning the counts for an histogram of 64 bins)
+ * - tree asymmetry index (van Pelt, 1992): mean of all partition asymmetries at each branch node, assuming binary branches (will consider trinary and higher as nested binary branches, considering the smallest subtree as the closest to the soma.
+ * - tree asymmetry index by taking the median rather than the mean of all partition asymmetries.
+ * - Sholl analysis
+ * - spatial density of cable
+ * - spatial density of input synapses
+ * - spatial density of output synapses
+ *
+ *
+ * See: van Pelt et al., 1992
+ *      Uylings and van Pelt, 2002
+ *      Torben-Nielsen, 2014
+ *
+ */
+MorphologyPlot.prototype.PCA = function() {
 };

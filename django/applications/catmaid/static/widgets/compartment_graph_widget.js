@@ -9,10 +9,13 @@ var GroupGraph = function() {
 
   this.confidence_threshold = 0;
   this.synaptic_count_edge_filter = 0; // value equal or higher than this number or kept
+  this.label_valign = 'top';
+  this.label_halign = 'center';
   this.show_node_labels = true;
   this.trim_node_labels = false;
+  this.node_width = 30; // pixels
+  this.node_height = 30; // pixels
   this.clustering_bandwidth = 0;
-  this.compute_risk = false;
 
   this.color_circles_of_hell = this.colorCirclesOfHell.bind(this);
 
@@ -29,6 +32,15 @@ var GroupGraph = function() {
   this.relayoutTimeout = null;
 
   this.groups = {}; // groupID vs Group instances, where groupID is e.g. g0, g1, g2, ...
+
+  // Keep set of selected elements as arrays of [id, index]
+  // so that the order of the selection is stored.
+  // The counter always increases, so that deleting nodes doesn't alter the order.
+  this.selection = {entries: {},
+                    counter: 0};
+
+  this.grid_snap = false;
+  this.grid_side = 10; // px
 };
 
 GroupGraph.prototype = {};
@@ -42,7 +54,7 @@ GroupGraph.prototype.getName = function() {
 GroupGraph.prototype.destroy = function() {
   this.unregisterInstance();
   this.unregisterSource();
-  neuronNameService.unregister(this);
+  NeuronNameService.getInstance().unregister(this);
 };
 
 GroupGraph.prototype.nextGroupID = function() {
@@ -140,6 +152,7 @@ GroupGraph.prototype._asModels = function(m, node) {
       selected = node.selected();
   return props.skeletons.reduce(function(m, skeleton) {
     var copy = skeleton.clone();
+    copy.baseName = node.data('label');
     copy.color = color.clone();
     copy.setVisible(selected);
     m[copy.id] = copy;
@@ -158,159 +171,102 @@ GroupGraph.prototype.toggle_show_node_labels = function() {
 };
 
 GroupGraph.prototype.graph_properties = function() {
-  var dialog = document.createElement('div');
-  dialog.setAttribute("id", "dialog-graph-confirm");
-  dialog.setAttribute("title", "Graph properties");
-
-  var label = document.createTextNode('Keep edges with confidence');
-  dialog.appendChild(label);
-
-  var conf = document.createElement('select');
-  conf.setAttribute("id", "confidence_threshold");
-  for (var i = 0; i < 6; ++i) {
-    var option = document.createElement("option");
-    option.text = i.toString();
-    option.value = i;
-    conf.appendChild(option);
-  }
-  dialog.appendChild(conf);
-  // TODO: set confidence_threshold
-  dialog.appendChild( document.createElement("br"));
-
-  var label = document.createTextNode('or higher.');
-  dialog.appendChild(label);
-  dialog.appendChild( document.createElement("br"));
-
-  var label = document.createTextNode('Bandwidth:');
-  dialog.appendChild(label);
-  var bandwidth = document.createElement('input');
-  bandwidth.setAttribute('id', 'clustering_bandwidth_input');
-  bandwidth.setAttribute('type', 'text');
-  bandwidth.setAttribute('value', this.clustering_bandwidth );
-  bandwidth.style.width = "80px";
-  dialog.appendChild(bandwidth);
-  dialog.appendChild( document.createElement("br"));
-
-  dialog.appendChild(document.createTextNode('Compute synapse risk'));
-  var risk = document.createElement('input');
-  risk.setAttribute('id', 'synaptic_risk');
-  risk.setAttribute('type', 'checkbox');
-  if (this.compute_risk)
-    risk.setAttribute('checked', 'true');
-  dialog.appendChild(risk);
-  dialog.appendChild( document.createElement("br"));
-
-  var label = document.createTextNode('Keep edges with ');
-  dialog.appendChild(label);
-  var syncount = document.createElement('input');
-  syncount.setAttribute('id', 'synaptic_count_edge_filter');
-  syncount.setAttribute('type', 'text');
-  syncount.setAttribute('value', this.synaptic_count_edge_filter );
-  syncount.style.width = "30px";
-  dialog.appendChild(syncount);
-  label = document.createTextNode(' or more synapses.');
-  dialog.appendChild(label);
-  dialog.appendChild( document.createElement("br"));
-
-  var label = document.createTextNode('Show node labels:');
-  dialog.appendChild(label);
-  var rand = document.createElement('input');
-  rand.setAttribute("type", "checkbox");
-  rand.setAttribute("id", "show_node_labels");
-  if (this.show_node_labels)
-    rand.setAttribute("checked", "true");
-  rand.onclick = this.toggle_show_node_labels.bind(this);
-  dialog.appendChild(rand);
-  dialog.appendChild( document.createElement("br"));
-
-  dialog.appendChild(document.createTextNode('Trim node labels:'));
-  var check = document.createElement('input');
-  check.setAttribute('type', 'checkbox');
-  check.setAttribute('id', 'graph_toggle_short_names');
-  if (this.trim_node_labels) check.setAttribute('checked', 'true');
-  check.onclick = this.toggleTrimmedNodeLabels.bind(this);
-  dialog.appendChild(check);
-  dialog.appendChild(document.createElement("br"));
-
-  var p = document.createElement('p');
-  p.appendChild(document.createTextNode('Edge properties:'));
-  p.appendChild(document.createElement("br"));
+  
+  var dialog = new OptionsDialog("Graph properties");
+  var conf_values = [0, 1, 2, 3, 4, 5];
+  var conf = dialog.appendChoice("Keep skeleton edges of this or higher confidence:", "confidence-threshold", conf_values, conf_values, 0);
+  var bandwidth = dialog.appendField("Synapse clustering bandwidth:", "bandwidth", this.clustering_bandwidth);
+  var syncount = dialog.appendField("Show edges with this or higher synapses:", "edge_filter", this.synaptic_count_edge_filter); // TODO unused parameter
+  var vpos = ["top", "center", "bottom"];
+  var label_vpos = dialog.appendChoice("Node label vertical position", "valign", vpos, vpos, this.label_valign);
+  var hpos = ["left", "center", "right"];
+  var label_hpos = dialog.appendChoice("Node label horizontal position", "halign", hpos, hpos, this.label_halign);
+  var node_labels = dialog.appendCheckbox("Show node labels", "node_labels", this.show_node_labels);
+  node_labels.onclick = this.toggle_show_node_labels.bind(this);
+  var trim_labels = dialog.appendCheckbox("Trim node labels beyond first ';'", "trim_labels", this.trim_node_labels);
+  trim_labels.onclick = this.toggleTrimmedNodeLabels.bind(this);
+  var node_width = dialog.appendField("Node width:", "node_width", this.node_width);
+  var node_height = dialog.appendField("Node height:", "node_height", this.node_height);
+  var grid_snap = dialog.appendCheckbox("Snap node position to grid", "snap", this.grid_snap);
+  var grid_side = dialog.appendField("Grid cell side (px):", "side", this.grid_side);
+  dialog.appendMessage("Edge properties:");
   var props = ["opacity", "text opacity", "min width"].map(function(prop) {
-    var field = document.createElement('input');
-    field.setAttribute('value', this["edge_" + prop.replace(/ /g, "_")]);
+    var field = dialog.appendField("Edge " + prop + ":", prop.replace(/ /, '-'), this["edge_" + prop.replace(/ /g, "_")]);
     field.style.width = "40px";
-    p.appendChild(document.createTextNode("Edge " + prop + ": "));
-    p.appendChild(field);
-    p.appendChild(document.createElement("br"));
     return field;
   }, this);
-  p.appendChild(document.createTextNode('Edge width as '));
   var edgeFnNames = ["identity", "log", "log10", "sqrt"];
-  var edgeFnSel = document.createElement('select');
-  edgeFnNames.forEach(function(name) { edgeFnSel.appendChild(new Option(name, name)); });
-  edgeFnSel.selectedIndex = edgeFnNames.indexOf(this.edge_width_function);
-  p.appendChild(edgeFnSel);
-  p.appendChild(document.createTextNode(' of the synapse count.'));
-  p.appendChild(document.createElement("br"));
+  var edgeFnSel = dialog.appendChoice("Edge width as a function of synaptic count:", "edge_width_fn", edgeFnNames, edgeFnNames, this.edge_width_function);
+
+
+  var p = document.createElement('p');
   var cw_div = document.createElement('div');
+  p.appendChild(cw_div);
   var edge_cw = Raphael.colorwheel(cw_div, 150);
   edge_cw.color(this.edge_color);
   p.appendChild(cw_div);
-  dialog.appendChild(p);
+  dialog.dialog.appendChild(p);
 
+  dialog.onOK = (function() {
+    this.clustering_bandwidth = bandwidth.value;
 
-  var self = this;
-
-  $(dialog).dialog({
-    height: 440,
-    modal: true,
-    buttons: {
-      "OK": function() {
-        self.clustering_bandwidth = bandwidth.value;
-
-        if (!self.confidence_threshold && conf.value) {
-          if (Object.keys(self.groups).length > 0) {
-            if (confirm("Splitting by confidence ungroups all groups: proceed?")) {
-              self.confidence_threshold = conf.value;
-              self.resetGroups();
-            }
-          } else {
-            self.confidence_threshold = conf.value;
-          }
+    if (!this.confidence_threshold && conf.value) {
+      if (Object.keys(this.groups).length > 0) {
+        if (confirm("Splitting by confidence ungroups all groups: proceed?")) {
+          this.confidence_threshold = conf.value;
+          this.resetGroups();
         }
-
-
-        self.synaptic_count_edge_filter = syncount.value; // TODO not used?
-
-
-        if (!self.compute_risk && risk.checked) {
-          if (Object.keys(self.groups).length > 0) {
-            if (confirm("Computing the synapse risk ungroups all groups: proceed?")) {
-              self.compute_risk = risk.checked;
-              self.resetGroups();
-            }
-          } else {
-            self.compute_risk = risk.checked;
-          }
-        }
-
-        var edge_opacity = Number(props[0].value.trim());
-        if (!Number.isNaN(edge_opacity) && edge_opacity >= 0 && edge_opacity <= 1) self.edge_opacity = edge_opacity;
-        var edge_text_opacity = Number(props[1].value.trim());
-        if (!Number.isNaN(edge_text_opacity) && edge_text_opacity >= 0 && edge_text_opacity <= 1) self.edge_text_opacity = edge_text_opacity;
-        var edge_min_width = Number(props[2].value.trim());
-        if (!Number.isNaN(edge_min_width)) self.edge_min_width = edge_min_width;
-        self.edge_width_function = edgeFnNames[edgeFnSel.selectedIndex];
-        self.edge_color = '#' + parseColorWheel(edge_cw.color()).getHexString();
-        self.updateEdgeGraphics();
-
-        $(this).dialog("close");
+      } else {
+        this.confidence_threshold = conf.value;
       }
-    },
-    close: function(event, ui) {
-      $('#dialog-graph-confirm').remove();
     }
-  });
+
+    var validate = function(name, old_value, new_value) {
+      try {
+        var v = parseInt(new_value);
+        if (v < 0) {
+          growlAlert("Warning", "Value for " + name + " must be positive!");
+          return old_value;
+        }
+        return new_value;
+      } catch (e) {
+        growlAlert("Warning", "Bad value: " + new_value);
+        return old_value;
+      }
+    };
+
+    this.label_halign = label_hpos.value;
+    this.label_valign = label_vpos.value;
+    this.node_width = validate('node_width', node_width, node_width.value);
+    this.node_height = validate('node_height', node_height, node_height.value);
+
+    var style = {"text-halign": this.label_halign,
+                 "text-valign": this.label_valign,
+                 "width": this.node_width + "px",
+                 "height": this.node_height + "px"}
+
+    // Update general style, for new nodes
+    this.cy.style().selector("node").css(style);
+    // Update style of current nodes
+    this.cy.nodes().css(style);
+
+    this.grid_side = validate('grid_side', this.grid_side, grid_side.value);
+    this.grid_snap = grid_snap.checked;
+
+    this.synaptic_count_edge_filter = syncount.value; // TODO not used?
+
+    var edge_opacity = Number(props[0].value.trim());
+    if (!Number.isNaN(edge_opacity) && edge_opacity >= 0 && edge_opacity <= 1) this.edge_opacity = edge_opacity;
+    var edge_text_opacity = Number(props[1].value.trim());
+    if (!Number.isNaN(edge_text_opacity) && edge_text_opacity >= 0 && edge_text_opacity <= 1) this.edge_text_opacity = edge_text_opacity;
+    var edge_min_width = Number(props[2].value.trim());
+    if (!Number.isNaN(edge_min_width)) this.edge_min_width = edge_min_width;
+    this.edge_width_function = edgeFnNames[edgeFnSel.selectedIndex];
+    this.edge_color = '#' + parseColorWheel(edge_cw.color()).getHexString();
+    this.updateEdgeGraphics();
+  }).bind(this);
+
+  dialog.show(440, 300, true);
 };
 
 GroupGraph.prototype.init = function() {
@@ -324,8 +280,10 @@ GroupGraph.prototype.init = function() {
             "border-width": 1,
             "background-color": "data(color)",
             "border-color": "#555",
-            "width": "mapData(node_count, 10, 2000, 30, 50)", //"data(node_count)",
-            "height": "mapData(node_count, 10, 2000, 30, 50)"   // "data(node_count)"
+            "text-valign": this.label_valign,
+            "text-halign": this.label_halign,
+            "width": this.node_width,
+            "height": this.node_height
           })
         .selector("edge")
           .css({
@@ -371,7 +329,6 @@ GroupGraph.prototype.init = function() {
             "height": 15
           }),
   };
-
   var sel = $("#cyelement" + this.widgetID);
   sel.cytoscape(options).css('background', 'white');
   this.cy = sel.cytoscape("get");
@@ -380,13 +337,23 @@ GroupGraph.prototype.init = function() {
   //   // console.log('node mouseover', e);
   // });
 
-  this.cy.on('click', 'node', {}, function(evt){
-    var node = this;
+  var unselect = (function(evt) {
+    delete this.entries[evt.cyTarget.id()];
+  }).bind(this.selection);
+
+  this.cy.on('click', 'node', {}, (function(evt){
+    var node = evt.cyTarget;
     if (evt.originalEvent.altKey) {
       // Select in the overlay
-      TracingTool.goToNearestInNeuronOrSkeleton("skeleton", node.data('skeleton_id'));
+      var models = node.data('skeletons');
+      if (1 === models.length) TracingTool.goToNearestInNeuronOrSkeleton("skeleton", models[0].id);
+    } else if (evt.originalEvent.shiftKey && (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey)) {
+      // Remove node
+      delete this.groups[node.id()]; // if present
+      node.remove();
+      unselect(evt); // remove should have triggered, but not always
     }
-  });
+  }).bind(this));
 
   this.cy.on('click', 'edge', {}, function(evt){
     var edge = this,
@@ -395,6 +362,27 @@ GroupGraph.prototype.init = function() {
       ConnectorSelection.show_shared_connectors( props.source, [props.target], "presynaptic_to" );
     }
   });
+
+  this.cy.on('select', 'node', {}, (function(evt) {
+    this.entries[evt.cyTarget.id()] = {node: evt.cyTarget,
+                                       order: this.counter++};
+  }).bind(this.selection));
+
+  this.cy.on('unselect', 'node', {}, unselect);
+  this.cy.on('remove', 'node', {}, unselect);
+
+  this.cy.on('mouseup', 'node', {}, (function(evt) {
+    if (this.grid_snap) {
+      var list = undefined === this.selection.entries[evt.cyTarget.id()] ?
+        [evt.cyTarget]
+        : Object.keys(this.selection.entries).map(function(nodeID) { return this.cy.nodes("[id='" + nodeID + "']"); }, this);
+      list.forEach(function(node) {
+        var p = node.position();
+        node.position({x: p.x + p.x % this.grid_side,
+                       y: p.y + p.y % this.grid_side});
+      }, this);
+    }
+  }).bind(this));
 };
 
 /** Unlocks locked nodes, if any, when done. */
@@ -541,7 +529,7 @@ GroupGraph.prototype.updateNeuronNames = function() {
   this.cy.nodes().each(function(i, node) {
     var models = node.data('skeletons');
     // skip groups
-    if (1 == models.length) node.data('label', neuronNameService.getName(models[0].id));
+    if (1 == models.length) node.data('label', NeuronNameService.getInstance().getName(models[0].id));
   });
 };
 
@@ -550,140 +538,107 @@ GroupGraph.prototype.updateNeuronNames = function() {
 GroupGraph.prototype.updateGraph = function(json, models) {
   // A neuron that is split cannot be part of a group anymore: makes no sense.
   // Neither by confidence nor by synapse clustering.
-  // Also, when computing the risk there can't be any groups.
+
+  var edge_color = this.edge_color;
+  var asEdge = function(edge) {
+      return {data: {directed: true,
+                      arrow: 'triangle',
+                      id: edge[0] + '_' + edge[1],
+                      label: edge[2],
+                      color: edge_color,
+                      source: edge[0],
+                      target: edge[1],
+                      weight: edge[2]}};
+  };
+
+  var asNode = function(nodeID) {
+      nodeID = nodeID + '';
+      var i_ = nodeID.indexOf('_'),
+          skeleton_id = -1 === i_ ? nodeID : nodeID.substring(0, i_),
+          model = models[skeleton_id];
+      return {data: {id: nodeID, // MUST be a string, or fails
+                      skeletons: [model.clone()],
+                      label: NeuronNameService.getInstance().getName(model.id),
+                      node_count: 0,
+                      color: '#' + model.color.getHexString()}};
+  };
+
+  // Figure out what kind of response we got
+  var modes = {basic: false,
+                confidence_split: false,
+                dual_split: false};
+  if ('branch_nodes' in json && 'intraedges' in json) modes.dual_split = true;
+  else if ('nodes' in json) modes.confidence_split = true;
+  else modes.basic = true;
 
 
-  var data = {};
+  var elements = {}
 
-  // TODO move the risk computation to the client, and only for selected nodes with other selected nodes.
-  if (this.compute_risk) {
-    data = json;
+  if (modes.basic) {
+    // Basic graph: infer nodes from json.edges
+    var seen = {},
+        nodes = [],
+        appendNode = function(skid) {
+          if (seen[skid]) return;
+          var node = asNode('' + skid);
+          seen[skid] = true;
+          nodes.push(node);
+        };
 
-    // Color nodes
-    data.nodes.forEach(function(node) {
-      node.data.color = '#' + models[node.data.skeleton_id].color.getHexString();
+    json.edges.forEach(function(edge) {
+      edge.slice(0, 2).forEach(appendNode);
     });
 
-    // Set color of new edges
-    data.edges.forEach(function(edge) {
-      var d = edge.data;
-      if (d.risk) {
-        /*
-        var hsv = [0,
-                   d.risk > 0.75 ? 0 : 1 - d.risk / 0.75,
-                   d.risk > 0.75 ? 0.267 : 1.267 - d.risk / 0.75];
-        */
-        // TODO how to convert HSV to RGB hex?
-        d.color = '#444';
-        d.label += ' (' + d.risk.toFixed(2) + ')';
-      } else {
-        d.color = '#444';
-      }
-      if (d.arrow === 'none') {
-        d.color = '#F00';
-      }
-    });
+    // For nodes without edges, add them from the local list
+    Object.keys(models).forEach(appendNode);
+
+    elements.nodes = nodes;
+    elements.edges = json.edges.map(asEdge);
+
+  } else if (modes.confidence_split) {
+    // Graph with skeletons potentially split at low confidence edges
+    elements.nodes = json.nodes.map(asNode);
+    elements.edges = json.edges.map(asEdge);
 
   } else {
-    var edge_color = this.edge_color;
-    var asEdge = function(edge) {
-        return {data: {directed: true,
-                       arrow: 'triangle',
-                       id: edge[0] + '_' + edge[1],
-                       label: edge[2],
-                       color: edge_color,
-                       source: edge[0],
-                       target: edge[1],
-                       weight: edge[2]}};
-    };
+    // Graph with skeletons potentially split both at low confidence edges
+    // and by synapse clustering
+    elements.nodes = json.nodes.map(asNode).concat(json.branch_nodes.map(function(bnodeID) {
+      var node = asNode(bnodeID);
+      node.data.label = '';
+      node.data.branch = true;
+      return node;
+    }));
 
-    var asNode = function(nodeID) {
-        nodeID = nodeID + '';
-        var i_ = nodeID.indexOf('_'),
-            skeleton_id = -1 === i_ ? nodeID : nodeID.substring(0, i_),
-            model = models[skeleton_id];
-        return {data: {id: nodeID, // MUST be a string, or fails
-                       skeletons: [model.clone()],
-                       label: neuronNameService.getName(model.id),
-                       node_count: 0,
-                       color: '#' + model.color.getHexString()}};
-    };
-
-    // Figure out what kind of response we got
-    var modes = {basic: false,
-                 confidence_split: false,
-                 dual_split: false};
-    if ('branch_nodes' in json && 'intraedges' in json) modes.dual_split = true;
-    else if ('nodes' in json) modes.confidence_split = true;
-    else modes.basic = true;
-
-    if (modes.basic) {
-      // Basic graph: infer nodes from json.edges
-      var seen = {},
-          nodes = [],
-          appendNode = function(skid) {
-            if (seen[skid]) return;
-            var node = asNode('' + skid);
-            seen[skid] = true;
-            nodes.push(node);
-          };
-
-      json.edges.forEach(function(edge) {
-        edge.slice(0, 2).forEach(appendNode);
-      });
-
-      // For nodes without edges, add them from the local list
-      Object.keys(models).forEach(appendNode);
-
-      data.nodes = nodes;
-      data.edges = json.edges.map(asEdge);
-
-    } else if (modes.confidence_split) {
-      // Graph with skeletons potentially split at low confidence edges
-      data.nodes = json.nodes.map(asNode);
-      data.edges = json.edges.map(asEdge);
-
-    } else {
-      // Graph with skeletons potentially split both at low confidence edges
-      // and by synapse clustering
-      data.nodes = json.nodes.map(asNode).concat(json.branch_nodes.map(function(bnodeID) {
-        var node = asNode(bnodeID);
-        node.data.label = '';
-        node.data.branch = true;
-        return node;
-      }));
-
-      data.edges = json.edges.map(asEdge).concat(json.intraedges.map(function(edge) {
-        return {data: {directed: false,
-                       arrow: 'none',
-                       id: edge[0] + '_' + edge[1],
-                       label: edge[2],
-                       color: '#F00',
-                       source: edge[0],
-                       target: edge[1],
-                       weight: 10}}; // default weight for intraedge
-      }));
-    }
-
-    // Group neurons, if any groups exist, skipping splitted neurons
-    // (Neurons may have been splitted either by synapse clustering or at low-confidence edges.)
-    var splitted = {};
-    if (data.nodes) {
-      splitted = data.nodes.reduce(function(o, nodeID) {
-        nodeID = nodeID + '';
-        var i_ = nodeID.lastIndexOf('_');
-        if (-1 !== i_) o[nodeID.substring(0, i_)] = true;
-        return o;
-      }, {});
-    }
-    this._regroup(data, splitted, models);
+    elements.edges = json.edges.map(asEdge).concat(json.intraedges.map(function(edge) {
+      return {data: {directed: false,
+                      arrow: 'none',
+                      id: edge[0] + '_' + edge[1],
+                      label: edge[2],
+                      color: '#F00',
+                      source: edge[0],
+                      target: edge[1],
+                      weight: 10}}; // default weight for intraedge
+    }));
   }
 
-  // Compute edge width for rendering the edge width
+  // Group neurons, if any groups exist, skipping splitted neurons
+  // (Neurons may have been splitted either by synapse clustering or at low-confidence edges.)
+  var splitted = {};
+  if (elements.nodes) {
+    splitted = elements.nodes.reduce(function(o, nodeID) {
+      nodeID = nodeID + '';
+      var i_ = nodeID.lastIndexOf('_');
+      if (-1 !== i_) o[nodeID.substring(0, i_)] = true;
+      return o;
+    }, {});
+  }
+  this._regroup(elements, splitted, models);
 
+  // Compute edge width for rendering the edge width
   var edgeWidth = this.edgeWidthFn();
 
-  data.edges.forEach(function(edge) {
+  elements.edges.forEach(function(edge) {
     edge.data.width = this.edge_min_width + edgeWidth(edge.data.weight);
   }, this);
 
@@ -703,7 +658,7 @@ GroupGraph.prototype.updateGraph = function(json, models) {
   this.cy.elements().remove();
 
   // Re-add them
-  this.cy.add( data );
+  this.cy.add( elements );
 
   this.cy.nodes().each(function(i, node) {
     // Lock old nodes into place and restore their position
@@ -831,7 +786,7 @@ GroupGraph.prototype.append = function(models) {
         // Update node properties
 
         if (new_model.baseName) {
-          var name = neuronNameService.getName(new_model.id);
+          var name = NeuronNameService.getInstance().getName(new_model.id);
           node.data('label', name ? name : new_model.baseName);
         }
         skeleton.color = new_model.color.clone();
@@ -895,7 +850,8 @@ GroupGraph.prototype.appendGroup = function(models) {
 
     // Find common annotations, if any
     var skids = Object.keys(json);
-    var common = json[skids[0]].filter(function(annotation) {
+    var common = skids.length > 0 ? json[skids[0]] : [];
+    common = common.filter(function(annotation) {
       return skids.reduce(function(all, skid) {
         return all && -1 !== json[skid].indexOf(annotation);
       }, true);
@@ -919,6 +875,7 @@ GroupGraph.prototype.appendGroup = function(models) {
     names.unshift("--");
 
     var options = new OptionsDialog("Group properties");
+    options.appendMessage("Creating new group with " + (names.length - 1) + " neurons.");
     options.appendMessage("Choose a group name from:");
     options.appendMessage("(Will pick first non-empty match.)");
     options.appendChoice("Common annotations: ", "gg-common", common, common, common[0]);
@@ -926,6 +883,7 @@ GroupGraph.prototype.appendGroup = function(models) {
     options.appendChoice("All neuron names: ", "gg-names", names, names, names[0]);
     options.appendField("Or type a new name: ", "gg-typed", "", null);
     options.appendCheckbox("Hide intragroup edges", "gg-edges", true);
+    options.appendCheckbox("Append number of neurons to name", "gg-number", true);
     options.appendMessage("Choose group color:");
     var display = document.createElement('input');
     display.setAttribute('type', 'button');
@@ -953,6 +911,8 @@ GroupGraph.prototype.appendGroup = function(models) {
 
       if (!label) return alert("You must choose a name!");
 
+      if ($('#gg-number').is(':checked')) label += ' [#' + (names.length -1) + ']';
+
       var gid = self.nextGroupID();
       self.groups[gid] = new GroupGraph.prototype.Group(gid, models, label, parseColorWheel(cw.color()), $('#gg-edges').is(':checked'));
       self.append(models); // will remove/add/group nodes as appropriate
@@ -973,7 +933,7 @@ GroupGraph.prototype.update = function() {
 
 GroupGraph.prototype.load = function(models) {
   // Register with name service before we attempt to load the graph
-  neuronNameService.registerAll(this, models, (function() {
+  NeuronNameService.getInstance().registerAll(this, models, (function() {
     this._load(models);
   }).bind(this));
 };
@@ -986,8 +946,7 @@ GroupGraph.prototype._load = function(models) {
     return;
   }
   var post = {skeleton_list: skeleton_ids,
-              confidence_threshold: this.confidence_threshold,
-              risk: this.compute_risk ? 1 : 0};
+              confidence_threshold: this.confidence_threshold};
   if (this.clustering_bandwidth > 0) {
     var selected = Object.keys(this.cy.nodes().toArray().reduce(function(m, node) {
       if (node.selected()) {
@@ -1201,6 +1160,23 @@ GroupGraph.prototype.showHidden = function() {
     this.cy.edges().css('text-opacity', 0);
   }
   $('#graph_show_hidden' + this.widgetID).val('Show hidden').prop('disabled', true);
+};
+
+GroupGraph.prototype.removeSelected = function() {
+  var nodes = this.orderedSelectedNodes();
+  if (0 === nodes.length) return alert("Select one or more nodes first!");
+  if (!confirm("Remove " + nodes.length + " selected node" + (nodes.length > 1 ? "s":"") + "?")) return;
+  nodes.forEach(function(node) {
+    delete this.groups[node.id()]; // ok if not present
+    node.remove();
+  }, this);
+  this.deselectAll();
+};
+
+GroupGraph.prototype.deselectAll = function() {
+  this.selection.entries = {};
+  this.selection.counter = 0;
+  this.cy.nodes().unselect();
 };
 
 GroupGraph.prototype.getState = function() {
@@ -1471,34 +1447,19 @@ GroupGraph.prototype.createAdjacencyMatrix = function() {
     skeletons.push(node.data("skeletons"));
     names.push(node.data('label'));
   });
-  var AdjM = ids.map(function() { return ids.map(function() { return 0; })}),
-      edges = {};
-  // Plan for potentially split neurons
+  var AdjM = ids.map(function() { return new Uint32Array(ids.length); });
   this.cy.edges().each(function(i, edge) {
     if (edge.hidden()) return;
     var e = edge.data();
     if (!e.directed) return; // intra-edge of a neuron split by synapse clustering
     var source = e.source,
-        target = e.target,
-        c = edges[source];
-    if (!c) {
-      edges[source] = {};
-      edges[source][target] = e.weight;
-    } else if (c[target]) {
-      c[target] += e.weight;
-    } else {
-      c[target] = e.weight;
-    }
+        target = e.target;
+    AdjM[indices[source]][indices[target]] = e.weight;
   });
-  Object.keys(edges).forEach(function(source) {
-    var c = edges[source];
-    Object.keys(c).forEach(function(target) {
-      AdjM[indices[source]][indices[target]] = c[target];
-    });
-  });
+
   return {ids: ids, // list of node IDs
           AdjM: AdjM,
-          skeletons: skeletons, // list of models
+          skeletons: skeletons, // list of list of models
           names: names}; // list of strings
 };
 
@@ -1509,19 +1470,213 @@ GroupGraph.prototype.exportAdjacencyMatrix = function() {
   }
 
   var m = this.createAdjacencyMatrix(),
-      names = m.names.map(function(o, name, i) {
-        var managed = neuronNameService.getName(m.ids[i]);
-        if (managed) name = managed;
-        return '"' + name.replace(/\\/g, '\\\\').replace(/"/g,'\\"');
-      }, {});
+      names = m.names.map(function(name) {
+        return '"' + name.replace(/\\/g, '\\\\').replace(/"/g,'\\"') + '"';
+      });
 
   // First row and first column take the neuron names plus the #<skeleton_id>
   var csv = '"Neurons",' + names.join(',') + '\n' + m.AdjM.map(function(row, i) {
-    return names[i] + ',' + row.join(',');
+    var rowValues = ""
+    var delim = ""
+    for (var j=0; j<row.length; ++j) {
+      rowValues += delim + row[j].toString();
+      delim = ',';
+    }
+    return names[i] + ',' + rowValues;
   }).join('\n');
 
   var blob = new Blob([csv], {type: 'text/plain'});
   saveAs(blob, "adjacency_matrix.csv");
+};
+
+/** Synchronously load the heavy-weight SVG libraries if not done already. */
+GroupGraph.prototype.loadSVGLibraries = function(callback) {
+  if (GroupGraph.prototype.svg_libs_loaded) {
+    if (callback) callback();
+    return;
+  }
+
+  var libs = ["MochiKit/Base.js", "MochiKit/Iter.js", "MochiKit/Logging.js", "MochiKit/DateTime.js", "MochiKit/Format.js", "MochiKit/Async.js", "MochiKit/DOM.js", "MochiKit/Style.js", "MochiKit/Color.js", "MochiKit/Signal.js", "MochiKit/Position.js", "MochiKit/Visual.js", "MochiKit/LoggingPane.js", "SVGKit/SVGKit.js", "SVGKit/SVGCanvas.js"];
+
+  $.blockUI();
+
+  var scripts = document.getElementsByTagName("script"),
+      last = scripts[scripts.length -1];
+
+  var jQuery = $,
+      cleanup = function() {
+        // FIX DOM.js overwriting jQuery
+        window.$ = jQuery;
+        $.unblockUI();
+      },
+      error = function(e) {
+        console.log(e, e.stack);
+        alert("Sorry: failed to load SVG rendering libraries.");
+      },
+      fixAPI = function() {
+        // Fix up API mismatches between SVGCanvas and Canvas
+        SVGCanvas.prototype.fillText = SVGCanvas.prototype.text;
+        SVGCanvas.prototype.strokeText = function() {
+          // Fortunately always used in ways that can fixed below.
+          // Absence of this function explains the need to fix the stroke in SVG elements below.
+        };
+        SVGCanvas.prototype.setTransform = function() {
+          // Fortunately all calls are to the identity transform, that is, to reset,
+          // and explains perhaps the issues with the position of the M point in paths below,
+          // which is fixable.
+        };
+      },
+      chainLoad = function(libs, i) {
+    try {
+      var s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.async = false;
+      s.src = django_url + 'static/libs/' + libs[i];
+      var exec = false;
+      s.onreadystatechange = function() {
+        if (!exec && (!this.readyState || this.readyState === "loaded" || this.readyState === "complete")) {
+          exec = true;
+          console.log("Loaded script " + libs[i]);
+          console.log(window.SVGCanvas);
+          if (i < libs.length -1) chainLoad(libs, i + 1);
+          else {
+            GroupGraph.prototype.svg_libs_loaded = true;
+            cleanup();
+            fixAPI();
+            if (callback) callback();
+          }
+        }
+      };
+      s.onload = s.onreadystatechange;
+      last.parentNode.appendChild(s);
+    } catch (e) {
+      cleanup();
+      error(e);
+    }
+  };
+
+  chainLoad(libs, 0);
+};
+
+GroupGraph.prototype.exportSVG = function() {
+  if (0 === this.cy.nodes().size()) {
+    alert("Load a graph first!");
+    return;
+  }
+
+  if (0 === this.cy.edges().length) {
+    // This limitation has to do with:
+    // 1. Transforms and bounds are not correct for nodes when the graph lacks any edges.
+    // 2. Need at least one edge for the heuristics below to detect where the edges end and the nodes start--which could be overcome by testing if the graph has any edges, but given that without edges the rendering is wrong anyway, the best is to avoid it.
+    alert("The SVG exporter is currently limited to graphs with edges.");
+    return;
+  }
+
+  GroupGraph.prototype.loadSVGLibraries(this._exportSVG.bind(this));
+};
+
+/** Assumes SVG libraries are loaded, a graph exists and has at least one edge. */
+GroupGraph.prototype._exportSVG = function() {
+
+  var div= $('#graph_widget' + this.widgetID),
+      width = div.width(),
+      height = div.height();
+  var svg = new SVGCanvas(width, height);
+
+  this.cy.renderer().renderTo( svg, 1.0, {x: 0, y: 0}, 1.0 ); 
+
+  // Fix rendering issues.
+  // Painting order is from bottom to top (logically).
+  // All edge lines are painted first. Then all edge strings. Then all nodes, as two circles: one is the contour and the other the filling. Then all node strings.
+  // Edges are painted as three consecutive path elements:
+  //   1. edge line
+  //   2. arrowhead line
+  //   3. arrowhead filling
+  // .. or just with one line when lacking arrowhead.
+  // Paths 2 and 3 are identical except one has stroke and the other fill.
+
+  var children = svg.svg.htmlElement.childNodes;
+
+  var edges = [],
+      remove = [],
+      i = 0;
+  // Group the path elements of each edge
+  for (; i<children.length; ++i) {
+    var child = children[i];
+    if ('text' === child.localName) break;
+    switch(child.pathSegList.length) {
+      case 2:
+        // New graph edge
+        edges.push([child]);
+        break;
+      case 5:
+        // Arrowhead of previous edge
+        edges[edges.length -1].push(child);
+        break;
+    }
+  }
+
+  // Fix edge arrowheads if necessary
+  for (var k=0; k<edges.length; ++k) {
+    var edge = edges[k];
+    if (1 === edge.length) continue;
+    // Fix the style
+    var path = edge[2],
+        attr = path.attributes;
+    attr.stroke.value = attr.fill.value;
+    // Remove bogus lineTo
+    path.pathSegList.removeItem(2);
+    remove.push(edge[1]);
+  }
+
+  // Fix edge labels: stroke should be white and of 0.2 thickness
+  for (; i<children.length; ++i) {
+      var child = children[i];
+      if ('text' !== child.localName) break;
+      child.attributes.stroke.value = '#ffffff';
+      child.style.strokeWidth = '0.2';
+  }
+
+  // Fix nodes: instead of two separate paths (one for the filling
+  // and one for the contour), add a fill value to the contour
+  // and delete the other.
+  // Also add the text-anchor: middle to the text.
+  for (; i<children.length; i+=3) {
+    // The second one is the contour
+    var child = children[i+1],
+      path = child.pathSegList;
+    // Find out the type
+    var commands = {};
+    for (var k=0; k<path.length; ++k) {
+      var letter = path[k].pathSegTypeAsLetter,
+          count = commands[letter];
+      if (count) commands[letter] = count + 1;
+      else commands[letter] = 1;
+    }
+    if (commands['A'] > 0) {
+      // Circle: the coordinates of the M are wrong:
+      // make the M have the coordinates of the first L
+      // Note: cannot remove the L, circle would draw as semicircle
+      path[0].x = path[1].x;
+      path[0].y = path[1].y;
+    }
+    // Set the fill value
+    child.attributes.fill.value = children[i].attributes.fill.value;
+    // Fix text anchor
+    children[i+2].style.textAnchor = 'middle';
+    remove.push(children[i]);
+  }
+
+
+  remove.forEach(function(child) {
+    child.parentNode.removeChild(child);
+  });
+
+
+  var s = new XMLSerializer().serializeToString(svg.svg.htmlElement);
+
+  var blob = new Blob([s], {type: 'text/svg'});
+  saveAs(blob, "graph-" + this.widgetID + ".svg");
 };
 
 GroupGraph.prototype.openPlot = function() {
@@ -1582,36 +1737,34 @@ GroupGraph.prototype.Group = function(gid, models, label, color, hide_self_edges
  * - models: one for every skeleton_id in data.
  */
 GroupGraph.prototype._regroup = function(data, splitted, models) {
-  var groupIDs = Object.keys(this.groups);
-  if (0 === groupIDs.length) return;
-
   // Remove splitted neurons from existing groups when necessary,
   // construct member_of: a map of skeleton ID vs group ID,
   // and reset the group's nodes list.
   var member_of = {};
 
-  groupIDs.forEach(function(gid) {
+  var groupIDs = Object.keys(this.groups).filter(function(gid) {
     var group = this.groups[gid],
         gmodels = group.models;
 
-    Object.keys(gmodels).forEach(function(skid) {
+    var n_models = Object.keys(gmodels).reduce(function(c, skid) {
       if (skid in splitted) {
         // Remove from the group
         delete gmodels[skid];
-        return;
+        return c;
       }
       member_of[skid] = gid;
-    });
+      return c + 1;
+    }, 0);
 
-    if (0 === gmodels.length) {
+    if (0 === n_models) {
       // Remove empty group
       delete this.groups[gid];
-      return;
+      return false;
     }
+
+    return true;
   }, this);
 
-  // Update: empty ones have been removed
-  groupIDs = Object.keys(this.groups);
   if (0 === groupIDs.length) return;
 
   // Remove nodes that have been assigned to groups
@@ -1620,7 +1773,7 @@ GroupGraph.prototype._regroup = function(data, splitted, models) {
   });
 
   // Create one node for each group
-  var gnodes = Object.keys(this.groups).map(function(gid) {
+  var gnodes = groupIDs.map(function(gid) {
     var group = this.groups[gid];
     return {data: {id: gid,
                    skeletons: Object.keys(group.models).map(function(skid) { return group.models[skid];}),
@@ -1638,7 +1791,7 @@ GroupGraph.prototype._regroup = function(data, splitted, models) {
     var d = edge.data,
         source = member_of[d.source],
         target = member_of[d.target],
-        intragroup = undefined !== source && undefined !== target;
+        intragroup = source === target && undefined !== source && undefined !== target;
     if (source || target) {
       source = source ? source : d.source;
       target = target ? target : d.target;
@@ -1654,8 +1807,8 @@ GroupGraph.prototype._regroup = function(data, splitted, models) {
         if (intragroup && this.groups[source].hide_self_edges) return false;
         // Reuse edge
         d.id = id;
-        d.source = source;
-        d.target = target;
+        d.source = source + ""; // ensure both are strings, fixes issue with edges not curving out (to avoid overlap) in reciprocal connections involving a group
+        d.target = target + "";
         gedges[id] = edge;
       }
       return false;
@@ -1673,12 +1826,13 @@ GroupGraph.prototype._regroup = function(data, splitted, models) {
 GroupGraph.prototype.group = function() {
   var models = this.cy.nodes().filter(function(i, node) {
     return node.selected();
-  }).toArray().reduce(function(o, node) {
+  }).toArray().reduce((function(o, node) {
+    if (undefined !== this.groups[node.id()]) delete this.groups[node.id()];
     return node.data('skeletons').reduce(function(o, model) {
       o[model.id] = model;
       return o;
     }, o);
-  }, {});
+  }).bind(this), {});
   if (Object.keys(models).length > 1) this.appendGroup(models);
   else growlAlert("Information", "Select at least 2 nodes!");
 };
@@ -1695,4 +1849,235 @@ GroupGraph.prototype.ungroup = function() {
   });
   if (count > 0) this.update();
   else growlAlert("Information", "Nothing to ungroup!");
+};
+
+/** Iterate over all visible directed edges
+ * and invoke the function fn with the edge and its data
+ * as arguments.
+ */
+GroupGraph.prototype.iterateEdges = function(fn) {
+  this.cy.edges().each(function(i, edge) {
+    if (edge.hidden()) return;
+    var e = edge.data();
+    if (!e.directed) return; // intra-edge of a neuron split by synapse clustering
+    fn(edge, e);
+  });
+};
+
+/** Annotate the data of each edge with a risk value between 0 (none) and 1 (highest risk).
+ * Autapses have by definition a risk of 1.
+ * The edge label is appended with the risk value, intrepreted as MIN, MAX or a numeric value, in square brackets. */
+GroupGraph.prototype.annotateEdgeRisk = function() {
+  // Reverse edges from target to source
+  var edges = {},
+      autapses = false;
+
+  // Find selected edges if any, defined as:
+  // 1. The edge itself being selected
+  // 2. Both the source and target nodes being selected
+  this.iterateEdges((function(edge, data) {
+    // Can't be part of a group
+    if (this.groups[data.source] || this.groups[data.target]) return;
+    if (edge.selected() || (edge.source().selected() && edge.target().selected())) {
+      // Label autapses with maximum risk
+      if (data.source === data.target) {
+        edge.data('label', data.weight + ' [MAX]');
+        autapses = true;
+        return;
+      }
+      var a = edges[data.target];
+      if (a) a.push(edge);
+      else edges[data.target] = [edge];
+    }
+  }.bind(this)));
+
+  // TODO handle split nodes
+
+  var targets = Object.keys(edges);
+
+  if (0 === targets.length) {
+    if (!autapses) growlAlert("Information", "Select at least 2 connected nodes, that are not groups!");
+    return;
+  };
+
+  // Fetch locations of input synapses for each target
+  var inputs = {};
+
+  fetchSkeletons(
+      targets,
+      function(skid) {
+        return django_url + project.id + '/connector/list/one_to_many';
+      },
+      function(target) {
+        return {skid: target,
+                skids: edges[target].map(function(edge) { return edge.data('source'); }),
+                relation: 'postsynaptic_to'};
+      },
+      function(skid, json) {
+        inputs[skid] = json;
+      },
+      function(skid) {
+        // Failed to load
+        delete edges[skid];
+      },
+      function() {
+        GroupGraph.prototype.computeRisk(
+          edges,
+          inputs,
+          function(risks) {
+            risks.forEach(function(pair) {
+              var edge = pair[0],
+                  risk = pair[1],
+                  label = Number(risk).toFixed(2);
+              edge.data('risk', risk);
+              if ('0.00' === label) label = 'MIN';
+              else if ('1.00' === label) label = 'MAX';
+              edge.data('label', edge.data('weight') + ' [' + label + ']');
+            });
+          });
+      });
+};
+
+
+/** Compute the risk for subset of edges, by estimating, for each edge,
+ * what fraction of the synapses of the target arbor would be removed
+ * if the subtree starting at the lowest common ancestor node of the synapses
+ * in the edge was to be cut off from the arbor.
+ * Risk is a value between 0 and 1.
+ * edges: a map of edge.target keys vs array of edge.
+ * inputs: a map of edge.target vs connector data as obtained from /connector/list/one_to_many.
+ * Invokes callback with one parameter: an array of [edge, risk] pairs. */
+GroupGraph.prototype.computeRisk = function(edges, inputs, callback) {
+  var risks = [];
+
+  fetchSkeletons(
+      Object.keys(edges), // targets could have changed if some failed to load
+      function(skid) {
+        return django_url + project.id + '/' + skid + '/1/1/0/compact-arbor';
+      },
+      function(skid) {
+        return {}; // POST
+      },
+      function(target, json) {
+        var connectors = inputs[target];
+
+        if (0 === connectors.length) {
+          // edge(s) disappeared from database
+          growlAlert('Information', 'Could not find edges for skeleton #' + skid);
+          return;
+        }
+
+        var ap = new ArborParser().init('compact-arbor', json);
+
+        if (0 === ap.n_inputs) {
+          // Database changed
+          growlAlert('Information', 'Skeleton #' + target + ' no longer has any input synapses');
+          return;
+        }
+
+        // Reroot arbor at highest centrality node closest to the root
+        // but only if possible:
+        if (ap.n_outputs > 0) {
+          var fc = ap.arbor.flowCentrality(ap.outputs, ap.inputs, ap.n_outputs, ap.n_inputs),
+              nodes = Object.keys(fc),
+              max = nodes.reduce(function(o, node) {
+                var m = fc[node].centrifugal;
+                if (o.max < m) {
+                  o.max = m;
+                  o.node = node;
+                }
+                return o;
+              }, {max: 0, node: null}),
+              node = max.node,
+              child = node;
+
+          while (fc[node] === max.max) {
+            child = node;
+            node = ap.arbor.edges[node]; // its parent
+          }
+
+          ap.arbor.reroot(child);
+        }
+
+        // For each source
+        edges[target].forEach(function(edge) {
+          var source = edge.data('source');
+
+          // Find out how many total synapses are thrown away
+          // when cutting the arbor at the synapses that make up
+          // the edge between source and target.
+          var edge_synapses = connectors.reduce(function(o, row) {
+            // 2: treenode ID receiving the input
+            // 8: skeleton ID of the partner arbor
+            if (row[8] === source) o[row[2]] = true;
+            return o;
+          }, {});
+
+          if (0 === Object.keys(edge_synapses)) {
+            // Database changed
+            growlAlert('Information', 'Skeleton #' + target + ' no longer receives inputs from skeleton #' + source);
+            return;
+          }
+
+          var lca = ap.arbor.lowestCommonAncestor(edge_synapses),
+              sub_nodes = ap.arbor.subArbor(lca).nodes(),
+              lost_inputs = Object.keys(ap.inputs).reduce(function(sum, node) {
+                return undefined === sub_nodes[node] ? sum : sum + ap.inputs[node];
+              }, 0),
+              risk = 1 - lost_inputs / ap.n_inputs;
+
+          risks.push([edge, risk]);
+        });
+      },
+      function(skid) {
+        // Failed loading: will be handled by fetchSkeletons
+      },
+      function() {
+        // DONE
+        callback(risks);
+      });
+};
+
+GroupGraph.prototype.orderedSelectedNodes = function() {
+  var entries = this.selection.entries;
+  return Object.keys(entries).map(function(id) { return entries[id]; })
+    .sort(function(a, b) {
+      return a.order < b.order ? -1 : 1;
+    })
+    .map(function(a) { return a.node; });
+};
+
+GroupGraph.prototype.whenMinSelected = function(min, fn) {
+  var sel = this.orderedSelectedNodes();
+  if (sel.length < min) return alert("Please select more than one node.");
+  fn(sel);
+};
+
+/** Make the given axis coordinate of all selected nodes
+ * be that of the first selected node.
+ * Axis must be 'x' or 'y'. */
+GroupGraph.prototype.equalizeCoordinate = function(axis) {
+  if ('x' !== axis && 'y' !== axis) return alert("Invalid axis: " + axis);
+  this.whenMinSelected(2, function(nodes) {
+    var value = nodes[0].position(axis);
+    for (var i=1; i<nodes.length; ++i) {
+      nodes[i].position(axis, value);
+    }
+  });
+};
+
+GroupGraph.prototype.distributeCoordinate = function(axis) {
+  if ('x' !== axis && 'y' !== axis) return alert("Invalid axis: " + axis);
+  this.whenMinSelected(3, function(nodes) {
+    var sorted = nodes.sort(function(a, b) {
+      var ca = a.position(axis),
+          cb = b.position(axis);
+      return ca < cb ? -1 : 1;
+    }),
+        span = nodes[nodes.length - 1].position(axis) - nodes[0].position(axis),
+        offset = nodes[0].position(axis);
+    for (var i=1, l=nodes.length -1; i<l; ++i) {
+      nodes[i].position(axis, offset + i * (span / l));
+    }
+  });
 };

@@ -43,7 +43,7 @@ class Project(models.Model):
             ("can_browse", "Can browse projects")
         )
     title = models.TextField()
-    public = models.BooleanField(default=True)
+    comment = models.TextField(blank=True, null=True)
     stacks = models.ManyToManyField("Stack",
                                     through='ProjectStack')
     tags = TaggableManager(blank=True)

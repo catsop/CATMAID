@@ -139,50 +139,67 @@ var WindowMaker = new function()
 
   var createSkeletonMeasurementsTable = function()
   {
-    var win = new CMWWindow("Skeleton Measurements Table");
+    var SMT = new SkeletonMeasurementsTable();
+    var win = new CMWWindow("Skeleton Measurements Table " + SMT.widgetID);
     var content = win.getFrame();
     content.style.backgroundColor = "#ffffff";
 
-    var container = createContainer("skeleton_measurements_widget");
+    var buttons = document.createElement("div");
+
+    buttons.appendChild(document.createTextNode('From'));
+    buttons.appendChild(SkeletonListSources.createSelect(SMT));
+
+    var load = document.createElement('input');
+    load.setAttribute("type", "button");
+    load.setAttribute("value", "Append");
+    load.onclick = SMT.loadSource.bind(SMT);
+    buttons.appendChild(load);
+
+    var clear = document.createElement('input');
+    clear.setAttribute("type", "button");
+    clear.setAttribute("value", "Clear");
+    clear.onclick = SMT.clear.bind(SMT);
+    buttons.appendChild(clear);
+
+    var update = document.createElement('input');
+    update.setAttribute("type", "button");
+    update.setAttribute("value", "Refresh");
+    update.onclick = SMT.update.bind(SMT);
+    buttons.appendChild(update);
+
+    var options = document.createElement('input');
+    options.setAttribute("type", "button");
+    options.setAttribute("value", "Options");
+    options.onclick = SMT.adjustOptions.bind(SMT);
+    buttons.appendChild(options);
+
+    var csv = document.createElement('input');
+    csv.setAttribute("type", "button");
+    csv.setAttribute("value", "Export CSV");
+    csv.onclick = SMT.exportCSV.bind(SMT);
+    buttons.appendChild(csv);
+
+    var container = createContainer("skeleton_measurements_widget" + SMT.widgetID);
+
+    content.appendChild(buttons);
     content.appendChild(container);
 
+    var headings = '<tr>' + SMT.labels.map(function(label) { return '<th>' + label + '</th>'; }).join('') + '</tr>';
+
     container.innerHTML =
-      '<table cellpadding="0" cellspacing="0" border="0" class="display" id="skeleton_measurements_table">' +
-        '<thead>' +
-          '<tr>' +
-            '<th>Neuron</th>' +
-            '<th>Skeleton</th>' +
-            '<th>Raw cable (nm)</th>' +
-            '<th>Smooth cable (nm)</th>' +
-            '<th>N inputs</th>' +
-            '<th>N outputs</th>' +
-            '<th>N nodes</th>' +
-            '<th>N branch nodes</th>' +
-            '<th>N end nodes</th>' +
-          '</tr>' +
-        '</thead>' +
-        '<tfoot>' +
-          '<tr>' +
-            '<th>Neuron</th>' +
-            '<th>Skeleton</th>' +
-            '<th>Raw cable (nm)</th>' +
-            '<th>Smooth cable (nm)</th>' +
-            '<th>N inputs</th>' +
-            '<th>N outputs</th>' +
-            '<th>N nodes</th>' +
-            '<th>N branch nodes</th>' +
-            '<th>N end nodes</th>' +
-          '</tr>' +
-        '</tfoot>' +
+      '<table cellpadding="0" cellspacing="0" border="0" class="display" id="skeleton_measurements_table' + SMT.widgetID + '">' +
+        '<thead>' + headings + '</thead>' +
+        '<tfoot>' + headings + '</tfoot>' +
         '<tbody>' +
-          '<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>' +
+          '<tr>' + SMT.labels.map(function() { return '<td></td>'; }).join('') + '</tr>' +
         '</tbody>' +
       '</table>';
     // ABOVE, notice the table needs one dummy row
 
-    addListener(win, container);
+    addListener(win, container, null, SMT.destroy.bind(SMT));
     addLogic(win);
-    SkeletonMeasurementsTable.init(); // MUST go after adding the container to the window, otherwise one gets "cannot read property 'aoData' of null" when trying to add data to the table
+
+    SMT.init(); // Must be invoked after the table template has been created above.
 
     return win;
   };
@@ -270,7 +287,7 @@ var WindowMaker = new function()
 
     var filterButton = document.createElement('input');
     filterButton.setAttribute('type', 'button');
-    filterButton.setAttribute('value', 'Filter by');
+    filterButton.setAttribute('value', 'Filter by regex:');
     filterButton.onclick = function() { ST.filterBy(filter.value); };
     buttons.appendChild(filterButton);
 
@@ -507,7 +524,9 @@ var WindowMaker = new function()
     $('<option/>', {value : 'downstream_amount', text: 'Downstream cable'}).appendTo(shadingMenu);
     $('<option/>', {value : 'betweenness_centrality', text: 'Betweenness centrality'}).appendTo(shadingMenu);
     $('<option/>', {value : 'slab_centrality', text: 'Slab centrality'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'flow_centrality', text: 'Signal flow centrality'}).appendTo(shadingMenu);
+    $('<option/>', {value : 'flow_centrality', text: 'Flow centrality'}).appendTo(shadingMenu);
+    $('<option/>', {value : 'centrifugal flow_centrality', text: 'Centrifugal flow centrality'}).appendTo(shadingMenu);
+    $('<option/>', {value : 'centripetal flow_centrality', text: 'Centripetal flow centrality'}).appendTo(shadingMenu);
     $('<option/>', {value : 'distance_to_root', text: 'Distance to root'}).appendTo(shadingMenu);
     $('<option/>', {value : 'partitions', text: 'Principal branch length'}).appendTo(shadingMenu);
     $('<option/>', {value : 'strahler', text: 'Strahler analysis'}).appendTo(shadingMenu);
@@ -516,11 +535,13 @@ var WindowMaker = new function()
 
     buttons.appendChild(document.createTextNode(" Color:"));
     var colorMenu = document.createElement('select');
+    colorMenu.setAttribute('id', 'webglapp_color_menu' + WA.widgetID);
     $('<option/>', {value : 'none', text: 'Source', selected: true}).appendTo(colorMenu);
     $('<option/>', {value : 'creator', text: 'By Creator'}).appendTo(colorMenu);
     $('<option/>', {value : 'all-reviewed', text: 'All Reviewed'}).appendTo(colorMenu);
     $('<option/>', {value : 'own-reviewed', text: 'Own Reviewed'}).appendTo(colorMenu);
-    colorMenu.onchange = WA.updateSkeletonColors.bind(WA, colorMenu);
+    $('<option/>', {value : 'axon-and-dendrite', text: 'Axon and dendrite'}).appendTo(colorMenu);
+    colorMenu.onchange = WA.updateColorMethod.bind(WA, colorMenu);
     buttons.appendChild(colorMenu);
 
     buttons.appendChild(document.createTextNode(" Synapse color:"));
@@ -528,6 +549,7 @@ var WindowMaker = new function()
     synColors.options.add(new Option('Type: pre/red, post/cyan', 'cyan-red'));
     synColors.options.add(new Option('N with partner: pre[red > blue], post[yellow > cyan]', 'by-amount'));
     synColors.options.add(new Option('Synapse clusters', 'synapse-clustering'));
+    synColors.options.add(new Option('Max. flow cut: axon (green) and dendrite (blue)', 'axon-and-dendrite'));
     synColors.onchange = WA.updateConnectorColors.bind(WA, synColors);
     buttons.appendChild(synColors);
 
@@ -693,94 +715,79 @@ var WindowMaker = new function()
     var content = win.getFrame();
     content.style.backgroundColor = "#ffffff";
 
-    var contentbutton = document.createElement('div');
-    contentbutton.setAttribute("id", 'compartment_graph_window_buttons' + GG.widgetID);
+    var bar = document.createElement('div');
+    bar.setAttribute("id", 'compartment_graph_window_buttons' + GG.widgetID);
 
-    contentbutton.appendChild(document.createTextNode('From'));
-    contentbutton.appendChild(SkeletonListSources.createSelect(GG));
+    var titles = document.createElement('ul');
+    bar.appendChild(titles);
+    var tabs = ['Main', 'Grow', 'Layout', 'Selection', 'Align', 'Export'].reduce(function(o, name) {
+          titles.appendChild($('<li><a href="#' + name + GG.widgetID + '">' + name + '</a></li>')[0]);
+          var div = document.createElement('div');
+          div.setAttribute('id', name + GG.widgetID);
+          bar.appendChild(div);
+          o[name] = div;
+          return o;
+    }, {});
 
-    var append = document.createElement('input');
-    append.setAttribute("type", "button");
-    append.setAttribute("value", "Append");
-    append.onclick = GG.loadSource.bind(GG);
-    contentbutton.appendChild(append);
+    var appendToTab = function(tab, elems) {
+      elems.forEach(function(e) {
+        switch (e.length) {
+          case 1: tab.appendChild(e[0]); break;
+          case 2: appendButton(tab, e[0], e[1]); break;
+          case 3: appendButton(tab, e[0], e[1], e[2]); break;
+        }
+      });
+    };
 
-    var asgroup = document.createElement('input');
-    asgroup.setAttribute("type", "button");
-    asgroup.setAttribute("value", "Append as group");
-    asgroup.onclick = GG.appendAsGroup.bind(GG);
-    contentbutton.appendChild(asgroup);
+    appendToTab(tabs['Main'],
+        [[document.createTextNode('From')],
+         [SkeletonListSources.createSelect(GG)],
+         ['Append', GG.loadSource.bind(GG)],
+         ['Append as group', GG.appendAsGroup.bind(GG)],
+         ['Clear', GG.clear.bind(GG)],
+         ['Refresh', GG.update.bind(GG)],
+         ['Properties', GG.graph_properties.bind(GG)]]);
 
-    var clear = document.createElement('input');
-    clear.setAttribute("type", "button");
-    clear.setAttribute("value", "Clear");
-    clear.onclick = GG.clear.bind(GG);
-    contentbutton.appendChild(clear);
+    var color = document.createElement('select');
+    color.setAttribute('id', 'graph_color_choice' + GG.widgetID);
+    color.options.add(new Option('source', 'source'));
+    color.options.add(new Option('review status (union)', 'union-review'));
+    color.options.add(new Option('review status (own)', 'own-review'));
+    color.options.add(new Option('input/output', 'I/O'));
+    color.options.add(new Option('betweenness centrality', 'betweenness_centrality'));
+    color.options.add(new Option('circles of hell', 'circles_of_hell')); // inspired by Tom Jessell's comment
+    color.onchange = GG._colorize.bind(GG, color);
 
-    var refresh = document.createElement('input');
-    refresh.setAttribute("type", "button");
-    refresh.setAttribute("value", "Refresh");
-    refresh.onclick = GG.update.bind(GG);
-    contentbutton.appendChild(refresh);
-
-    var annotate = document.createElement('input');
-    annotate.setAttribute("type", "button");
-    annotate.setAttribute("value", "Annotate");
-    annotate.onclick = GG.annotate_skeleton_list.bind(GG);
-    contentbutton.appendChild(annotate);
-
-    var props = document.createElement('input');
-    props.setAttribute("type", "button");
-    props.setAttribute("value", "Properties");
-    props.onclick = GG.graph_properties.bind(GG);
-    contentbutton.appendChild(props);
-
-    contentbutton.appendChild(document.createElement('br'));
-
-    var layout = appendSelect(contentbutton, "compartment_layout",
+    var layout = appendSelect(tabs['Layout'], "compartment_layout",
         ["Force-directed", "Hierarchical", "Grid", "Circle",
          "Concentric (degree)", "Concentric (out degree)", "Concentric (in degree)",
          "Random", "Compound Spring Embedder", "Manual"]);
 
-    var trigger = document.createElement('input');
-    trigger.setAttribute('type', 'button');
-    trigger.setAttribute('value', 'Re-layout');
-    trigger.onclick = GG.updateLayout.bind(GG, layout);
-    contentbutton.appendChild(trigger);
+    appendToTab(tabs['Layout'],
+        [['Re-layout', GG.updateLayout.bind(GG, layout)],
+         [document.createTextNode(' - Color: ')],
+         [color]]);
 
-    contentbutton.appendChild(document.createTextNode(' - '));
+    appendToTab(tabs['Selection'],
+        [['Annotate', GG.annotate_skeleton_list.bind(GG)],
+         [document.createTextNode(' - ')],
+         ['Measure edge risk', GG.annotateEdgeRisk.bind(GG)],
+         [document.createTextNode(' - ')],
+         ['Group', GG.group.bind(GG)],
+         ['Ungroup', GG.ungroup.bind(GG)],
+         [document.createTextNode(' - ')],
+         ['Hide', GG.hideSelected.bind(GG)],
+         ['Show hidden', GG.showHidden.bind(GG), {id: 'graph_show_hidden' + GG.widgetID, disabled: true}],
+         [document.createTextNode(' - ')],
+         ['Remove', GG.removeSelected.bind(GG)]]);
 
-    var group = document.createElement('input');
-    group.setAttribute('type', 'button');
-    group.setAttribute('value', 'Group');
-    group.onclick = GG.group.bind(GG);
-    contentbutton.appendChild(group);
-
-    var ungroup = document.createElement('input');
-    ungroup.setAttribute('type', 'button');
-    ungroup.setAttribute('value', 'Ungroup');
-    ungroup.onclick = GG.ungroup.bind(GG);
-    contentbutton.appendChild(ungroup);
-
-    contentbutton.appendChild(document.createElement('br'));
-
-    contentbutton.appendChild(document.createTextNode('Grow '));
-
-    var circles = document.createElement('input');
-    circles.setAttribute("type", "button");
-    circles.setAttribute("value", "Circles");
-    circles.onclick = GG.growGraph.bind(GG);
-    contentbutton.appendChild(circles);
-
-    contentbutton.appendChild(document.createTextNode(" or "));
-
-    var paths = document.createElement('input');
-    paths.setAttribute("type", "button");
-    paths.setAttribute("value", "Paths");
-    paths.onclick = GG.growPaths.bind(GG);
-    contentbutton.appendChild(paths);
-
-    contentbutton.appendChild(document.createTextNode(" by "));
+    appendToTab(tabs['Align'],
+        [[document.createTextNode('Align: ')],
+         [' X ', GG.equalizeCoordinate.bind(GG, 'x')],
+         [' Y ', GG.equalizeCoordinate.bind(GG, 'y')],
+         [document.createTextNode(' - Distribute: ')],
+         [' X ', GG.distributeCoordinate.bind(GG, 'x')],
+         [' Y ', GG.distributeCoordinate.bind(GG, 'y')]]);
 
     var n_circles = document.createElement('select');
     n_circles.setAttribute("id", "n_circles_of_hell" + GG.widgetID);
@@ -790,10 +797,6 @@ var WindowMaker = new function()
       option.value = title;
       n_circles.appendChild(option);
     });
-    contentbutton.appendChild(n_circles);
-
-
-    contentbutton.appendChild(document.createTextNode("hops, limit:"));
 
     var f = function(name) {
       var e = document.createElement('select');
@@ -816,60 +819,47 @@ var WindowMaker = new function()
       return e;
     };
 
-    contentbutton.appendChild(f("pre"));
-    contentbutton.appendChild(f("post"));
+    appendToTab(tabs['Grow'],
+        [[document.createTextNode('Grow ')],
+         ['Circles', GG.growGraph.bind(GG)],
+         [document.createTextNode(" or ")],
+         ['Paths', GG.growPaths.bind(GG)],
+         [document.createTextNode(" by ")],
+         [n_circles],
+         [document.createTextNode("hops, limit:")],
+         [f("pre")],
+         [f("post")]]);
 
-    contentbutton.appendChild(document.createTextNode(' - '));
+    appendToTab(tabs['Export'],
+        [['Export GML', GG.exportGML.bind(GG)],
+         ['Export SVG', GG.exportSVG.bind(GG)],
+         ['Export Adjacency Matrix', GG.exportAdjacencyMatrix.bind(GG)],
+         ['Open plot', GG.openPlot.bind(GG)]]);
 
-    var hide = document.createElement('input');
-    hide.setAttribute('type', 'button');
-    hide.setAttribute('value', 'Hide selected');
-    hide.onclick = GG.hideSelected.bind(GG);
-    contentbutton.appendChild(hide);
+    content.appendChild( bar );
 
-    var show = document.createElement('input');
-    show.setAttribute('type', 'button');
-    show.setAttribute('id', 'graph_show_hidden' + GG.widgetID);
-    show.setAttribute('value', 'Show hidden');
-    show.setAttribute('disabled', true);
-    show.onclick = GG.showHidden.bind(GG);
-    contentbutton.appendChild(show);
+    $(bar).tabs();
 
-    contentbutton.appendChild(document.createElement('br'));
-
-    contentbutton.appendChild(document.createTextNode('Color:'));
-    var color = document.createElement('select');
-    color.setAttribute('id', 'graph_color_choice' + GG.widgetID);
-    color.options.add(new Option('source', 'source'));
-    color.options.add(new Option('review status (union)', 'union-review'));
-    color.options.add(new Option('review status (own)', 'own-review'));
-    color.options.add(new Option('input/output', 'I/O'));
-    color.options.add(new Option('betweenness centrality', 'betweenness_centrality'));
-    color.options.add(new Option('circles of hell', 'circles_of_hell')); // inspired by Tom Jessell's comment
-    color.onchange = GG._colorize.bind(GG, color);
-    contentbutton.appendChild(color);
-
-    contentbutton.appendChild(document.createTextNode(' - '));
-
-    var gml = document.createElement('input');
-    gml.setAttribute("type", "button");
-    gml.setAttribute("value", "Export GML");
-    gml.onclick = GG.exportGML.bind(GG);
-    contentbutton.appendChild(gml);
-
-    var adj = document.createElement('input');
-    adj.setAttribute("type", "button");
-    adj.setAttribute("value", "Export Adjacency Matrix");
-    adj.onclick = GG.exportAdjacencyMatrix.bind(GG);
-    contentbutton.appendChild(adj);
-
-    var plot = document.createElement('input');
-    plot.setAttribute("type", "button");
-    plot.setAttribute("value", "Open plot");
-    plot.onclick = GG.openPlot.bind(GG);
-    contentbutton.appendChild(plot);
-
-    content.appendChild( contentbutton );
+    // Remove excessive padding in ui-tabs-panel and ui-tabs-nav classes
+    // and reduce font size in buttons
+    Object.keys(tabs).forEach(function(name) {
+      tabs[name].style.padding = "0px";
+      var c = tabs[name].children;
+      for (var i=0; i<c.length; ++i) {
+        c[i].style['font-family'] = "Arial, Helvetica, sans-serif";
+        c[i].style['font-size'] = '11px';
+      }
+    });
+    var ul = bar.childNodes[0];
+    ul.style.padding = "0px";
+    var lis = ul.childNodes;
+    for (var i=0; i<lis.length; ++i) {
+      lis[i].style.padding = "";
+      var a = lis[i].childNodes[0];
+      a.style.padding = ".2em 1em";
+      a.style['font-family'] = "Arial, Helvetica, sans-serif";
+      a.style['font-size'] = '11px';
+    }
 
     /* Create graph container and assure that it's overflow setting is set to
      * 'hidden'. This is required, because cytoscape.js' redraw can be delayed
@@ -938,6 +928,13 @@ var WindowMaker = new function()
     annotate.setAttribute("value", "Annotate");
     annotate.onclick = GP.annotate_skeleton_list.bind(GP);
     buttons.appendChild(annotate);
+
+    var options = document.createElement('input');
+    options.setAttribute("type", "button");
+    options.setAttribute("value", "Options");
+    options.onclick = GP.adjustOptions.bind(GP);
+    buttons.appendChild(options);
+
 
     buttons.appendChild(document.createTextNode(' - X:'));
 
@@ -1411,6 +1408,16 @@ var WindowMaker = new function()
     });
     div.appendChild(select);
     return select;
+  };
+
+  var appendButton = function(div, title, onclickFn, attr) {
+    var b = document.createElement('input');
+    if (attr) Object.keys(attr).forEach(function(key) { b.setAttribute(key, attr[key]); });
+    b.setAttribute('type', 'button');
+    b.setAttribute('value', title);
+    b.onclick = onclickFn;
+    div.appendChild(b);
+    return b;
   };
 
   var createSkeletonAnalyticsWindow = function()
@@ -1907,6 +1914,31 @@ var WindowMaker = new function()
     OntologyEditor.init();
 
     return win;
+  };
+
+  var createOntologySearchWidget = function(osInstance)
+  {
+    // If available, a new instance passed as parameter will be used.
+    var OS = osInstance ? osInstance : new OntologySearch();
+    var win = new CMWWindow(OS.getName());
+    var content = win.getFrame();
+    content.style.backgroundColor = "#ffffff";
+
+    var container = createContainer("ontology-search" + OS.widgetID);
+    container.setAttribute('class', 'ontology_search');
+
+    // Add container to DOM
+    content.appendChild(container);
+
+    // Wire it up.
+    addListener(win, container, undefined, OS.destroy.bind(OS));
+    addLogic(win);
+
+    // Let the ontology search initialize the interface within the created
+    // container.
+    OS.init_ui(container);
+
+    return win
   };
 
   var createClassificationWidget = function()
@@ -2437,6 +2469,7 @@ var WindowMaker = new function()
     "adjacencymatrix-widget": createAdjacencyMatrixWindow,
     "skeleton-analytics-widget": createSkeletonAnalyticsWindow,
     "ontology-editor": createOntologyWidget,
+    "ontology-search": createOntologySearchWidget,
     "classification-editor": createClassificationWidget,
     "notifications": createNotificationsWindow,
     "clustering-widget": createClusteringWidget,

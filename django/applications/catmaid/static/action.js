@@ -31,15 +31,15 @@ function Action (properties) {
       alert("BUG: replacing the keyCodes for "+name+" with Action.addKey");
     }
     keyShortcuts[name] = keyCodes;
-  }
+  };
 
   this.hasButton = function( ) {
     return buttonID !== null;
-  }
+  };
 
   this.getKeys = function( ) {
     return keyShortcuts;
-  }
+  };
 
   this.getKeyShortcutsString = function( ) {
     result = [];
@@ -49,58 +49,58 @@ function Action (properties) {
       }
     }
     return result.join(', ');
-  }
+  };
 
   this.getButtonID = function( ) {
     return buttonID;
-  }
+  };
 
   this.getButtonName = function( ) {
     return buttonName;
-  }
+  };
 
   this.getHelpText = function( ) {
     return helpText;
-  }
+  };
 
   this.setButtonID = function( newButtonID ) {
     buttonID = newButtonID;
-  }
+  };
 
   this.setButtonName = function( newButtonName ) {
     buttonName = newButtonName;
-  }
+  };
 
   this.setHelpText = function( newHelpText ) {
     helpText = newHelpText;
-  }
+  };
 
   this.setRun = function( newRun ) {
     this.run = newRun;
-  }
+  };
 
   // -------------------------------------------------------------------
 
   for (var key in properties) {
     if (properties.hasOwnProperty(key)) {
       if (key === 'helpText') {
-	this.setHelpText(properties.helpText);
-      }
-      if (key === 'buttonID') {
-	this.setButtonID(properties.buttonID);
-      }
-      if (key === 'buttonName') {
-	this.setButtonName(properties.buttonName);
-      }
-      if (key === 'keyShortcuts') {
-	for (var name in properties.keyShortcuts) {
-	  if (properties.keyShortcuts.hasOwnProperty(name)) {
-	    this.addKey(name, properties.keyShortcuts[name]);
-	  }
-	}
+        this.setHelpText(properties.helpText);
+            }
+            if (key === 'buttonID') {
+        this.setButtonID(properties.buttonID);
+            }
+            if (key === 'buttonName') {
+        this.setButtonName(properties.buttonName);
+            }
+            if (key === 'keyShortcuts') {
+        for (var name in properties.keyShortcuts) {
+          if (properties.keyShortcuts.hasOwnProperty(name)) {
+            this.addKey(name, properties.keyShortcuts[name]);
+          }
+        }
       }
       if (key === 'run') {
-	this.setRun(properties.run);
+        this.setRun(properties.run);
       }
     }
   }
@@ -112,21 +112,21 @@ var getKeyCodeToActionMap = function( actionArray ) {
   for (i = 0; i < actionArray.length; ++i) {
     action = actionArray[i];
     keyShortcuts = action.getKeys();
-    for (name in keyShortcuts) {
+    for (var name in keyShortcuts) {
       if (keyShortcuts.hasOwnProperty(name)) {
-	keyCodes = keyShortcuts[name];
-	for( j = 0; j < keyCodes.length; ++j ) {
-	  keyCode = keyCodes[j];
-	  if (keyCodeToKeyAction[keyCode]) {
-	    alert("BUG: overwriting action for keyCode " + keyCode + " (via '" + name + "')");
-	  }
-	  keyCodeToKeyAction[keyCode] = action;
-	}
+        keyCodes = keyShortcuts[name];
+        for( j = 0; j < keyCodes.length; ++j ) {
+          keyCode = keyCodes[j];
+          if (keyCodeToKeyAction[keyCode]) {
+            alert("BUG: overwriting action for keyCode " + keyCode + " (via '" + name + "')");
+          }
+          keyCodeToKeyAction[keyCode] = action;
+        }
       }
     }
   }
   return keyCodeToKeyAction;
-}
+};
 
 /** Updates the 'alt' and 'title' attributes on the toolbar
     icons that are documented with help text and key presses.
@@ -146,8 +146,10 @@ function createButtonsFromActions(actions, boxID, iconPrefix) {
       a.onclick = action.run;
       img = document.createElement('img');
       img.setAttribute('id', buttonID + '_img');
-      img.setAttribute('src', STATIC_URL_JS + 'widgets/themes/kde/' + iconPrefix + action.getButtonName() + '.svg');
-      img.setAttribute('onerror', "this.src='" + STATIC_URL_JS + 'widgets/themes/kde/' + iconPrefix + action.getButtonName() + ".png'");
+      var iconFilename = STATIC_URL_JS + 'widgets/themes/kde/' + iconPrefix + action.getButtonName();
+      img.setAttribute('src', iconFilename + '.svg');
+      // If an SVG icon is not found, fallback to a PNG icon
+      img.setAttribute('onerror', 'this.onerror = null; this.src="' + iconFilename + '.png";');
       img.setAttribute('alt', action.getHelpText());
       shortcuts = action.getKeyShortcutsString();
       if (shortcuts.length === 0) {
@@ -297,7 +299,7 @@ var createEditToolActions = function() {
                   } else if (data.needs_setup) {
                     display_tracing_setup_dialog(project.id,
                       data.has_needed_permissions, data.missing_classes,
-                      data.missing_relations, data.missing_classinstances)
+                      data.missing_relations, data.missing_classinstances);
                   } else {
                     project.setTool( new TracingTool() );
                   }
@@ -320,7 +322,7 @@ var createEditToolActions = function() {
         }
       }));
   }
-}
+};
 
 /* Edit tools are dependent on the current user. Therefore,
  * they get initialized when we know whether the user is

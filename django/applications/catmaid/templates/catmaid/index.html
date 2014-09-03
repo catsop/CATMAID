@@ -16,6 +16,8 @@
 		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/canvasoverlay.css" />
 		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/datatable/css/demo_table.css" />
 		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/datatable/themes/smoothness/jquery-ui-1.10.1.custom.css" />
+		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/datatable/extras/ColReorder/css/dataTables.colReorder.css" />
+		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/datatable/extras/TableTools/css/dataTables.tableTools.min.css" />
 		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/resize_handle.css" />
 		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}libs/jquery/growlAlert.css" />
 		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}libs/jquery/jquery-ui.combobox.css" />
@@ -25,29 +27,17 @@
     <link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/dd.css" />
     <link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/neuron_annotations.css" />
 
-		<!--[if gte IE 5]>
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/ui.ie.css" />
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/stack.ie.css" />
-		<![endif]-->
-		<!--[if gte IE 7]>
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/toolbar.ie7.css" />
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/screen.ie7.css" />
-		<![endif]-->
-		<!--[if lte IE 6]>
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/stack.ie6.css" />
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/console.ie6.css" />
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/toolbar.ie6.css" />
-		<link rel="stylesheet" type="text/css" media="all" href="{{ STATIC_URL }}widgets/themes/kde/screen.ie6.css" />
-		<![endif]-->
-
 		<script type="text/javascript">
 			var STATIC_URL_JS = '{{ STATIC_URL|escapejs }}';
 			var IE = false;
 			var django_url = "{{ CATMAID_URL }}";
 		</script>
 
+		<script type="text/javascript" src="{{ STATIC_URL }}libs/modernizr/modernizr.custom.36683.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/jquery.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/jquery.dataTables.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/dataTables.colReorder.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/dataTables.tableTools.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/jquery.jstree.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/jquery.tag.editor.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/jquery.jeditable.js"></script>
@@ -63,6 +53,7 @@
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/catmaid/request.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/catmaid/submitter.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/catmaid/utils.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}libs/catmaid/neuron_name_service.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/catmaid/Arbor.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}ui.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/input.js"></script>
@@ -80,11 +71,11 @@
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/settings.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}selector.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}taggingtool.js"></script>
-		<script type="text/javascript" src="{{ STATIC_URL }}boxselectiontool.js"></script>
-		<script type="text/javascript" src="{{ STATIC_URL }}roitool.js"></script>
-		<script type="text/javascript" src="{{ STATIC_URL }}croppingtool.js"></script>
-		<script type="text/javascript" src="{{ STATIC_URL }}tracingtool.js"></script>
-		<script type="text/javascript" src="{{ STATIC_URL }}tracinglayer.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}tools/boxselectiontool.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}tools/roitool.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}tools/croppingtool.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}tools/tracingtool.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}layers/tracinglayer.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}segmentationtool.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}neuronstagingarea.js"></script>
 
@@ -141,6 +132,7 @@
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/skeleton_analytics.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}ontologytool.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/ontology_editor.js"></script>
+		<script type="text/javascript" src="{{ STATIC_URL }}widgets/ontology_search.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/classification_editor.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/clustering_widget.js"></script>
 		<script type="text/javascript" src="{{ STATIC_URL }}widgets/table_notifications.js"></script>
@@ -190,9 +182,16 @@
 				<div id="spinner_box" class="box_right" style="width:20px; height: 20px; position:relative">
 				    <div id="spinner"><img src="{{ STATIC_URL }}widgets/themes/kde/wait_bgtransgrey.gif" alt="spinner" /></div>
 				</div>
+				<div class="menu">
 				<div id="logout_box" class="box_right" style="display:none"><p><a id="logout" name="logout" title="Logout" onclick="logout();" href="#">Logout</a></p></div>
 				<div id="login_box" class="box_right" style="display:none"><p>account&nbsp;</p><p><input type="text" id="account" name="account" size="8" /></p><p>&nbsp;&nbsp;password&nbsp;</p><p><input type="password" id="password" name="password" size="8" /></p><p>&nbsp;&nbsp;<a id="login" name="login" title="Login" href="#" onclick="login( document.getElementById( 'account' ).value, document.getElementById( 'password' ).value );">Login</a></p></div>
-				<div id="session_box" class="box_right" style="display:none"><p>You are <span id="session_longname">&nbsp;</span>.</p></div>
+				<div id="session_box" class="box_right" style="display:none">
+					<div class="menu_item" onmouseover="this.lastChild.style.display = 'block';"
+							 onmouseout="this.lastChild.style.display = 'none';">
+						<p id="message_menu_text"><a>You are <span id="session_longname">&nbsp;</span>.</a></p>
+						<div class="pulldown" id="user_menu"></div></div>
+				</div>
+				</div>
 				<div class="box_right" id="toolbox_show" style="display:none">
 					<a href="#" class="button_active" id="show_button_text" onclick="project.toggleShow( 'text' );"><img src="{{ STATIC_URL }}widgets/themes/kde/show_text.gif" alt="show textlabels" title="show textlabels" /></a>
 					<!--<a href="#" class="button_active" id="show_button_trace" onclick="project.toggleShow( 'trace' );"><img src="{{ STATIC_URL }}widgets/themes/kde/show_trace.gif" alt="show traces" title="show traces" /></a>//-->
@@ -330,6 +329,15 @@
 			-->
 			<div id="message_context" style="background:#ffffff; position:absolute; bottom:0px; width:100%; overflow:auto"><dl id="message_container" style="margin-top:2em; margin-bottom:2em"><dt>No new messages.</dt><dd></dd></dl></div>
 		</div>
-		
+
+		<div id="browser_unsupported">
+			<div class="ui-widget-overlay"></div>
+			<div class="message">
+				<h1>CATMAID requires a modern browser.</h1>
+				<p>
+					Your browser does not support some features necessary for CATMAID to work correctly. To use CATMAID please use a recent version of either <a href="https://www.mozilla.org/firefox/">Firefox</a> or <a href="https://www.google.com/chrome/">Chrome</a> with javascript enabled.
+				</p>
+			</div>
+		</div>
 	</body>
 </html>

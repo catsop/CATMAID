@@ -24,10 +24,9 @@ WebGLApplication.prototype.init = function(canvasWidth, canvasHeight, divID) {
 	this.divID = divID;
 	this.container = document.getElementById(divID);
 	this.stack = project.focusedStack;
-	this.scale = 50.0 / this.stack.dimension.x;
   this.submit = new submitterFn();
 	this.options = new WebGLApplication.prototype.OPTIONS.clone();
-	this.space = new this.Space(canvasWidth, canvasHeight, this.container, this.stack, this.scale);
+	this.space = new this.Space(canvasWidth, canvasHeight, this.container, this.stack);
   this.updateActiveNodePosition();
 	this.initialized = true;
 };
@@ -142,6 +141,11 @@ WebGLApplication.prototype.Options = function() {
   this.connector_color = 'cyan-red';
   this.lean_mode = false;
   this.synapse_clustering_bandwidth = 5000;
+  this.smooth_skeletons = false;
+  this.smooth_skeletons_sigma = 200; // nm
+  this.resample_skeletons = false;
+  this.resampling_delta = 3000; // nm
+  this.skeleton_line_width = 3;
 };
 
 WebGLApplication.prototype.Options.prototype = {};
@@ -177,7 +181,7 @@ WebGLApplication.prototype.Options.prototype.createMeshMaterial = function(id) {
 WebGLApplication.prototype.OPTIONS = new WebGLApplication.prototype.Options();
 
 WebGLApplication.prototype.updateZPlane = function() {
-	this.space.staticContent.updateZPlanePosition(this.stack, this.scale);
+	this.space.staticContent.updateZPlanePosition(this.stack);
 	this.space.render();
 };
 
@@ -187,12 +191,69 @@ WebGLApplication.prototype.staticUpdateZPlane = function() {
   });
 };
 
-WebGLApplication.prototype.updateSkeletonColors = function(colorMenu) {
+/** Receives an extra argument (an event) which is ignored. */
+WebGLApplication.prototype.updateColorMethod = function(colorMenu) {
   this.options.color_method = colorMenu.value;
-  Object.keys(this.space.content.skeletons).forEach(function(skeleton_id) {
-    this.space.content.skeletons[skeleton_id].updateSkeletonColor(this.options);
-  }, this);
-  this.space.render();
+  this.updateSkeletonColors();
+};
+
+WebGLApplication.prototype.updateSkeletonColors = function(callback) {
+  var fnRecolor = (function() {
+    Object.keys(this.space.content.skeletons).forEach(function(skeleton_id) {
+      this.space.content.skeletons[skeleton_id].updateSkeletonColor(this.options);
+    }, this);
+    if (typeof callback === "function") {
+      try { callback(); } catch (e) { alert(e); }
+    }
+    this.space.render();
+  }).bind(this);
+
+  if (-1 !== this.options.color_method.indexOf('reviewed')) {
+    var skeletons = this.space.content.skeletons;
+    // Find the subset of skeletons that don't have their reviews loaded
+    var skeleton_ids = Object.keys(skeletons).filter(function(skid) {
+      return !skeletons[skid].reviews;
+    });
+    // Will invoke fnRecolor even if the list of skeleton_ids is empty
+    fetchSkeletons(
+        skeleton_ids,
+        function(skeleton_id) {
+          return django_url + project.id + '/skeleton/' + skeleton_id + '/reviewed-nodes';
+        },
+        function(skeleton_id) { return {}; }, // post
+        function(skeleton_id, json) {
+          skeletons[skeleton_id].reviews = json;
+        },
+        function(skeleton_id) {
+          // Failed loading
+          skeletons[skeleton_id].reviews = {}; // dummy
+          console.log('ERROR: failed to load reviews for skeleton ' + skeleton_id);
+        },
+        fnRecolor);
+  } else if ('axon-and-dendrite' === this.options.color_method) {
+    var skeletons = this.space.content.skeletons;
+    // Find the subset of skeletons that don't have their axon loaded
+    var skeleton_ids = Object.keys(skeletons).filter(function(skid) {
+      return !skeletons[skid].axon;
+    });
+    fetchSkeletons(
+        skeleton_ids,
+        function(skid) {
+          return django_url + project.id + '/' + skid + '/0/1/0/compact-arbor';
+        },
+        function(skid) { return {}; }, // post
+        function(skid, json) {
+          skeletons[skid].axon = skeletons[skid].splitByFlowCentrality(json);
+        },
+        function(skid) {
+          // Failed loading
+          skeletons[skid].axon = {}; // dummy
+          console.log('ERROR: failed to load axon-and-dendrite for skeleton ' + skid);
+        },
+        fnRecolor);
+  } else {
+    fnRecolor();
+  }
 };
 
 WebGLApplication.prototype.XYView = function() {
@@ -375,27 +436,36 @@ WebGLApplication.prototype.addSkeletons = function(models, callback) {
 
   if (0 === skeleton_ids.length) return;
 
-	var self = this;
   var options = this.options;
+  var url1 = django_url + project.id + '/',
+      lean = options.lean_mode ? 0 : 1,
+      url2 = '/' + lean  + '/' + lean + '/compact-skeleton';
 
-  fetchCompactSkeletons(
+
+  fetchSkeletons(
       skeleton_ids,
-      options.lean_mode,
-      function(skeleton_id, json) {
-        var sk = self.space.updateSkeleton(models[skeleton_id], json, options);
-        if (sk) sk.show(self.options);
+      function(skeleton_id) {
+        return url1 + skeleton_id + url2;
       },
+      function(skeleton_id) {
+        return {}; // the post
+      },
+      (function(skeleton_id, json) {
+        var sk = this.space.updateSkeleton(models[skeleton_id], json, options);
+        if (sk) sk.show(this.options);
+      }).bind(this),
       function(skeleton_id) {
         // Failed loading: will be handled elsewhere via fnMissing in fetchCompactSkeletons
       },
-      function() {
-        // Done:
-        if (self.options.connector_filter) self.refreshRestrictedConnectors();
-        else self.space.render();
-        if (callback) {
-          try { callback(); } catch (e) { alert(e); }
-        }
-      });
+      (function() {
+        this.updateSkeletonColors(
+          (function() {
+              if (this.options.connector_filter) this.refreshRestrictedConnectors();
+              if (typeof callback === "function") {
+                try { callback(); } catch (e) { alert(e); }
+              }
+          }).bind(this));
+      }).bind(this));
 };
 
 /** Reload skeletons from database. */
@@ -424,10 +494,10 @@ WebGLApplication.prototype.clear = function() {
 };
 
 WebGLApplication.prototype.getSkeletonColor = function( skeleton_id ) {
-	if (skeleton_id in this.space.content.skeletons) {
-		return this.space.content.skeletons[skeleton_id].actorColor.clone();
+  if (skeleton_id in this.space.content.skeletons) {
+    return this.space.content.skeletons[skeleton_id].actorColor.clone();
   }
-	return new THREE.Color().setRGB(1, 0, 1);
+  return new THREE.Color().setRGB(1, 0, 1);
 };
 
 WebGLApplication.prototype.hasSkeleton = function(skeleton_id) {
@@ -435,152 +505,153 @@ WebGLApplication.prototype.hasSkeleton = function(skeleton_id) {
 };
 
 WebGLApplication.prototype.removeSkeletons = function(skeleton_ids) {
-	if (!this.space) return;
-	this.space.removeSkeletons(skeleton_ids);
-	if (this.options.connector_filter) this.refreshRestrictedConnectors();
-	else this.space.render();
+  if (!this.space) return;
+  this.space.removeSkeletons(skeleton_ids);
+  if (this.options.connector_filter) this.refreshRestrictedConnectors();
+  else this.space.render();
 };
 
 WebGLApplication.prototype.changeSkeletonColors = function(skeleton_ids, colors) {
-	var skeletons = this.space.content.skeletons;
+  var skeletons = this.space.content.skeletons;
 
   skeleton_ids.forEach(function(skeleton_id, index) {
     if (!skeletons.hasOwnProperty(skeleton_id)) {
-		  console.log("Skeleton "+skeleton_id+" does not exist.");
+      console.log("Skeleton "+skeleton_id+" does not exist.");
     }
     if (undefined === colors) skeletons[skeleton_id].updateSkeletonColor(this.options);
     else skeletons[skeleton_id].changeColor(colors[index], this.options);
   }, this);
 
-	this.space.render();
-	return true;
+  this.space.render();
+  return true;
 };
 
 // TODO obsolete code from segmentationtool.js
 WebGLApplication.prototype.addActiveObjectToStagingArea = function() {
-	alert("The function 'addActiveObjectToStagingArea' is no longer in use.");
+  alert("The function 'addActiveObjectToStagingArea' is no longer in use.");
 };
 
 WebGLApplication.prototype.showActiveNode = function() {
-	this.space.content.active_node.setVisible(true);
+  this.space.content.active_node.setVisible(true);
 };
 
 
 WebGLApplication.prototype.configureParameters = function() {
-	var space = this.space;
-	var options = this.options;
+  var space = this.space;
+  var options = this.options;
+  var updateSkeletons = this.updateSkeletons.bind(this);
 
-	var dialog = document.createElement('div');
-	dialog.setAttribute("id", "dialog-confirm");
-	dialog.setAttribute("title", "Configuration");
+  var dialog = document.createElement('div');
+  dialog.setAttribute("id", "dialog-confirm");
+  dialog.setAttribute("title", "Configuration");
 
-	var msg = document.createElement('p');
-	msg.innerHTML = "Missing sections height [0,100]:";
-	dialog.appendChild(msg);
+  var msg = document.createElement('p');
+  msg.innerHTML = "Missing sections height [0,100]:";
+  dialog.appendChild(msg);
 
-	var missingsectionheight = document.createElement('input');
-	missingsectionheight.setAttribute("type", "text");
-	missingsectionheight.setAttribute("id", "missing-section-height");
-	missingsectionheight.setAttribute("value", options.missing_section_height);
-	dialog.appendChild(missingsectionheight);
-	dialog.appendChild(document.createElement("br"));
+  var missingsectionheight = document.createElement('input');
+  missingsectionheight.setAttribute("type", "text");
+  missingsectionheight.setAttribute("id", "missing-section-height");
+  missingsectionheight.setAttribute("value", options.missing_section_height);
+  dialog.appendChild(missingsectionheight);
+  dialog.appendChild(document.createElement("br"));
 
-	var bzplane = document.createElement('input');
-	bzplane.setAttribute("type", "checkbox");
-	bzplane.setAttribute("id", "enable_z_plane");
-	bzplane.setAttribute("value", "Enable z-plane");
-	if ( options.show_zplane )
-		bzplane.setAttribute("checked", "true");
-	dialog.appendChild(bzplane);
-	dialog.appendChild(document.createTextNode('Enable z-plane'));
-	dialog.appendChild(document.createElement("br"));
+  var bzplane = document.createElement('input');
+  bzplane.setAttribute("type", "checkbox");
+  bzplane.setAttribute("id", "enable_z_plane");
+  bzplane.setAttribute("value", "Enable z-plane");
+  if ( options.show_zplane )
+    bzplane.setAttribute("checked", "true");
+  dialog.appendChild(bzplane);
+  dialog.appendChild(document.createTextNode('Enable z-plane'));
+  dialog.appendChild(document.createElement("br"));
 
-	var bmeshes = document.createElement('input');
-	bmeshes.setAttribute("type", "checkbox");
-	bmeshes.setAttribute("id", "show_meshes");
-	bmeshes.setAttribute("value", "Show meshes");
-	if( options.show_meshes )
-		bmeshes.setAttribute("checked", "true");
-	dialog.appendChild(bmeshes);
-	dialog.appendChild(document.createTextNode('Show meshes, with color: '));
+  var bmeshes = document.createElement('input');
+  bmeshes.setAttribute("type", "checkbox");
+  bmeshes.setAttribute("id", "show_meshes");
+  bmeshes.setAttribute("value", "Show meshes");
+  if( options.show_meshes )
+    bmeshes.setAttribute("checked", "true");
+  dialog.appendChild(bmeshes);
+  dialog.appendChild(document.createTextNode('Show meshes, with color: '));
 
-	var c = document.createElement('input');
-	c.setAttribute('type', 'text');
-	c.setAttribute('id', 'meshes-color');
-	c.setAttribute('value', '0xff0000');
-	c.setAttribute('size', '10');
-	$(document).on('keyup', "#meshes-color", function (e) {
-		var code = (e.keyCode ? e.keyCode : e.which);
-		if (13 === code) {
-			// Enter was pressed
-			if (options.show_meshes) {
-				var material = options.createMeshMaterial("#meshes-color");
-				space.content.meshes.forEach(function(mesh) {
-					mesh.material = material;
-				});
-				space.render();
-			}
-		}
-	});
-	dialog.appendChild(c);
-	dialog.appendChild(document.createElement("br"));
+  var c = document.createElement('input');
+  c.setAttribute('type', 'text');
+  c.setAttribute('id', 'meshes-color');
+  c.setAttribute('value', '0xff0000');
+  c.setAttribute('size', '10');
+  $(document).on('keyup', "#meshes-color", function (e) {
+    var code = (e.keyCode ? e.keyCode : e.which);
+    if (13 === code) {
+      // Enter was pressed
+      if (options.show_meshes) {
+        var material = options.createMeshMaterial("#meshes-color");
+        space.content.meshes.forEach(function(mesh) {
+          mesh.material = material;
+        });
+        space.render();
+      }
+    }
+  });
+  dialog.appendChild(c);
+  dialog.appendChild(document.createElement("br"));
 
-	var bactive = document.createElement('input');
-	bactive.setAttribute("type", "checkbox");
-	bactive.setAttribute("id", "enable_active_node");
-	bactive.setAttribute("value", "Enable active node");
-	if( options.show_active_node )
-		bactive.setAttribute("checked", "true");
-	dialog.appendChild(bactive);
-	dialog.appendChild(document.createTextNode('Enable active node'));
-	dialog.appendChild(document.createElement("br"));
+  var bactive = document.createElement('input');
+  bactive.setAttribute("type", "checkbox");
+  bactive.setAttribute("id", "enable_active_node");
+  bactive.setAttribute("value", "Enable active node");
+  if( options.show_active_node )
+    bactive.setAttribute("checked", "true");
+  dialog.appendChild(bactive);
+  dialog.appendChild(document.createTextNode('Enable active node'));
+  dialog.appendChild(document.createElement("br"));
 
-	var bmissing = document.createElement('input');
-	bmissing.setAttribute("type", "checkbox");
-	bmissing.setAttribute("id", "enable_missing_sections");
-	bmissing.setAttribute("value", "Missing sections");
-	if( options.show_missing_sections )
-		bmissing.setAttribute("checked", "true");
-	dialog.appendChild(bmissing);
-	dialog.appendChild(document.createTextNode('Missing sections'));
-	dialog.appendChild(document.createElement("br"));
+  var bmissing = document.createElement('input');
+  bmissing.setAttribute("type", "checkbox");
+  bmissing.setAttribute("id", "enable_missing_sections");
+  bmissing.setAttribute("value", "Missing sections");
+  if( options.show_missing_sections )
+    bmissing.setAttribute("checked", "true");
+  dialog.appendChild(bmissing);
+  dialog.appendChild(document.createTextNode('Missing sections'));
+  dialog.appendChild(document.createElement("br"));
 
-	/*var bortho = document.createElement('input');
-	bortho.setAttribute("type", "checkbox");
-	bortho.setAttribute("id", "toggle_ortho");
-	bortho.setAttribute("value", "Toggle Ortho");
-	container.appendChild(bortho);
-	container.appendChild(document.createTextNode('Toggle Ortho'));*/
+  /*var bortho = document.createElement('input');
+  bortho.setAttribute("type", "checkbox");
+  bortho.setAttribute("id", "toggle_ortho");
+  bortho.setAttribute("value", "Toggle Ortho");
+  container.appendChild(bortho);
+  container.appendChild(document.createTextNode('Toggle Ortho'));*/
 
-	var bfloor = document.createElement('input');
-	bfloor.setAttribute("type", "checkbox");
-	bfloor.setAttribute("id", "toggle_floor");
-	bfloor.setAttribute("value", "Toggle Floor");
-	if( options.show_floor )
-		bfloor.setAttribute("checked", "true");
-	dialog.appendChild(bfloor);
-	dialog.appendChild(document.createTextNode('Toggle floor'));
-	dialog.appendChild(document.createElement("br"));
+  var bfloor = document.createElement('input');
+  bfloor.setAttribute("type", "checkbox");
+  bfloor.setAttribute("id", "toggle_floor");
+  bfloor.setAttribute("value", "Toggle Floor");
+  if( options.show_floor )
+    bfloor.setAttribute("checked", "true");
+  dialog.appendChild(bfloor);
+  dialog.appendChild(document.createTextNode('Toggle floor'));
+  dialog.appendChild(document.createElement("br"));
 
-	var bbox = document.createElement('input');
-	bbox.setAttribute("type", "checkbox");
-	bbox.setAttribute("id", "toggle_aabb");
-	bbox.setAttribute("value", "Toggle Bounding Box");
-	if( options.show_box )
-		bbox.setAttribute("checked", "true");
-	dialog.appendChild(bbox);
-	dialog.appendChild(document.createTextNode('Toggle Bounding Box'));
-	dialog.appendChild(document.createElement("br"));
+  var bbox = document.createElement('input');
+  bbox.setAttribute("type", "checkbox");
+  bbox.setAttribute("id", "toggle_aabb");
+  bbox.setAttribute("value", "Toggle Bounding Box");
+  if( options.show_box )
+    bbox.setAttribute("checked", "true");
+  dialog.appendChild(bbox);
+  dialog.appendChild(document.createTextNode('Toggle Bounding Box'));
+  dialog.appendChild(document.createElement("br"));
 
-	var bbackground = document.createElement('input');
-	bbackground.setAttribute("type", "checkbox");
-	bbackground.setAttribute("id", "toggle_bgcolor");
-	bbackground.setAttribute("value", "Toggle Background Color");
-	if( options.show_background )
-		bbackground.setAttribute("checked", "true");
-	dialog.appendChild(bbackground);
-	dialog.appendChild(document.createTextNode('Toggle Background Color'));
-	dialog.appendChild(document.createElement("br"));
+  var bbackground = document.createElement('input');
+  bbackground.setAttribute("type", "checkbox");
+  bbackground.setAttribute("id", "toggle_bgcolor");
+  bbackground.setAttribute("value", "Toggle Background Color");
+  if( options.show_background )
+    bbackground.setAttribute("checked", "true");
+  dialog.appendChild(bbackground);
+  dialog.appendChild(document.createTextNode('Toggle Background Color'));
+  dialog.appendChild(document.createElement("br"));
 
   var blean = document.createElement('input');
   blean.setAttribute("type", "checkbox");
@@ -591,106 +662,143 @@ WebGLApplication.prototype.configureParameters = function() {
   dialog.appendChild(document.createTextNode('Toggle lean mode (no synapses, no tags)'));
   dialog.appendChild(document.createElement("br"));
 
-	dialog.appendChild(document.createTextNode('Synapse clustering bandwidth: '));
-	var ibandwidth = document.createElement('input');
-	ibandwidth.setAttribute('type', 'text');
-	ibandwidth.setAttribute('id', 'synapse-clustering-bandwidth');
-	ibandwidth.setAttribute('value', options.synapse_clustering_bandwidth);
-	ibandwidth.setAttribute('size', '7');
+  dialog.appendChild(document.createTextNode('Synapse clustering bandwidth: '));
+  var ibandwidth = document.createElement('input');
+  ibandwidth.setAttribute('type', 'text');
+  ibandwidth.setAttribute('id', 'synapse-clustering-bandwidth');
+  ibandwidth.setAttribute('value', options.synapse_clustering_bandwidth);
+  ibandwidth.setAttribute('size', '7');
   dialog.appendChild(ibandwidth);
-  dialog.appendChild(document.createTextNode(' nanometers.'));
+  dialog.appendChild(document.createTextNode(' nm.'));
+  dialog.appendChild(document.createElement("br"));
+
+  var optionField = function(label, units, size, checkboxKey, valueKey) {
+    var checkbox;
+    if (checkboxKey) {
+      checkbox = document.createElement('input');
+      checkbox.setAttribute("type", "checkbox");
+      if (options[checkboxKey])
+        checkbox.setAttribute("checked", true);
+      dialog.appendChild(checkbox);
+    }
+    dialog.appendChild(document.createTextNode(label));
+    var number = document.createElement('input');
+    number.setAttribute('type', 'text');
+    number.setAttribute('value', options[valueKey]);
+    number.setAttribute('size', size);
+    dialog.appendChild(number);
+    dialog.appendChild(document.createTextNode(units));
+    dialog.appendChild(document.createElement("br"));
+    return [checkbox, number];
+  };
+
+  var smooth = optionField('Toggle smoothing skeletons by Gaussian convolution of the slabs, with sigma: ', ' nm.', 5, 'smooth_skeletons', 'smooth_skeletons_sigma');
+
+  var resample = optionField('Toogle resampling skeleton slabs, with delta: ', ' nm.', 5, 'resample_skeletons', 'resampling_delta');
+
+  var linewidth = optionField('Skeleton rendering line width: ', ' pixels.', 5, null, 'skeleton_line_width');
 
   var submit = this.submit;
 
-	$(dialog).dialog({
-		height: 440,
-		modal: true,
-		buttons: {
-			"Cancel": function() {
-				$(this).dialog("close");
-			},
-			"OK": function() {
-				var missing_section_height = missingsectionheight.value;	
-				try {
-					missing_section_height = parseInt(missing_section_height);
-					if (missing_section_height < 0) missing_section_height = 20;
-				} catch (e) {
-					alert("Invalid value for the height of missing sections!");
-				}
+  $(dialog).dialog({
+    height: 440,
+    width: 600,
+    modal: true,
+    buttons: {
+      "Cancel": function() {
+        $(this).dialog("close");
+      },
+      "OK": function() {
+        var missing_section_height = missingsectionheight.value;  
+        try {
+          missing_section_height = parseInt(missing_section_height);
+          if (missing_section_height < 0) missing_section_height = 20;
+        } catch (e) {
+          alert("Invalid value for the height of missing sections!");
+        }
 
-				options.missing_section_height = missing_section_height;
-				options.show_zplane = bzplane.checked;
-				options.show_missing_sections = bmissing.checked;
-				options.show_floor = bfloor.checked;
-				options.show_box = bbox.checked;
-				options.show_background = bbackground.checked;
+        options.missing_section_height = missing_section_height;
+        options.show_zplane = bzplane.checked;
+        options.show_missing_sections = bmissing.checked;
+        options.show_floor = bfloor.checked;
+        options.show_box = bbox.checked;
+        options.show_background = bbackground.checked;
 
-				options.show_active_node = bactive.checked;
-				options.show_meshes = bmeshes.checked;
+        options.show_active_node = bactive.checked;
+        options.show_meshes = bmeshes.checked;
         options.meshes_color = options.validateOctalString("#meshes-color", options.meshes_color);
         options.lean_mode = blean.checked;
 
+        var read = function(checkbox, checkboxKey, valueField, valueKey) {
+          var old_value = options[checkboxKey];
+          if (checkbox) options[checkboxKey] = checkbox.checked;
+          try {
+            var new_value = parseInt(valueField.value);
+            if (new_value > 0) {
+              options[valueKey] = new_value;
+              return old_value != new_value;
+            } else alert("'" + valueKey + "' must be larger than zero.");
+          } catch (e) {
+            alert("Invalid value for '" + valueKey + "': " + valueField.value);
+          }
+          return false;
+        };
 
-        var old_bandwidth = options.synapse_clustering_bandwidth,
-            new_bandwidth = old_bandwidth;
-        try {
-          new_bandwidth = parseInt(ibandwidth.value);
-          if (new_bandwidth > 0) options.synapse_clustering_bandwidth = new_bandwidth;
-          else alert("Synapse clustering bandwidth must be larger than zero.");
-        } catch (e) {
-          alert("Invalid value for synapse clustering bandwidth: '" + ibandwidth.value + "'");
-        }
+        var changed_sigma = read(smooth[0], 'smooth_skeletons', smooth[1], 'smooth_skeletons_sigma'),
+            changed_bandwidth = read(null, null, ibandwidth, 'synapse_clustering_bandwidth', null),
+            changed_delta = read(resample[0], 'resample_skeletons', resample[1], 'resampling_delta'),
+            changed_line_width = read(null, null, linewidth[1], 'skeleton_line_width', null);
 
-				space.staticContent.adjust(options, space);
-				space.content.adjust(options, space, submit, old_bandwidth);
+        space.staticContent.adjust(options, space);
+        space.content.adjust(options, space, submit, changed_bandwidth, changed_line_width);
 
-        space.render();
+        // Copy
+        WebGLApplication.prototype.OPTIONS = options.clone();
 
-				// Copy
-				WebGLApplication.prototype.OPTIONS = options.clone();
+        if (changed_sigma || changed_delta) updateSkeletons();
+        else space.render();
 
-				$(this).dialog("close");
-			}
-		},
-		close: function(event, ui) {
-			$('#dialog-confirm').remove();
+        $(this).dialog("close");
+      }
+    },
+    close: function(event, ui) {
+      $('#dialog-confirm').remove();
 
-			// Remove the binding
-			$(document).off('keyup', "#meshes-color");
-		}
-	});
+      // Remove the binding
+      $(document).off('keyup', "#meshes-color");
+    }
+  });
 };
 
 
 
 /** Defines the properties of the 3d space and also its static members like the bounding box and the missing sections. */
-WebGLApplication.prototype.Space = function( w, h, container, stack, scale ) {
+WebGLApplication.prototype.Space = function( w, h, container, stack ) {
 	this.stack = stack;
   this.container = container; // used by MouseControls
 
-	// Scale at which to show the objects
-	this.scale = scale;
-
 	this.canvasWidth = w;
 	this.canvasHeight = h;
-	this.yDimensionUnscaled = stack.dimension.y * stack.resolution.y;
+	this.yDimension = stack.dimension.y * stack.resolution.y;
 
 	// Absolute center in Space coordinates (not stack coordinates)
 	this.center = this.createCenter();
-	this.dimensions = new THREE.Vector3(stack.dimension.x * stack.resolution.x * scale, stack.dimension.y * stack.resolution.y * scale, stack.dimension.z * stack.resolution.z * scale);
+	this.dimensions = new THREE.Vector3(stack.dimension.x * stack.resolution.x,
+                                      stack.dimension.y * stack.resolution.y,
+                                      stack.dimension.z * stack.resolution.z);
 
 	// WebGL space
 	this.scene = new THREE.Scene();
 	this.view = new this.View(this);
-	this.lights = this.createLights(stack.dimension, stack.resolution, scale, this.view.camera);
+	this.lights = this.createLights(stack.dimension, stack.resolution, this.view.camera);
 	this.lights.forEach(this.scene.add, this.scene);
 
 	// Content
-	this.staticContent = new this.StaticContent(stack, this.center, scale);
+	this.staticContent = new this.StaticContent(this.dimensions, stack, this.center);
 	this.scene.add(this.staticContent.box);
 	this.scene.add(this.staticContent.floor);
 
-	this.content = new this.Content(scale);
+	this.content = new this.Content();
 	this.scene.add(this.content.active_node.mesh);
 };
 
@@ -708,21 +816,20 @@ WebGLApplication.prototype.Space.prototype.setSize = function(canvasWidth, canva
 	 In other words, transform coordinates from CATMAID coordinate system
 	 to WebGL coordinate system: x->x, y->y+dy, z->-z */
 WebGLApplication.prototype.Space.prototype.toSpace = function(v3) {
-	v3.x *= this.scale;
-	v3.y = this.scale * (this.yDimensionUnscaled - v3.y);
-	v3.z = -v3.z * this.scale;
+	v3.y = this.yDimension - v3.y;
+	v3.z = -v3.z;
 	return v3;
 };
 
 /** Transform axes but do not scale. */
 WebGLApplication.prototype.Space.prototype.coordsToUnscaledSpace = function(x, y, z) {
-	return [x, this.yDimensionUnscaled - y, -z];
+	return [x, this.yDimension - y, -z];
 };
 
 /** Starting at i, edit i, i+1 and i+2, which represent x, y, z of a 3d point. */
 WebGLApplication.prototype.Space.prototype.coordsToUnscaledSpace2 = function(vertices, i) {
 	// vertices[i] equal
-	vertices[i+1] =  this.yDimensionUnscaled -vertices[i+1];
+	vertices[i+1] =  this.yDimension -vertices[i+1];
 	vertices[i+2] = -vertices[i+2];
 };
 
@@ -741,17 +848,17 @@ WebGLApplication.prototype.Space.prototype.createCenter = function() {
 };
 
 
-WebGLApplication.prototype.Space.prototype.createLights = function(dimension, resolution, scale, camera) {
+WebGLApplication.prototype.Space.prototype.createLights = function(dimension, resolution, camera) {
 	var ambientLight = new THREE.AmbientLight( 0x505050 );
 
   var pointLight = new THREE.PointLight( 0xffaa00 );
-	pointLight.position.set(dimension.x * resolution.x * scale,
-                          dimension.y * resolution.y * scale,
+	pointLight.position.set(dimension.x * resolution.x,
+                          dimension.y * resolution.y,
 													50);
 
 	var light = new THREE.SpotLight( 0xffffff, 1.5 );
-	light.position.set(dimension.x * resolution.x * scale / 2,
-										 dimension.y * resolution.y * scale / 2,
+	light.position.set(dimension.x * resolution.x / 2,
+										 dimension.y * resolution.y / 2,
 										 50);
 	light.castShadow = true;
 	light.shadowCameraNear = 200;
@@ -828,7 +935,7 @@ WebGLApplication.prototype.Space.prototype.updateSplitShading = function(old_ske
 WebGLApplication.prototype.Space.prototype.TextGeometryCache = function() {
 	this.geometryCache = {};
 
-	this.getTagGeometry = function(tagString, scale) {
+	this.getTagGeometry = function(tagString) {
 		if (tagString in this.geometryCache) {
 			var e = this.geometryCache[tagString];
 			e.refs += 1;
@@ -836,8 +943,8 @@ WebGLApplication.prototype.Space.prototype.TextGeometryCache = function() {
 		}
 		// Else create, store, and return a new one:
 		var text3d = new THREE.TextGeometry( tagString, {
-			size: 100 * scale,
-			height: 20 * scale,
+			size: 100,
+			height: 20,
 			curveSegments: 1,
 			font: "helvetiker"
 		});
@@ -858,8 +965,8 @@ WebGLApplication.prototype.Space.prototype.TextGeometryCache = function() {
     }
 	};
 
-  this.createTextMesh = function(tagString, scale, material) {
-    var text = new THREE.Mesh(this.getTagGeometry(tagString, scale), material);
+  this.createTextMesh = function(tagString, material) {
+    var text = new THREE.Mesh(this.getTagGeometry(tagString), material);
     text.visible = true;
     return text;
   };
@@ -872,18 +979,18 @@ WebGLApplication.prototype.Space.prototype.TextGeometryCache = function() {
   };
 };
 
-WebGLApplication.prototype.Space.prototype.StaticContent = function(stack, center, scale) {
+WebGLApplication.prototype.Space.prototype.StaticContent = function(dimensions, stack, center) {
 	// Space elements
-	this.box = this.createBoundingBox(center, stack.dimension, stack.resolution, scale);
-	this.floor = this.createFloor();
+	this.box = this.createBoundingBox(center, stack.dimension, stack.resolution);
+	this.floor = this.createFloor(center, dimensions);
 
 	this.zplane = null;
 
 	this.missing_sections = [];
 
 	// Shared across skeletons
-  this.labelspheregeometry = new THREE.OctahedronGeometry( 130 * scale, 3);
-  this.radiusSphere = new THREE.OctahedronGeometry( 40 * scale, 3);
+  this.labelspheregeometry = new THREE.OctahedronGeometry( 130, 3);
+  this.radiusSphere = new THREE.OctahedronGeometry( 40, 3);
   this.icoSphere = new THREE.IcosahedronGeometry(1, 2);
   this.cylinder = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
   this.textMaterial = new THREE.MeshNormalMaterial( { color: 0xffffff, overdraw: true } );
@@ -927,10 +1034,10 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.dispose = fun
   this.synapticColors[1].dispose();
 };
 
-WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createBoundingBox = function(center, dimension, resolution, scale) {
-  var width = dimension.x * resolution.x * scale;
-  var height = dimension.y * resolution.y * scale;
-  var depth = dimension.z * resolution.z * scale;
+WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createBoundingBox = function(center, dimension, resolution) {
+  var width = dimension.x * resolution.x;
+  var height = dimension.y * resolution.y;
+  var depth = dimension.z * resolution.z;
   var geometry = new THREE.CubeGeometry( width, height, depth );
   var material = new THREE.MeshBasicMaterial( { color: 0xff0000, wireframe: true } );
   var mesh = new THREE.Mesh( geometry, material );
@@ -938,18 +1045,47 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createBoundin
 	return mesh;
 };
 
-WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createFloor = function() {
-    var line_material = new THREE.LineBasicMaterial( { color: 0x535353 } ),
-        geometry = new THREE.Geometry(),
-        floor = 0,
-        step = 25;
-    for ( var i = 0; i <= 40; i ++ ) {
-      geometry.vertices.push( new THREE.Vector3( - 500, floor, i * step - 500 ) );
-      geometry.vertices.push( new THREE.Vector3(   500, floor, i * step - 500 ) );
-      geometry.vertices.push( new THREE.Vector3( i * step - 500, floor, -500 ) );
-      geometry.vertices.push( new THREE.Vector3( i * step - 500, floor,  500 ) );
+/**
+ * Creates a THREE.js line object that represents a floor grid. By default, it
+ * extents around the bounding box by about twice the height of it. The grid
+ * cells are placed so that they are divide the bouning box floor evenly. By
+ * default, there are ten cells in each dimension within the bounding box. It is
+ * positioned around the center of the dimensions. These settings can be
+ * overridden with the options parameter.
+ */
+WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createFloor = function(center, dimensions, options) {
+    var o = options || {};
+    var line_material = new THREE.LineBasicMaterial( { color: o['color'] || 0x535353 } );
+    var floor = o['floor'] || 0.0;
 
+    // 10 steps in each dimension of the bounding box
+    var nBaseLines = o['nBaseLines'] || 10.0;
+    var xStep = dimensions.x / nBaseLines;
+    var zStep = dimensions.z / nBaseLines;
+    // Extend this around the bounding box
+    var xExtent = o['xExtent'] || Math.ceil(2.0 * dimensions.y / xStep);
+    var zExtent = o['zExtent'] || Math.ceil(2.0 * dimensions.y / zStep);
+    // Offset from origin
+    var xOffset = dimensions.x * 0.5 - center.x;
+    var zOffset = dimensions.z * 0.5 + center.z;
+    // Get min and max coordinates of grid
+    var min_x = -1.0 * xExtent * xStep + xOffset,
+        max_x = dimensions.x + (xExtent * xStep) + xOffset;
+    var min_z = -1.0 * dimensions.z - zExtent * zStep + zOffset,
+        max_z = zExtent * zStep + zOffset;
+
+    var geometry = new THREE.Geometry();
+    for (var i = 0; i <= nBaseLines + 2 * xExtent; ++i) {
+      for (var j = 0; j <= nBaseLines + 2 * zExtent; ++j) {
+        var x = min_x + i * xStep;
+        geometry.vertices.push( new THREE.Vector3( x, floor, min_z ) );
+        geometry.vertices.push( new THREE.Vector3( x, floor, max_z ) );
+        var z = min_z + j * zStep;
+        geometry.vertices.push( new THREE.Vector3( min_x, floor, z ) );
+        geometry.vertices.push( new THREE.Vector3( max_x, floor, z ) );
+      }
     }
+
     return new THREE.Line( geometry, line_material, THREE.LinePieces );
 };
 
@@ -978,18 +1114,18 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.adjust = func
 
 	if (this.zplane) space.scene.remove(this.zplane);
 	if (options.show_zplane) {
-		this.zplane = this.createZPlane(space.stack, space.scale);
-    this.updateZPlanePosition(space.stack, space.scale);
+		this.zplane = this.createZPlane(space.stack);
+    this.updateZPlanePosition(space.stack);
 		space.scene.add(this.zplane);
 	} else {
 		this.zplane = null;
 	}
 };
 
-WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createZPlane = function(stack, scale) {
+WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createZPlane = function(stack) {
 	var geometry = new THREE.Geometry(),
-	    xwidth = stack.dimension.x * stack.resolution.x * scale,
-			ywidth = stack.dimension.y * stack.resolution.y * scale,
+	    xwidth = stack.dimension.x * stack.resolution.x,
+			ywidth = stack.dimension.y * stack.resolution.y,
 	    material = new THREE.MeshBasicMaterial( { color: 0x151349, side: THREE.DoubleSide } );
 
 	geometry.vertices.push( new THREE.Vector3( 0,0,0 ) );
@@ -1001,9 +1137,9 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createZPlane 
 	return new THREE.Mesh( geometry, material );
 };
 
-WebGLApplication.prototype.Space.prototype.StaticContent.prototype.updateZPlanePosition = function(stack, scale) {
+WebGLApplication.prototype.Space.prototype.StaticContent.prototype.updateZPlanePosition = function(stack) {
 	if (this.zplane) {
-		this.zplane.position.z = (-stack.z * stack.resolution.z - stack.translation.z) * scale;
+		this.zplane.position.z = (-stack.z * stack.resolution.z - stack.translation.z);
 	}
 };
 
@@ -1012,10 +1148,9 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createMissing
 	var d = space.stack.dimension,
 			r = space.stack.resolution,
 			t = space.stack.translation,
-			s = space.scale,
 	    geometry = new THREE.Geometry(),
-	    xwidth = d.x * r.x * s,
-			ywidth = d.y * r.y * s * missing_section_height / 100.0,
+	    xwidth = d.x * r.x,
+			ywidth = d.y * r.y * missing_section_height / 100.0,
 	    materials = [new THREE.MeshBasicMaterial( { color: 0x151349, opacity:0.6, transparent: true, side: THREE.DoubleSide } ),
 	                 new THREE.MeshBasicMaterial( { color: 0x00ffff, wireframe: true, wireframeLinewidth: 5, side: THREE.DoubleSide } )];
 
@@ -1026,7 +1161,7 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createMissing
 	geometry.faces.push( new THREE.Face4( 0, 1, 3, 2 ) );
 
   return space.stack.broken_slices.reduce(function(missing_sections, sliceZ) {
-		var z = (-sliceZ * r.z - t.z) * s;
+		var z = -sliceZ * r.z - t.z;
 		return missing_sections.concat(materials.map(function(material) {
 			var mesh = new THREE.Mesh(geometry, material);
 			mesh.position.z = z;
@@ -1035,9 +1170,9 @@ WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createMissing
 	}, []);
 };
 
-WebGLApplication.prototype.Space.prototype.Content = function(scale) {
+WebGLApplication.prototype.Space.prototype.Content = function() {
 	// Scene content
-	this.active_node = new this.ActiveNode(scale);
+	this.active_node = new this.ActiveNode();
 	this.meshes = [];
 	this.skeletons = {};
 };
@@ -1060,8 +1195,7 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.loadMeshes = functi
          function (models) {
            var ids = Object.keys(models);
            if (0 === ids.length) return;
-           var loader = space.content.newJSONLoader(),
-               scale = space.scale;
+           var loader = space.content.newJSONLoader();
            ids.forEach(function(id) {
              var vs = models[id].vertices;
              for (var i=0; i < vs.length; i+=3) {
@@ -1069,7 +1203,6 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.loadMeshes = functi
              }
              var geometry = loader.parse(models[id]).geometry;
              var mesh = space.content.newMesh(geometry, material);
-             mesh.scale.set(scale, scale, scale);
              mesh.position.set(0, 0, 0);
              mesh.rotation.set(0, 0, 0);
              space.content.meshes.push(mesh);
@@ -1088,7 +1221,7 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.newJSONLoader = fun
 };
 
 /** Adjust content according to the persistent options. */
-WebGLApplication.prototype.Space.prototype.Content.prototype.adjust = function(options, space, submit, old_bandwidth) {
+WebGLApplication.prototype.Space.prototype.Content.prototype.adjust = function(options, space, submit, changed_bandwidth, changed_line_width) {
 	if (options.show_meshes) {
     if (0 === this.meshes.length) {
 		  this.loadMeshes(space, submit, options.createMeshMaterial());
@@ -1100,9 +1233,14 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.adjust = function(o
 
 	this.active_node.setVisible(options.show_active_node);
 
-  if (old_bandwidth !== options.synapse_clustering_bandwidth
-      && 'synapse-clustering' === options.connector_color) {
+  if (changed_bandwidth && 'synapse-clustering' === options.connector_color) {
     space.updateConnectorColors(options, Object.keys(this.skeletons).map(function(skid) { return this.skeletons[skid]; }, this));
+  }
+
+  if (changed_line_width) {
+    Object.keys(this.skeletons).forEach(function(skid) {
+      this.skeletons[skid].changeSkeletonLineWidth(options.skeleton_line_width);
+    }, this);
   }
 };
 
@@ -1119,7 +1257,17 @@ WebGLApplication.prototype.Space.prototype.View = function(space) {
 WebGLApplication.prototype.Space.prototype.View.prototype = {};
 
 WebGLApplication.prototype.Space.prototype.View.prototype.init = function() {
-	this.camera = new THREE.CombinedCamera( -this.space.canvasWidth, -this.space.canvasHeight, 75, 1, 3000, -1000, 1, 500 );
+  /* Create a camera which generates a picture fitting in our canvas. The
+  * frustum's far culling plane is three times the longest size of the
+  * displayed space. The near plan starts at one. */
+  var d = this.space.dimensions;
+  var fov = 75;
+  var near = 1;
+  var far = 3 * Math.max(d.x, Math.max(d.y, d.z))
+  var orthoNear = 1;
+  var orthoFar =  far;
+	this.camera = new THREE.CombinedCamera(-this.space.canvasWidth,
+      -this.space.canvasHeight, fov, near, far, orthoNear, orthoFar);
   this.camera.frustumCulled = false;
 
 	this.projector = new THREE.Projector();
@@ -1303,10 +1451,10 @@ WebGLApplication.prototype.Space.prototype.View.prototype.MouseControls = functi
 };
 
 
-WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode = function(scale) {
+WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode = function() {
   this.skeleton_id = null;
   this.mesh = new THREE.Mesh( new THREE.IcosahedronGeometry(1, 2), new THREE.MeshBasicMaterial( { color: 0x00ff00, opacity:0.8, transparent:true } ) );
-  this.mesh.scale.x = this.mesh.scale.y = this.mesh.scale.z = 160 * scale;
+  this.mesh.scale.x = this.mesh.scale.y = this.mesh.scale.z = 160;
 };
 
 WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode.prototype = {};
@@ -1342,7 +1490,7 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode.prototyp
 
 WebGLApplication.prototype.Space.prototype.updateSkeleton = function(skeletonmodel, json, options) {
   if (!this.content.skeletons.hasOwnProperty(skeletonmodel.id)) {
-    this.content.skeletons[skeletonmodel.id] = new this.Skeleton(this, skeletonmodel, json[0]);
+    this.content.skeletons[skeletonmodel.id] = new this.Skeleton(this, skeletonmodel);
   }
   this.content.skeletons[skeletonmodel.id].reinit_actor(skeletonmodel, json, options);
   return this.content.skeletons[skeletonmodel.id];
@@ -1361,16 +1509,19 @@ WebGLApplication.prototype.Space.prototype.updateSkeleton = function(skeletonmod
  *  When visualizing only the connectors among the skeletons visible in the WebGL space, the geometries of the pre- and postsynaptic edges are hidden away, and a new pair of geometries are created to represent just the edges that converge onto connectors also related to by the other skeletons.
  *
  */
-WebGLApplication.prototype.Space.prototype.Skeleton = function(space, skeletonmodel, name) {
+WebGLApplication.prototype.Space.prototype.Skeleton = function(space, skeletonmodel) {
   // TODO id, baseName, actorColor are all redundant with the skeletonmodel
 	this.space = space;
 	this.id = skeletonmodel.id;
-	this.baseName = name;
+	this.baseName = skeletonmodel.baseName;
   this.synapticColors = space.staticContent.synapticColors;
   this.skeletonmodel = skeletonmodel;
   // This is an index mapping treenode IDs to lists of reviewers. Attaching them
   // directly to the nodes is too much of a performance hit.
-  this.reviews = {};
+  // Gets loaded dynamically, and erased when refreshing (because a new Skeleton is instantiated with the same model).
+  this.reviews = null;
+  // A map of nodeID vs true for nodes that belong to the axon, as computed by splitByFlowCentrality. Loaded dynamically, and erased when refreshing like this.reviews.
+  this.axon = null;
 };
 
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype = {};
@@ -1378,7 +1529,7 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype = {};
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.CTYPES = ['neurite', 'presynaptic_to', 'postsynaptic_to'];
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.synapticTypes = ['presynaptic_to', 'postsynaptic_to'];
 
-WebGLApplication.prototype.Space.prototype.Skeleton.prototype.initialize_objects = function() {
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.initialize_objects = function(options) {
 	this.visible = true;
 	if (undefined === this.skeletonmodel) {
 		console.log('Can not initialize skeleton object');
@@ -1386,17 +1537,17 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.initialize_objects
 	}
 	this.actorColor = this.skeletonmodel.color.clone();
 	var CTYPES = this.CTYPES;
-	this.line_material = new THREE.LineBasicMaterial({color: 0xffff00, opacity: 1.0, linewidth: 3});
+	this.line_material = new THREE.LineBasicMaterial({color: 0xffff00, opacity: 1.0, linewidth: options.skeleton_line_width});
 
 	this.geometry = {};
 	this.geometry[CTYPES[0]] = new THREE.Geometry();
 	this.geometry[CTYPES[1]] = new THREE.Geometry();
 	this.geometry[CTYPES[2]] = new THREE.Geometry();
 
-	this.actor = {}; // has three keys (the CTYPES), each key contains the edges of each type
-	this.actor[CTYPES[0]] = new THREE.Line(this.geometry[CTYPES[0]], this.line_material, THREE.LinePieces);
-  this.actor[CTYPES[1]] = new THREE.Line(this.geometry[CTYPES[1]], this.space.staticContent.connectorLineColors[CTYPES[1]], THREE.LinePieces);
-  this.actor[CTYPES[2]] = new THREE.Line(this.geometry[CTYPES[2]], this.space.staticContent.connectorLineColors[CTYPES[2]], THREE.LinePieces);
+      this.actor = {}; // has three keys (the CTYPES), each key contains the edges of each type
+      this.actor[CTYPES[0]] = new THREE.Line(this.geometry[CTYPES[0]], this.line_material, THREE.LinePieces);
+      this.actor[CTYPES[1]] = new THREE.Line(this.geometry[CTYPES[1]], this.space.staticContent.connectorLineColors[CTYPES[1]], THREE.LinePieces);
+      this.actor[CTYPES[2]] = new THREE.Line(this.geometry[CTYPES[2]], this.space.staticContent.connectorLineColors[CTYPES[2]], THREE.LinePieces);
 
 	this.specialTagSpheres = {};
 	this.synapticSpheres = {};
@@ -1520,7 +1671,7 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createTextMeshes =
 	for (var tagString in tagNodes) {
 		if (tagNodes.hasOwnProperty(tagString)) {
 			tagNodes[tagString].forEach(function(nodeID) {
-        var text = cache.createTextMesh(tagString, this.space.scale, textMaterial);
+        var text = cache.createTextMesh(tagString, textMaterial);
         var v = vs[nodeID];
         text.position.x = v.x;
         text.position.y = v.y;
@@ -1568,31 +1719,62 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.translate = functi
 };
 */
 
-WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createSynapseClustering = function() {
-  // Correct the scale of the vertices
-  var invScale = 1.0 / this.space.scale,
-      locations = this.geometry['neurite'].vertices.reduce(function(vs, v) {
-    vs[v.node_id] = v.clone().multiplyScalar(invScale);
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createSynapseClustering = function(bandwidth) {
+  var locations = this.geometry['neurite'].vertices.reduce(function(vs, v) {
+    vs[v.node_id] = v.clone();
     return vs;
   }, {});
   
-  return new SynapseClustering(this.createArbor(), locations, this.createSynapseMap());
+  return new SynapseClustering(this.createArbor(), locations, this.createSynapseCounts(), bandwidth);
 };
 
-/** Returns a map of treenode ID keys and lists of connector IDs as values.
- * Does not differentiate pre and post relationships. */
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createSynapseCounts = function() {
+  return this.synapticTypes.reduce((function(o, type, k) {
+    var vs = this.geometry[type].vertices;
+    for (var i=0, l=vs.length; i<l; i+=2) {
+      var treenode_id = vs[i+1].node_id,
+          count = o[treenode_id];
+      if (count) o[treenode_id] = count + 1;
+      else o[treenode_id] = 1;
+    }
+    return o;
+  }).bind(this), {});
+};
+
+/** Return a map with 4 elements:
+ * {presynaptic_to: {}, // map of node ID vs count of presynaptic sites
+ *  postsynaptic_to: {}, // map of node ID vs count of postsynaptic sites
+ *  presynaptic_to_count: N,
+ *  postsynaptic_to_count: M} */
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createPrePostCounts = function() {
+  return this.synapticTypes.reduce((function(o, type, k) {
+    var vs = this.geometry[type].vertices,
+        syn = {};
+    for (var i=0, l=vs.length; i<l; i+=2) {
+      var treenode_id = vs[i+1].node_id,
+          count = syn[treenode_id];
+      if (count) syn[treenode_id] = count + 1;
+      else syn[treenode_id] = 1;
+    }
+    o[type] = syn;
+    o[type + "_count"] = vs.length / 2;
+    return o;
+  }).bind(this), {});
+};
+
+/** Returns a map of treenode ID keys and lists of {type, connectorID} as values,
+ * where type 0 is presynaptic and type 1 is postsynaptic. */
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createSynapseMap = function() {
-  return this.synapticTypes.reduce((function(o, type) {
+  return this.synapticTypes.reduce((function(o, type, k) {
     var vs = this.geometry[type].vertices;
     for (var i=0, l=vs.length; i<l; i+=2) {
       var connector_id = vs[i].node_id,
           treenode_id = vs[i+1].node_id,
-          list = o[treenode_id];
-      if (list) {
-        list.push(connector_id);
-      } else {
-        o[treenode_id] = [connector_id]
-      }
+          list = o[treenode_id],
+          synapse = {type: k,
+                     connector_id: connector_id};
+      if (list) list.push(synapse);
+      else o[treenode_id] = [synapse];
     }
     return o;
   }).bind(this), {});
@@ -1622,6 +1804,53 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createArbor = func
                               function(v) { return v.node_id; });
 };
 
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.getPositions = function() {
+  return this.geometry['neurite'].vertices.reduce(function(o, v) { o[v.node_id] = v; return o; }, {});
+};
+
+/** Determine the nodes that belong to the axon by computing the centrifugal flow
+ * centrality.
+ * Takes as argument the json of compact-arbor, but uses only index 1: the inputs and outputs, parseable by the ArborParser.synapse function.
+ * If only one node has the soma tag and it is not the root, will reroot at it.
+ * Returns a map of node ID vs true for nodes that belong to the axon.
+ * When the flowCentrality cannot be computed, returns null. */
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.splitByFlowCentrality = function(json) {
+    var arbor = this.createArbor();
+
+    if (this.tags && this.tags['soma'] && 1 === this.tags['soma'].length) {
+      var soma = this.tags['soma'][0];
+      if (arbor.root != soma) arbor.reroot(soma);
+    }
+
+    var syn = new ArborParser().synapses(json[1]),
+        flow_centrality = arbor.flowCentrality(syn.outputs, syn.inputs, syn.n_outputs, syn.n_inputs);
+
+    if (!flow_centrality) return null;
+
+    var max = 0,
+        nodes = Object.keys(flow_centrality);
+    for (var i=0; i<nodes.length; ++i) {
+      var node = nodes[i],
+          fc = flow_centrality[node].centrifugal;
+      if (fc > max) {
+        max = fc;
+      }
+    }
+
+    var above = [],
+        threshold = 0.9 * max;
+    for (var i=0; i<nodes.length; ++i) {
+      var node = nodes[i];
+      if (flow_centrality[node].centrifugal > threshold) {
+        above.push(node);
+      }
+    }
+
+    var cut = SynapseClustering.prototype.findAxonCut(arbor, syn.outputs, above);
+
+    return arbor.subArbor(cut).nodes();
+};
+
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColor = function(options) {
   var node_weights;
 
@@ -1640,18 +1869,8 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColo
         c = arbor.slabCentrality(true); // branch centrality
       } else {
         // Flow centrality
-        var io = this.synapticTypes.map(function(type) {
-          var vs = this.geometry[type].vertices,
-              m = {};
-          for (var i=0, l=vs.length; i<l; i+=2) {
-            var treenode_id = vs[i+1].node_id,
-                count = m[treenode_id];
-            if (undefined === count) m[treenode_id] = 1;
-            else m[treenode_id] = count + 1;
-          }
-          return m;
-        }, this);
-        if (0 === Object.keys(io[0]).length || 0 === Object.keys(io[1]).length) {
+        var io = this.createPrePostCounts();
+        if (0 === io.postsynaptic_to_count || 0 === io.presynaptic_to_count) {
           growlAlert('WARNING', 'Neuron "' + this.skeletonmodel.baseName + '" lacks input or output synapses.');
           c = arbor.nodesArray().reduce(function(o, node) {
             // All the same
@@ -1659,7 +1878,19 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColo
             return o;
           }, {});
         } else {
-          c = arbor.flowCentrality(io[0], io[1]);
+          var key = 'sum';
+          if (0 === options.shading_method.indexOf('centrifugal')) {
+            key = 'centrifugal';
+          } else if (0 === options.shading_method.indexOf('centripetal')) {
+            key = 'centripetal';
+          }
+          var fc = arbor.flowCentrality(io.presynaptic_to, io.postsynaptic_to, io.presynaptic_to_count, io.postsynaptic_to_count),
+              c = {},
+              nodes = Object.keys(fc);
+          for (var i=0; i<nodes.length; ++i) {
+            var node = nodes[i];
+            c[node] = fc[node][key];
+          }
         }
       }
 
@@ -1681,7 +1912,6 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColo
         return vs;
       }, {});
 
-      // NOTE: distances are scaled down by 'scale', but it doesn't matter here.
       var distanceFn = (function(child, paren) {
         return this[child].distanceTo(this[paren]);
       }).bind(locations);
@@ -1703,7 +1933,6 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColo
         return vs;
       }, {});
 
-      // NOTE: distances are scaled down by 'scale', but it doesn't matter here.
       var distanceFn = (function(paren, child) {
         return this[child].distanceTo(this[paren]);
       }).bind(locations);
@@ -1768,20 +1997,33 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColo
     var actorColor = this.actorColor;
     var unreviewedColor = new THREE.Color().setRGB(0.2, 0.2, 0.2);
     var reviewedColor = new THREE.Color().setRGB(1.0, 0.0, 1.0);
+    var axonColor = new THREE.Color().setRGB(0, 1, 0),
+        dendriteColor = new THREE.Color().setRGB(0, 0, 1),
+        notComputable = new THREE.Color().setRGB(0.4, 0.4, 0.4);
     if ('creator' === options.color_method) {
       pickColor = function(vertex) { return User(vertex.user_id).color; };
     } else if ('all-reviewed' === options.color_method) {
-      pickColor = (function(vertex) {
-        var reviews = this.reviews[vertex.node_id];
-        return typeof reviews !== 'undefined' && reviews.length > 0 ?
+      pickColor = this.reviews ?
+        (function(vertex) {
+          var reviewers = this.reviews[vertex.node_id];
+          return reviewers && reviewers.length > 0 ?
             reviewedColor : unreviewedColor;
-      }).bind(this);
+        }).bind(this)
+        : function() { return notComputable; };
     } else if ('own-reviewed' === options.color_method) {
-      pickColor = (function(vertex) {
-        var reviews = this.reviews[vertex.node_id];
-        return typeof reviews !== 'undefined' && reviews.indexOf(session.userid) != -1 ?
-            reviewedColor : unreviewedColor;
-      }).bind(this);
+      pickColor = this.reviews ?
+        (function(vertex) {
+          var reviewers = this.reviews[vertex.node_id];
+        return reviewers && -1 !== reviewers.indexOf(session.userid) ?
+          reviewedColor : unreviewedColor;
+      }).bind(this)
+        : function() { return notComputable; };
+    } else if ('axon-and-dendrite' === options.color_method) {
+      pickColor = this.axon ?
+        (function(vertex) {
+        return this.axon[vertex.node_id] ? axonColor : dendriteColor;
+      }).bind(this)
+        : function() { return notComputable; };
     } else {
       pickColor = function() { return actorColor; };
     }
@@ -1837,6 +2079,11 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColo
       }
     }
   }
+};
+
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.changeSkeletonLineWidth = function(width) {
+    this.actor['neurite'].material.linewidth = width;
+    this.actor['neurite'].material.needsUpdate = true;
 };
 
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.changeColor = function(color, options) {
@@ -1916,6 +2163,14 @@ WebGLApplication.prototype.Space.prototype.updateConnectorColors = function(opti
     }
 
     $.unblockUI();
+  } else if ('axon-and-dendrite' === options.connector_color) {
+    fetchSkeletons(
+        skeletons.map(function(skeleton) { return skeleton.id; }),
+        function(skid) { return django_url + project.id + '/' + skid + '/0/1/0/compact-arbor'; },
+        function(skid) { return {}; },
+        (function(skid, json) { this.content.skeletons[skid].completeUpdateConnectorColor(options, json); }).bind(this),
+        function(skid) { growlAlert("Failed to load synapses for: " + skid); },
+        (function() { this.render(); }).bind(this));
   }
 };
 
@@ -1973,8 +2228,8 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.completeUpdateConn
     }, this);
 
   } else if ('synapse-clustering' === options.connector_color) {
-    var sc = this.createSynapseClustering(),
-        density_hill_map = sc.densityHillMap(options.synapse_clustering_bandwidth),
+    var sc = this.createSynapseClustering(options.synapse_clustering_bandwidth),
+        density_hill_map = sc.densityHillMap(),
         clusters = sc.clusterSizes(density_hill_map),
         colorizer = new Colorizer(),
         cluster_colors = Object.keys(clusters)
@@ -1997,7 +2252,27 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.completeUpdateConn
       return cluster_colors[value];
     };
 
-    this.CTYPES.slice(1).forEach(function(type) {
+    this.synapticTypes.forEach(function(type) {
+      this._colorConnectorsBy(type, fnConnectorValue, fnMakeColor);
+    }, this);
+
+  } else if ('axon-and-dendrite' === options.connector_color) {
+    var axon = this.splitByFlowCentrality(json),
+        fnMakeColor,
+        fnConnectorValue;
+
+    if (axon) {
+      var colors = [new THREE.Color().setRGB(0, 1, 0),  // axon: green
+                    new THREE.Color().setRGB(0, 0, 1)]; // dendrite: blue
+      fnConnectorValue = function(node_id, connector_id) { return axon[node_id] ? 0 : 1; };
+      fnMakeColor = function(value) { return colors[value]; }
+    } else {
+      // Not computable
+      fnMakeColor = function() { return new THREE.Color().setRGB(0.4, 0.4, 0.4); };
+      fnConnectorValue = function() { return 0; };
+    }
+
+    this.synapticTypes.forEach(function(type) {
       this._colorConnectorsBy(type, fnConnectorValue, fnMakeColor);
     }, this);
   }
@@ -2179,21 +2454,18 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createSynapticSphe
 };
 
 
-WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = function(skeletonmodel, skeleton_data, options) {
+WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = function(skeletonmodel, json, options) {
 	if (this.actor) {
 		this.destroy();
 	}
-  this.skeletonmodel = skeletonmodel; // updating properties TODO should update baseName, color ...?
-	this.initialize_objects();
+  this.skeletonmodel = skeletonmodel;
+	this.initialize_objects(options);
 
-	var nodes = skeleton_data[1];
-	var tags = skeleton_data[2];
-	var connectors = skeleton_data[3];
-	// Store reviews so that some shading methods can access it.
-	this.reviews = skeleton_data[4];
+	var nodes = json[0];
+	var connectors = json[1];
+  var tags = json[2];
 
-	var scale = this.space.scale,
-      lean = options.lean_mode;
+  var lean = options.lean_mode;
 
 	// Map of node ID vs node properties array
 	var nodeProps = nodes.reduce(function(ob, node) {
@@ -2243,8 +2515,7 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = fun
 			var nodeID = node[0];
 			if (node[6] > 0 && p[6] > 0) {
 				// Create cylinder using the node's radius only (not the parent) so that the geometry can be reused
-				var scaled_radius = node[6] * scale;
-				this.createCylinder(v1, v2, scaled_radius, material);
+				this.createCylinder(v1, v2, node[6], material);
 				// Create skeleton line as well
 				this.createEdge(v1, v2, 'neurite');
 			} else {
@@ -2252,7 +2523,7 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = fun
 				this.createEdge(v1, v2, 'neurite');
 				// Create sphere
 				if (node[6] > 0) {
-					this.createNodeSphere(v1, node[6] * scale, material);
+					this.createNodeSphere(v1, node[6], material);
 				}
 			}
 		} else {
@@ -2271,7 +2542,7 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = fun
           this.space.remove(mesh);
           delete this.radiusVolumes[v1.node_id];
         }
-			  this.createNodeSphere(v1, node[6] * scale, material);
+			  this.createNodeSphere(v1, node[6], material);
       }
 		}
 		if (!lean && node[7] < 5) {
@@ -2279,6 +2550,13 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = fun
 			this.createLabelSphere(v1, this.space.staticContent.labelColors.uncertain);
 		}
 	}, this);
+
+  if (options.smooth_skeletons) {
+    var smoothed = this.createArbor().smoothPositions(vs, options.smooth_skeletons_sigma);
+    Object.keys(vs).forEach(function(node_id) {
+      vs[node_id].copy(smoothed[node_id]);
+    });
+  }
 
 	// Create edges between all connector nodes and their associated skeleton nodes,
 	// appropriately colored as pre- or postsynaptic.
@@ -2315,6 +2593,31 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = fun
 			}
 		}
 	}
+
+  if (options.resample_skeletons) {
+    // WARNING: node IDs no longer resemble actual skeleton IDs.
+    // All node IDs will now have negative values to avoid accidental similarities.
+    var res = this.createArbor().resampleSlabs(vs, options.smooth_skeletons_sigma, options.resampling_delta, 2);
+    var vs = this.geometry['neurite'].vertices;
+    // Remove existing lines
+    vs.length = 0;
+    // Add all new lines
+    var edges = res.arbor.edges,
+        positions = res.positions;
+    Object.keys(edges).forEach(function(nodeID) {
+      // Fix up Vector3 instances
+      var v_child = positions[nodeID];
+      v_child.user_id = -1;
+      v_child.node_id = -nodeID;
+      // Add line
+      vs.push(v_child);
+      vs.push(positions[edges[nodeID]]); // parent
+    });
+    // Fix up root
+    var v_root = positions[res.arbor.root];
+    v_root.user_id = -1;
+    v_root.node_id = -res.arbor.root;
+  }
 };
 
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.show = function(options) {
@@ -2333,7 +2636,7 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.show = function(op
 
 	this.setTextVisibility( this.skeletonmodel.text_visible ); // the text labels
 
-  this.updateSkeletonColor(options);
+  //this.updateSkeletonColor(options);
 
   // Will query the server
   if ('cyan-red' !== options.connector_color) this.space.updateConnectorColors(options, [this]);
