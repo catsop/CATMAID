@@ -158,8 +158,6 @@ function AreaTool()
     var actions = [];
     var areas = [this.currentArea];
 
-    var proto_mouseCatcher = null;
-
     this.addAction = function ( action ) {
         actions.push( action );
     };
@@ -180,40 +178,23 @@ function AreaTool()
         }
     }));
 
-    this.onmousemove = function(e)
-    {
-        if (e.button == 0)
-        {
-            self.canvasLayer.canvas._onMouseMoveInDrawingMode(e);
-            return true;
-        }
-    };
-
     this.onmousedown = function(e)
     {
-        if (e.button == 1)
+        if (1 === e.button)
         {
-            proto_onmousedown(e);
-            return true;
+            if (self.prototype.mouseCatcher.onmousedown) {
+                return self.prototype.mouseCatcher.onmousedown(e);
+            }
         }
-        else if(e.button == 0)
-        {
-            self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
-            return true;
-        }
-
     };
 
-    this.onmouseup = function(e) {
-        if (e.button == 1)
+    this.onmouseup = function(e)
+    {
+        if (1 === e.button)
         {
-            proto_onmouseup(e);
-            return true;
-        }
-        else if (e.button == 0)
-        {
-            self.canvasLayer.canvas._onMouseUpInDrawingMode(e);
-            return true;
+            if (self.prototype.mouseCatcher.onmouseup) {
+                return self.prototype.mouseCatcher.onmouseup(e);
+            }
         }
     };
 
@@ -238,12 +219,6 @@ function AreaTool()
     var setupProtoControls = function()
     {
         self.prototype.register( self.stack, "edit_button_area" );
-        proto_mouseCatcher = self.prototype.mouseCatcher;
-        proto_onmouseup = proto_mouseCatcher.onmouseup;
-        proto_onmousedown = proto_mouseCatcher.onmousedown;
-        proto_mouseCatcher.onmouseup = self.onmouseup;
-        proto_mouseCatcher.onmousedown = self.onmousedown;
-        proto_mouseCatcher.onmousemove = self.onmousemove;
     };
 
     var setupSubTools = function()
@@ -271,14 +246,6 @@ function AreaTool()
             }
         });
 
-        /*self.canvasLayer.view.onmousedown = function(e){
-         return true
-         };
-
-         self.canvasLayer.view.onmouseup = function(e){
-         return true
-         };*/
-
         //canvas.interactive = true;
 
         self.stack.addLayer("AreaLayer", self.canvasLayer);
@@ -304,10 +271,9 @@ function AreaTool()
         $("#edit_button_area").switchClass("button", "button_active", 0);
 
         self.prototype.register( parentStack, "edit_button_area" );
-        proto_mouseCatcher = self.prototype.mouseCatcher;
 
         setupSubTools();
-        //createCanvasLayer();
+        createCanvasLayer();
 
         AreaServerModel.addArea(self.currentArea);
         AreaServerModel.registerTool(self);

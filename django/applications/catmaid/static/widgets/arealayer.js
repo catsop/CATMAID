@@ -60,7 +60,7 @@ function AreaLayer( stack, tool )
     var view = document.createElement("div");
     view.className = "canvasOverlay";
     view.id = "canvasOverlayId";
-    // view.style.zIndex = 5;
+    view.style.zIndex = 5;
     view.style.opacity = 0.5;
     view.style.left = "0px";
     view.style.top = "0px";
@@ -78,6 +78,15 @@ function AreaLayer( stack, tool )
     // CURSOR: "url(" + STATIC_URL_JS + "widgets/themes/kde/svg-circle.cur) 15 15, crosshair"
     var canvas = this.canvas = new fabric.Canvas('areaCanvas', {
       isDrawingMode: true
+    });
+
+    canvas.on({
+      'mouse:down': function(fe) {
+        if (view.onmousedown) { view.onmousedown(fe.e); }
+      },
+      'mouse:up': function(fe) {
+        if (view.onmouseup) { view.onmouseup(fe.e); }
+      }
     });
 
     /*var canvas = new fabric.Canvas( 'myCanvas' , {
