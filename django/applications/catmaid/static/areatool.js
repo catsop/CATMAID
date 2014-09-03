@@ -136,8 +136,7 @@ function Area(name)
             obj.setTop(yc);
         }
     };
-
-}
+};
 
 
 /**
@@ -349,4 +348,4 @@ function AreaTool()
      }*/
 
     var keyCodeToAction = getKeyCodeToActionMap(actions);
-}
+};
