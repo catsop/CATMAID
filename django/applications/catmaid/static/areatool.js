@@ -8,9 +8,9 @@ var AreaServerModel = new function()
     var areas = [];
 
     /**
-     Push a new trace to the backend.
+     Push a new trace (ie, fabricjs object) to the backend.
      */
-    this.pushTrace = function(tool, area, path)
+    this.pushTrace = function(tool, area, obj)
     {
 
     };
@@ -79,7 +79,7 @@ function Area(name)
     {
         for (var idx = 0; idx < fabricObjects.length; ++i)
         {
-            fabricObjects[idx].transformMatrix(t);
+            fabricObjects[idx].obj.transformMatrix(t);
         }
     };
 
@@ -87,7 +87,7 @@ function Area(name)
     {
         for (var idx = 0; idx < fabricObjects.length; ++i)
         {
-            fabricObjects[idx].opacity = op;
+            fabricObjects[idx].obj.opacity = op;
         }
         AreaServerModel.pushProperties(self);
     };
@@ -96,7 +96,7 @@ function Area(name)
     {
         for (var idx = 0; idx < fabricObjects.length; ++i)
         {
-            fabricObjects[idx].setColor(c);
+            fabricObjects[idx].obj.setColor(c);
         }
         AreaServerModel.pushProperties(self);
     };
@@ -108,7 +108,12 @@ function Area(name)
 
     this.getObjects = function()
     {
-      return fabricObjects;
+        var objects = [];
+        for (var idx = 0; idx < fabricObjects.length; ++i)
+        {
+            objects.push(fabricObjects[i].obj)
+        }
+        return objects;
     };
 
     this.setName = function(name)
@@ -124,14 +129,16 @@ function Area(name)
 
     this.updatePosition = function(screenPos, scale)
     {
-        for (i = 0; i < fabricObjects.length; ++i)
+        for (var i = 0; i < fabricObjects.length; ++i)
         {
-            obj = fabricObjects[i];
-            xs = obj.stackLeft;
-            ys = obj.stackTop;
-            xc = (xs - screenPos.left) * scale;
-            yc = (ys - screenPos.top) * scale;
-            obj.scale(scale / obj.originalScale);
+            var c = fabricObjects[i];
+            var obj = c.obj;
+            var xs = c.stackLeft;
+            var ys = c.stackTop;
+            var xc = (xs - screenPos.left) * scale;
+            var yc = (ys - screenPos.top) * scale;
+
+            obj.scale(scale / c.originalScale);
             obj.setLeft(xc);
             obj.setTop(yc);
         }
@@ -140,10 +147,25 @@ function Area(name)
 }
 
 
+function FabricObjectContainer(obj, scale, screenPos)
+{
+    var self = this;
+
+    var x_o = obj.getLeft();
+    var y_o = obj.getTop();
+
+    var x_s = screenPos.left;
+    var y_s = screenPos.top;
+
+    this.obj = obj;
+    this.stackLeft = x_o / scale + x_s;
+    this.stackTop = y_o / scale + y_s;
+    this.originalScale = scale;
+}
+
 /**
  AreaTraceTool class handles area tracing operations
  */
-
 function AreaTool()
 {
     this.prototype = new Navigator();
@@ -219,20 +241,9 @@ function AreaTool()
 
     this.registerFabricObject = function(obj)
     {
-        screenPos = self.stack.screenPosition();
-        x_s = screenPos.left;
-        y_s = screenPos.top;
-        scale = self.stack.scale;
-
-        obj.originalScale = scale;
-
-        x_o = obj.getLeft();
-        y_o = obj.getTop();
-
-        obj.stackLeft = x_o / scale + x_s;
-        obj.stackTop = y_o / scale + y_s;
-
-        self.currentArea.addObject(obj);
+        var objectContainer = new FabricObjectContainer(obj, self.stack.scale, self.stack.screenPosition());
+        self.currentArea.addObject(objectContainer);
+        AreaServerModel.pushTrace(self, self.currentArea, objectContainer);
     };
 
     var setupProtoControls = function()
