@@ -49,6 +49,9 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_blocks$', 'clear_blocks'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_djsopnet$', 'clear_djsopnet'),
 
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/user_slice$', 'user_insert_slice'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_in_view$', 'user_retrieve_slices_by_bound'),
+
     # Models
     (r'^tasks$', 'get_task_list'),
 

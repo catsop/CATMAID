@@ -22,6 +22,8 @@ from djcelery.models import TaskState
 from StringIO import StringIO
 import traceback
 
+from shapely.geometry import Polygon, LineString, Point
+from shapely.ops import cascaded_union
 
 def safe_split(tosplit, name='data', delim=','):
     """ Tests if $tosplit evaluates to true and if not, raises a value error.
@@ -163,10 +165,10 @@ def error_response():
 
 # --- Blocks and Cores ---
 def setup_blocks(request, project_id = None, stack_id = None):
-    '''
+    """
     Initialize and store the blocks and block info in the db, associated with
     the given stack, if these things don't already exist.
-    '''
+    """
     try:
         width = int(request.GET.get('width'))
         height = int(request.GET.get('height'))
@@ -906,6 +908,100 @@ def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
         return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
     except:
         return error_response()
+
+# --- ui support ---
+# Note: the current revision of the following code makes these assumptions about geometry:
+#       1) geometry passed from the client is in the form of an x,y path plus a brush radius.
+#       2) the local representation of slice geometry is handled by shapely, in the form of a Polygon
+#       3) geometry is returned to the client in the form of svg.
+#       4) slice geometry is stored in the db as a set of boundary paths. Note that this differs from the representation
+#          used as of this writing in the sopnet C++ library. In other words, in this iteration, hand tracing is
+#          incompatible with other aspects of djsopnet.
+#
+#       I have attempted to write this code to be fairly modular, so that any of these assumptions may be mutable. In
+#       particular, each representation listed above could be replaced by PNG blobs.
+
+def parse_area_geometry(req_object):
+    """
+    Parses the geometry sent by the client.
+    In the current design, the text is a list of x,y locations along the trace path coupled with a brush radius.
+    This function converts it into a shapely polygon representation.
+    """
+    x = map(float, safe_split(req_object.get('x'), 'x'))
+    y = map(float, safe_split(req_object.get('y'), 'y'))
+    r = float(req_object.get('r'))
+    if r is None:
+        raise ValueError("No r provided")
+
+    if len(x) > 1:
+        xy = map(list, zip(*[x, y]))
+        polygon = LineString(xy).buffer(r)
+    else:
+        polygon = Point(float(x[0]), float(y[0])).buffer(r)
+
+    return polygon
+
+
+def geometry_bound(area_geometry):
+    """
+    Returns the lower-left and upper-right coordinates corresponding to the bounding box around the given area geometry.
+    area_geometry is of the type returned by parse_area_geometry. As of this writing, this is a shapely polygon.
+    """
+    xy = area_geometry.xy
+    min_x = min(xy[0])
+    min_y = min(xy[1])
+    max_x = max(xy[0])
+    max_y = max(xy[1])
+    return [min_x, min_y, max_x, max_y]
+
+def slice_merge_geometry(slice, area_geometry):
+    """
+    Merges the area_geometry to the geometry stored in a slice.
+    """
+    pass
+
+def slice_by_overlap_and_assembly(area_geometry, assembly):
+    """
+    Find a slice belonging to the given assembly that overlaps the given geometry, if it exists.
+    If it does not, return None
+    """
+    pass
+
+def slice_client_response(slice):
+    """
+    Returns a response suitable for transmission to the client.
+    Currently, this is a JSON representation of an SVG polygon path.
+    """
+    pass
+
+def geometry_from_slice(slice):
+    """
+    Returns a the geometry representation corresponding to a given Slice.
+    At present, this function creates a shapely Polygon
+    """
+    x = map(float, slice.shape_x)
+    y = map(float, slice.shape_y)
+    
+    pass
+
+def user_insert_slice(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        assembly_id = request.GET.get('assembly')
+        assembly = Assembly.objects.get(pk=assembly_id)
+        area_geometry = parse_area_geometry(request.GET)
+        slice = slice_by_overlap_and_assembly(area_geometry, assembly)
+
+        if slice is None:
+            # create slice
+            pass
+        else:
+            slice_merge_geometry(slice, area_geometry)
+        slice.save()
+        return slice_client_response(slice)
+    except:
+        return error_response()
+
 
 # --- convenience code for debug purposes ---
 def clear_slices(request, project_id = None, stack_id = None):
