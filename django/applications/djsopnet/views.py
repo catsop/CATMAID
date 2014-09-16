@@ -22,7 +22,7 @@ from djcelery.models import TaskState
 from StringIO import StringIO
 import traceback
 
-from shapely.geometry import Polygon, LineString, Point
+from shapely.geometry import Polygon, LineString, Point, LinearRing
 from shapely.ops import cascaded_union
 
 def safe_split(tosplit, name='data', delim=','):
@@ -952,53 +952,190 @@ def geometry_bound(area_geometry):
     min_y = min(xy[1])
     max_x = max(xy[0])
     max_y = max(xy[1])
-    return [min_x, min_y, max_x, max_y]
+    return (min_x, min_y), (max_x, max_y)
 
 def slice_merge_geometry(slice, area_geometry):
     """
     Merges the area_geometry to the geometry stored in a slice.
     """
-    pass
+    existing_geometry = geometry_from_slice(slice)
+    union_geometry = existing_geometry.union(area_geometry)
 
-def slice_by_overlap_and_assembly(area_geometry, assembly):
+    if not union_geometry.is_valid:
+        raise ValueError('Geometry union produced invalid polygon!')
+
+    x_merge, y_merge = slice_field_from_geometry(union_geometry)
+
+    merge_slice = create_slice(area_geometry, slice.assembly, slice.stack, slice.section)
+
+    return merge_slice
+
+def slice_by_overlap_and_assembly(area_geometry, assembly, section, stack):
     """
     Find a slice belonging to the given assembly that overlaps the given geometry, if it exists.
     If it does not, return None
     """
-    pass
+    xy_ll, xy_ur = geometry_bound(area_geometry)
+    slice_candidates = Slice.objects.filter(assembly=assembly,
+                                            section=section,
+                                            stack=stack,
+                                            min_x__lte=xy_ur[0],
+                                            min_y__lte=xy_ur[1],
+                                            max_x__gte=xy_ll[0],
+                                            max_y__gte=xy_ll[1])
+    ovlp_slices = []
+    for slice in slice_candidates:
+        candidate_geometry = geometry_from_slice(slice)
+        if candidate_geometry.intersects(area_geometry):
+            ovlp_slices.append(slice)
 
-def slice_client_response(slice):
+    if len(ovlp_slices) == 1:
+        return ovlp_slices[0]
+    elif len(ovlp_slices) == 0:
+        return None
+    else:
+        raise ValueError('Area Geometry overlaps multiple slices for the given assembly')
+
+def slice_field_from_geometry(area_geometry):
     """
-    Returns a response suitable for transmission to the client.
-    Currently, this is a JSON representation of an SVG polygon path.
+    Returns data used to populate the geometry in a Slice object.
+    Presently, this function creates an x- and y-array pair, with internal polygon coordinates separated by -1. See the
+    comments in geometry_from_slice for more info.
     """
-    pass
+    x = area_geometry.exterior.xy[0]
+    y = area_geometry.exterior.xy[1]
+
+    for interior in area_geometry.interiors:
+        x.append(-1.0)
+        y.append(-1.0)
+        x.extend(interior.xy[0])
+        y.extend(interior.xy[1])
+
+    return list(x), list(y)
 
 def geometry_from_slice(slice):
     """
     Returns a the geometry representation corresponding to a given Slice.
     At present, this function creates a shapely Polygon
+
+    Internal polygons representing holes are separated by -1 with the external hull coming first, like
+
+    x: [ 0 10 10  0]
+    y: [ 0  0 10 10], for a 10x10 square with no holes, or
+
+    x: [ 0 10 10  0 -1 4 6 6 4]
+    y: [ 0  0 10 10 -1 4 4 6 6], for a 10x10 square with a 2x2 hole in the center of it.
     """
+    # float version of poly coordinates
     x = map(float, slice.shape_x)
     y = map(float, slice.shape_y)
-    
+
+    # current x, y queue
+    xq = []
+    yq = []
+
+    # external coordinates
+    ext_xy = []
+
+    # list of internal coordinates
+    int_xys = []
+
+    # internal function to populate ext_x, ext_y
+    def ext_fun(a_xq, a_yq):
+        ext_xy.extend(zip(a_xq, a_yq))
+
+    # internal function to populate int_xs, int_ys
+    def int_fun(a_xq, a_yq):
+        int_xy = zip(a_xq, a_yq)
+        # ensure that int_xy is cw, representing a negative space
+        if LinearRing(int_xy).is_ccw:
+            int_xy.reverse()
+        int_xys.append(int_xy)
+
+    queue_fun = ext_fun
+
+    # If this turns out to be a bottleneck, try snipping out sub-arrays.
+    #
+    # Really, it would be best to optimize the storage structure in Slice, but this probably isn't a permanent
+    # persistence solution, anyhow.
+    for i in range(len(x)):
+        if x[i] < 0:
+            if y[i] >= 0:
+                raise ValueError('x and y lists were not synchronized')
+            queue_fun(xq, yq)
+            queue_fun = int_fun
+            xq = []
+            yq = []
+        else:
+            xq.append(x[i])
+            yq.append(y[i])
+    # x, y should not necessarily end in -1. Run queue_fun one last time to pick up the last run.
+    queue_fun(xq, yq)
+
+    return Polygon(ext_xy, int_xys)
+
+def slice_client_response(slice, req_object):
+    """
+    Returns a response suitable for transmission to the client.
+    Currently, this is a JSON representation of an SVG polygon path.
+    """
+
     pass
+
+def geometry_hash(area_geometry):
+    """
+    Generate the hash value used in the postgres Slice representation.
+
+    This code works by mixing the values of the x,y point pairs in the polygon boundary
+    """
+    h = 0
+    for xy in zip(area_geometry.exterior.xy[0], area_geometry.exterior.xy[1]):
+        h = 37 * 37 * h + 37 * hash(xy[0]) + hash(xy[1])
+    for interior in area_geometry.interiors:
+        for xy in zip(interior.xy[0], interior.xy[1]):
+            h = 37 * 37 * h + 37 * hash(xy[0]) + hash(xy[1])
+    return str(h)
+
+def create_slice(area_geometry, assembly, stack, section):
+    xy_min, xy_max = geometry_bound(area_geometry)
+    x, y = slice_field_from_geometry(area_geometry)
+    slice = Slice(user=assembly.user,
+                  stack=stack,
+                  assembly=assembly,
+                  hash_value=geometry_hash(area_geometry),
+                  section=section,
+                  min_x=xy_min[0],
+                  min_y=xy_min[1],
+                  max_x=xy_max[0],
+                  max_y=xy_max[1],
+                  ctr_x = area_geometry.centroid.xy[0],
+                  ctr_y = area_geometry.centroid.xy[1],
+                  value=0,
+                  shape_x=map(int, x),
+                  shape_y=map(int, y),
+                  size=area_geometry.area)
+    return slice
 
 def user_insert_slice(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     try:
+        section = int(request.GET.get('section'))
         assembly_id = request.GET.get('assembly')
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.GET)
-        slice = slice_by_overlap_and_assembly(area_geometry, assembly)
+        ovlp_slice = slice_by_overlap_and_assembly(area_geometry, assembly, section, s)
 
-        if slice is None:
-            # create slice
-            pass
+        # This may need to be synchronized, somehow
+        # One idea: consider adding an 'active' flag to Slice. Instead of ovlp_slice.delete(), do
+        # olvp_slice.active = False
+
+        if ovlp_slice is None:
+            slice = create_slice(area_geometry, assembly, s, section)
         else:
-            slice_merge_geometry(slice, area_geometry)
+            slice = slice_merge_geometry(ovlp_slice, area_geometry)
+            ovlp_slice.delete()
         slice.save()
-        return slice_client_response(slice)
+        return slice_client_response(slice, request.GET)
     except:
         return error_response()
 
