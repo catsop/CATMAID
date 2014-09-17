@@ -6,13 +6,54 @@ var AreaServerModel = new function()
 {
     var areaTools = [];
     var areas = [];
+    var django_url = '/sopnet/';
 
     /**
      Push a new trace (ie, fabricjs object) to the backend.
      */
-    this.pushTrace = function(tool, area, obj)
+    this.pushTrace = function(tool, area, object_container)
     {
+        var x = [];
+        var y = [];
+        var obj = object_container.obj;
+        var stack = tool.stack;
+        var project = stack.getProject();
+        var view_top = stack.screenPosition().top;
+        var view_left = stack.screenPosition().left;
+        var scale = stack.scale;
 
+        for (var i = 0; i < obj.path.length; ++i)
+        {
+            x.push((obj.path[i][1] + view_left) * scale);
+            y.push((obj.path[i][2] + view_top) * scale);
+        }
+
+        url = '/user_slice';
+
+        console.log(stack.section)
+
+        var data = {'r' : scale * tool.width / 2.0, //r, x, y in stack coordinates
+            'x' : x,
+            'y' : y,
+            'section' : stack.z,
+            'id' : area.id,
+            'assembly_id' : 1,
+            'xtrans' : stack.translation.x + stack.x,
+            'ytrans' : stack.translation.y + stack.y,
+            'wview' : stack.viewWidth,
+            'hview' : stack.viewHeight,
+            'scale' : scale,
+            'top' : view_top,
+            'left': view_left};
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": django_url + project.id + '/stack/' + stack.id + url,
+            "data": data,
+            "success": tool.pushCallback
+        });
     };
 
     /**
@@ -377,6 +418,15 @@ function AreaTool()
     this.getArea = function()
     {
         return self.currentArea;
+    };
+
+    this.pushCallback = function(data)
+    {
+        console.log(data);
+        if (data.hasOwnProperty('djerror'))
+        {
+            console.log(data.djerror);
+        }
     };
 
     /**
