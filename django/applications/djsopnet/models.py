@@ -164,3 +164,8 @@ class SliceConflictRelation(UserFocusedModel):
 class BlockConflictRelation(UserFocusedModel):
     block = models.ForeignKey(Block)
     conflict = models.ForeignKey(SliceConflictSet)
+
+class ViewProperties(models.Model):
+    assembly = models.ForeignKey(Assembly)
+    color = models.TextField(default='#0000ff')
+    opacity = models.FloatField(default=0.5)
