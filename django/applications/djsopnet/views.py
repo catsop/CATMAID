@@ -33,6 +33,14 @@ def safe_split(tosplit, name='data', delim=','):
         raise ValueError("No %s provided" % name)
     return tosplit.split(delim)
 
+def safe_dict(req_object, *args):
+    req_dict = dict()
+    for key in args:
+        req_dict[key] = req_object.get(key)
+        if req_dict[key] is None:
+            raise ValueError("No value provided for %s" % key)
+    return req_dict
+
 # --- JSON conversion ---
 def slice_dict(slice):
     sd = {'assembly' : slice.assembly,
@@ -954,23 +962,27 @@ def geometry_bound(area_geometry):
     max_y = max(xy[1])
     return (min_x, min_y), (max_x, max_y)
 
-def slice_merge_geometry(slice, area_geometry):
+def slice_merge_geometry(slices, slices_geometry, merge_geometry):
     """
-    Merges the area_geometry to the geometry stored in a slice.
+    Merges the merge_geometry to the geometries stored in overlapping slices.
     """
-    existing_geometry = geometry_from_slice(slice)
-    union_geometry = existing_geometry.union(area_geometry)
+    all_geometry = list(slices_geometry)
+    all_geometry.append(merge_geometry)
+    union_geometry = cascaded_union(all_geometry)
 
+    # check polygon validity
     if not union_geometry.is_valid:
         raise ValueError('Geometry union produced invalid polygon!')
+    # TODO: check for Polygon type, versus say, MultiPolygon.
 
-    x_merge, y_merge = slice_field_from_geometry(union_geometry)
+    merge_slice = create_slice(union_geometry, slices[0].assembly, slices[0].stack, slices[0].section)
 
-    merge_slice = create_slice(area_geometry, slice.assembly, slice.stack, slice.section)
+    for slice in slices:
+        slice.delete()
 
     return merge_slice
 
-def slice_by_overlap_and_assembly(area_geometry, assembly, section, stack):
+def slices_by_overlap_and_assembly(area_geometry, assembly, section, stack):
     """
     Find a slice belonging to the given assembly that overlaps the given geometry, if it exists.
     If it does not, return None
@@ -984,17 +996,14 @@ def slice_by_overlap_and_assembly(area_geometry, assembly, section, stack):
                                             max_x__gte=xy_ll[0],
                                             max_y__gte=xy_ll[1])
     ovlp_slices = []
+    ovlp_geometry = []
     for slice in slice_candidates:
         candidate_geometry = geometry_from_slice(slice)
         if candidate_geometry.intersects(area_geometry):
             ovlp_slices.append(slice)
+            ovlp_geometry.append(candidate_geometry)
 
-    if len(ovlp_slices) == 1:
-        return ovlp_slices[0]
-    elif len(ovlp_slices) == 0:
-        return None
-    else:
-        raise ValueError('Area Geometry overlaps multiple slices for the given assembly')
+    return ovlp_slices, ovlp_geometry
 
 def slice_field_from_geometry(area_geometry):
     """
@@ -1074,13 +1083,30 @@ def geometry_from_slice(slice):
 
     return Polygon(ext_xy, int_xys)
 
-def slice_client_response(slice, req_object):
+def slice_client_response(slice, area_geometry, replace_slices, req_object):
     """
     Returns a response suitable for transmission to the client.
     Currently, this is a JSON representation of an SVG polygon path.
     """
+    try:
+        # There is a slight possibility of a MultipleObjectsReturned exception.
+        # Should we fix this automatically?
+        view_props = ViewProperties.objects.get(assembly = slice.assembly)
+    except ViewProperties.DoesNotExist:
+        view_props = ViewProperties(assembly=slice.assembly)
+        view_props.save()
 
-    pass
+    req_dict = safe_dict(req_object, 'xtrans', 'ytrans', 'hview', 'wview', 'scale', 'id')
+    svg = shapely_polygon_to_svg(area_geometry, req_dict)
+    replace_hashes = [replace_slice.hash_value for replace_slice in replace_slices]
+    replace_hashes.append(str(req_dict['id']))
+
+    return HttpResponse(json.dumps({'id': slice.hash_value,
+                                    'svg': svg,
+                                    'replace_ids': replace_hashes,
+                                    'view_props': {'color': view_props.color, 'opacity': view_props.opacity},
+                                    'section': slice.section}))
+
 
 def geometry_hash(area_geometry):
     """
@@ -1119,26 +1145,87 @@ def create_slice(area_geometry, assembly, stack, section):
 def user_insert_slice(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     try:
-        section = int(request.GET.get('section'))
-        assembly_id = request.GET.get('assembly')
+        try:
+            default_assembly = Assembly.objects.get(pk=0)
+        except Assembly.DoesNotExist:
+            u = User.objects.get(id=1)
+            default_assembly = Assembly(user=u, assembly_type='neuron', name='default neuron')
+        print request.POST
+        section = int(request.POST.get('section'))
+        assembly_id = request.POST.get('assembly')
         assembly = Assembly.objects.get(pk=assembly_id)
-        area_geometry = parse_area_geometry(request.GET)
-        ovlp_slice = slice_by_overlap_and_assembly(area_geometry, assembly, section, s)
+        area_geometry = parse_area_geometry(request.POST)
+        ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
 
-        # This may need to be synchronized, somehow
-        # One idea: consider adding an 'active' flag to Slice. Instead of ovlp_slice.delete(), do
-        # olvp_slice.active = False
-
-        if ovlp_slice is None:
-            slice = create_slice(area_geometry, assembly, s, section)
+        if len(ovlp_slices) > 0:
+            slice = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
         else:
-            slice = slice_merge_geometry(ovlp_slice, area_geometry)
-            ovlp_slice.delete()
+            slice = create_slice(area_geometry, assembly, s, section)
         slice.save()
-        return slice_client_response(slice, request.GET)
+        return slice_client_response(slice, area_geometry, ovlp_slices, request.POST)
     except:
         return error_response()
 
+# --- shapely-representation-specific code ---
+
+def path_to_svg(xy):
+    """
+    Converts a 2 x n array to an svg path string
+    """
+    ctrl_char = 'M'
+    svg_str = ''
+
+    for v in zip(xy[0], xy[1]):
+        svg_str = ' '.join([svg_str, ctrl_char] + map(str, v))
+        ctrl_char = 'L'
+    svg_str = ' '.join([svg_str, 'Z'])
+
+    return svg_str
+
+def transform_volume_pts(t, w, s, x):
+    """
+    Convenience function to convert stack coordinates to view coordinates
+
+    t - translation
+    w - view length (width or height)
+    s - scale
+    x - array of points to translate
+    """
+    return [(s * (y - t) + w/2) for y in x]
+
+def transform_shapely_xy(p, xy):
+    """
+    Converts a shapely-style point from stack coordinates to view coordinates
+
+    p - request_object containing data for xtrans, ytrans, wview, hview and scale.
+    xy - points, as returned for instance by Polygon.exterior.xy
+    """
+    xtr = transform_volume_pts(p['xtrans'], p['wview'], p['scale'], xy[0])
+    ytr = transform_volume_pts(p['ytrans'], p['hview'], p['scale'], xy[1])
+    return [xtr, ytr]
+
+def shapely_polygon_to_svg(polygon, p):
+    """
+    Returns a complete XML-SVG representation of a shapely polygon. The polygon is assumed to store
+    stack coordinates, while the svg will be returned in view coordinates. The front end may draw the
+    svg directly to the canvas.
+    """
+    svg_template = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\
+<svg\
+	xmlns:svg="http://www.w3.org/2000/svg"\
+	xmlns="http://www.w3.org/2000/svg"\
+	version="1.1"\
+	>\
+	<g id="polygon">\
+		<path d="{}" fill-rule="evenodd"/>\
+	</g>\
+</svg>'
+    exy = transform_shapely_xy(p, polygon.exterior.xy)
+    svg_str = path_to_svg(exy)
+    for interior in polygon.interiors:
+        ixy = transform_shapely_xy(p, interior.xy)
+        svg_str = ' '.join([svg_str, path_to_svg(ixy)])
+    return svg_template.format(svg_str)
 
 # --- convenience code for debug purposes ---
 def clear_slices(request, project_id = None, stack_id = None):
