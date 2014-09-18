@@ -24,27 +24,24 @@ var AreaServerModel = new function()
 
         for (var i = 0; i < obj.path.length; ++i)
         {
-            x.push((obj.path[i][1] + view_left) * scale);
-            y.push((obj.path[i][2] + view_top) * scale);
+            x.push(obj.path[i][1] / scale);
+            y.push(obj.path[i][2] / scale);
         }
 
         url = '/user_slice';
 
-        console.log(stack.section)
-
-        var data = {'r' : scale * tool.width / 2.0, //r, x, y in stack coordinates
+        var data = {'r' : tool.width / (2.0 * scale), //r, x, y in stack coordinates
             'x' : x,
             'y' : y,
             'section' : stack.z,
-            'id' : area.id,
+            'id' : object_container.id,
             'assembly_id' : 1,
-            'xtrans' : stack.translation.x + stack.x,
-            'ytrans' : stack.translation.y + stack.y,
-            'wview' : stack.viewWidth,
-            'hview' : stack.viewHeight,
+            'left': obj.left / scale + view_left,
+            'top': obj.top / scale + view_top,
             'scale' : scale,
-            'top' : view_top,
-            'left': view_left};
+            'view_left': view_left,
+            'view_top' : view_top
+        };
 
         $.ajax({
             "dataType": 'json',
@@ -115,6 +112,7 @@ function Area(name)
     var self = this;
 
     var fabricObjects = [];
+    var objectTable = {};
 
     this.transform = function(t)
     {
@@ -163,9 +161,22 @@ function Area(name)
         AreaServerModel.pushProperties(self);
     };
 
-    this.addObject = function(obj)
+    this.addObjectContainer = function(objectContainer)
     {
-        fabricObjects.push(obj);
+        var key = objectContainer.id;
+        fabricObjects.push(objectContainer);
+        objectTable[key] = objectContainer;
+    };
+
+    this.removeObject = function(key)
+    {
+        if (objectTable.hasOwnProperty(key))
+        {
+            var obj = objectTable[key];
+            var idx = fabricObjects.indexOf(obj);
+            delete objectTable[key];
+            delete fabricObjects[idx];
+        }
     };
 
     this.updatePosition = function(screenPos, scale)
@@ -188,7 +199,7 @@ function Area(name)
 }
 
 
-function FabricObjectContainer(obj, scale, screenPos)
+function FabricObjectContainer(obj, scale, screenPos, id)
 {
     var self = this;
 
@@ -202,6 +213,7 @@ function FabricObjectContainer(obj, scale, screenPos)
     this.stackLeft = x_o / scale + x_s;
     this.stackTop = y_o / scale + y_s;
     this.originalScale = scale;
+    this.id = id;
 }
 
 /**
@@ -220,6 +232,7 @@ function AreaTool()
     var self = this;
     var actions = [];
     var areas = [this.currentArea];
+    var nextId = 0;
 
     var proto_mouseCatcher = null;
 
@@ -282,8 +295,9 @@ function AreaTool()
 
     this.registerFabricObject = function(obj)
     {
-        var objectContainer = new FabricObjectContainer(obj, self.stack.scale, self.stack.screenPosition());
-        self.currentArea.addObject(objectContainer);
+        var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
+            self.stack.screenPosition(), nextId++);
+        self.currentArea.addObjectContainer(objectContainer);
         AreaServerModel.pushTrace(self, self.currentArea, objectContainer);
     };
 
@@ -426,6 +440,11 @@ function AreaTool()
         if (data.hasOwnProperty('djerror'))
         {
             console.log(data.djerror);
+        }
+
+        if (data.hasOwnProperty('svg'))
+        {
+            console.log(data.svg);
         }
     };
 

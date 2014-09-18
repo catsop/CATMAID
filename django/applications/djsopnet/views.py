@@ -34,12 +34,16 @@ def safe_split(tosplit, name='data', delim=','):
     return tosplit.split(delim)
 
 def safe_dict(req_object, *args):
-    req_dict = dict()
-    for key in args:
-        req_dict[key] = req_object.get(key)
-        if req_dict[key] is None:
-            raise ValueError("No value provided for %s" % key)
-    return req_dict
+    if len(args) <= 0:
+        return dict(req_object.iterlists())
+    else:
+        req_dict = dict()
+        for key in args:
+            req_dict[key] = req_object.get(key)
+            if req_dict[key] is None:
+                raise ValueError("No value provided for %s" % key)
+        return req_dict
+
 
 # --- JSON conversion ---
 def slice_dict(slice):
@@ -935,8 +939,10 @@ def parse_area_geometry(req_object):
     In the current design, the text is a list of x,y locations along the trace path coupled with a brush radius.
     This function converts it into a shapely polygon representation.
     """
-    x = map(float, safe_split(req_object.get('x'), 'x'))
-    y = map(float, safe_split(req_object.get('y'), 'y'))
+    o_left = float(req_object.get('left'))
+    o_top = float(req_object.get('top'))
+    x = map(lambda v: float(v) + o_left, req_object.getlist('x[]'))
+    y = map(lambda v: float(v) + o_top, req_object.getlist('y[]'))
     r = float(req_object.get('r'))
     if r is None:
         raise ValueError("No r provided")
@@ -945,7 +951,7 @@ def parse_area_geometry(req_object):
         xy = map(list, zip(*[x, y]))
         polygon = LineString(xy).buffer(r)
     else:
-        polygon = Point(float(x[0]), float(y[0])).buffer(r)
+        polygon = Point(x[0], y[0]).buffer(r)
 
     return polygon
 
@@ -955,7 +961,7 @@ def geometry_bound(area_geometry):
     Returns the lower-left and upper-right coordinates corresponding to the bounding box around the given area geometry.
     area_geometry is of the type returned by parse_area_geometry. As of this writing, this is a shapely polygon.
     """
-    xy = area_geometry.xy
+    xy = area_geometry.exterior.xy
     min_x = min(xy[0])
     min_y = min(xy[1])
     max_x = max(xy[0])
@@ -975,7 +981,8 @@ def slice_merge_geometry(slices, slices_geometry, merge_geometry):
         raise ValueError('Geometry union produced invalid polygon!')
     # TODO: check for Polygon type, versus say, MultiPolygon.
 
-    merge_slice = create_slice(union_geometry, slices[0].assembly, slices[0].stack, slices[0].section)
+    merge_slice = create_slice(
+        union_geometry, slices[0].assembly, slices[0].stack, slices[0].project, slices[0].section)
 
     for slice in slices:
         slice.delete()
@@ -1091,21 +1098,29 @@ def slice_client_response(slice, area_geometry, replace_slices, req_object):
     try:
         # There is a slight possibility of a MultipleObjectsReturned exception.
         # Should we fix this automatically?
-        view_props = ViewProperties.objects.get(assembly = slice.assembly)
+        view_props = ViewProperties.objects.get(assembly=slice.assembly)
     except ViewProperties.DoesNotExist:
         view_props = ViewProperties(assembly=slice.assembly)
         view_props.save()
 
-    req_dict = safe_dict(req_object, 'xtrans', 'ytrans', 'hview', 'wview', 'scale', 'id')
+    min_xy, max_xy = geometry_bound(area_geometry)
+    req_dict = safe_dict(req_object, 'view_left', 'view_top', 'scale', 'assembly_id', 'id')
     svg = shapely_polygon_to_svg(area_geometry, req_dict)
     replace_hashes = [replace_slice.hash_value for replace_slice in replace_slices]
     replace_hashes.append(str(req_dict['id']))
+
+    scale = float(req_dict['scale'])
+
+    left = (min_xy[0] - float(req_dict['view_left'])) * scale
+    top = (min_xy[1] - float(req_dict['view_top'])) * scale
 
     return HttpResponse(json.dumps({'id': slice.hash_value,
                                     'svg': svg,
                                     'replace_ids': replace_hashes,
                                     'view_props': {'color': view_props.color, 'opacity': view_props.opacity},
-                                    'section': slice.section}))
+                                    'section': slice.section,
+                                    'left': left,
+                                    'top': top}))
 
 
 def geometry_hash(area_geometry):
@@ -1120,13 +1135,17 @@ def geometry_hash(area_geometry):
     for interior in area_geometry.interiors:
         for xy in zip(interior.xy[0], interior.xy[1]):
             h = 37 * 37 * h + 37 * hash(xy[0]) + hash(xy[1])
+    # 48112959837082048697 is a 20-digit prime number.
+    h %= 48112959837082048697
     return str(h)
 
-def create_slice(area_geometry, assembly, stack, section):
+def create_slice(area_geometry, assembly, stack, project, section):
     xy_min, xy_max = geometry_bound(area_geometry)
     x, y = slice_field_from_geometry(area_geometry)
+
     slice = Slice(user=assembly.user,
                   stack=stack,
+                  project=project,
                   assembly=assembly,
                   hash_value=geometry_hash(area_geometry),
                   section=section,
@@ -1134,8 +1153,8 @@ def create_slice(area_geometry, assembly, stack, section):
                   min_y=xy_min[1],
                   max_x=xy_max[0],
                   max_y=xy_max[1],
-                  ctr_x = area_geometry.centroid.xy[0],
-                  ctr_y = area_geometry.centroid.xy[1],
+                  ctr_x = area_geometry.centroid.xy[0][0],
+                  ctr_y = area_geometry.centroid.xy[1][0],
                   value=0,
                   shape_x=map(int, x),
                   shape_y=map(int, y),
@@ -1144,23 +1163,26 @@ def create_slice(area_geometry, assembly, stack, section):
 
 def user_insert_slice(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
+    p = get_object_or_404(Project, pk=project_id)
     try:
         try:
-            default_assembly = Assembly.objects.get(pk=0)
+            default_assembly = Assembly.objects.get(pk=1)
         except Assembly.DoesNotExist:
             u = User.objects.get(id=1)
             default_assembly = Assembly(user=u, assembly_type='neuron', name='default neuron')
-        print request.POST
+            default_assembly.save()
         section = int(request.POST.get('section'))
-        assembly_id = request.POST.get('assembly')
+        assembly_id = int(request.POST.get('assembly_id'))
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.POST)
         ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
 
+        print 'found', len(ovlp_slices), 'overlapping slices'
+
         if len(ovlp_slices) > 0:
             slice = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
         else:
-            slice = create_slice(area_geometry, assembly, s, section)
+            slice = create_slice(area_geometry, assembly, s, p, section)
         slice.save()
         return slice_client_response(slice, area_geometry, ovlp_slices, request.POST)
     except:
@@ -1182,17 +1204,6 @@ def path_to_svg(xy):
 
     return svg_str
 
-def transform_volume_pts(t, w, s, x):
-    """
-    Convenience function to convert stack coordinates to view coordinates
-
-    t - translation
-    w - view length (width or height)
-    s - scale
-    x - array of points to translate
-    """
-    return [(s * (y - t) + w/2) for y in x]
-
 def transform_shapely_xy(p, xy):
     """
     Converts a shapely-style point from stack coordinates to view coordinates
@@ -1200,8 +1211,9 @@ def transform_shapely_xy(p, xy):
     p - request_object containing data for xtrans, ytrans, wview, hview and scale.
     xy - points, as returned for instance by Polygon.exterior.xy
     """
-    xtr = transform_volume_pts(p['xtrans'], p['wview'], p['scale'], xy[0])
-    ytr = transform_volume_pts(p['ytrans'], p['hview'], p['scale'], xy[1])
+    scale = float(p['scale'])
+    xtr = [(x - p['left']) * scale for x in xy[0]]
+    ytr = [(y - p['top']) * scale for y in xy[1]]
     return [xtr, ytr]
 
 def shapely_polygon_to_svg(polygon, p):
@@ -1220,6 +1232,8 @@ def shapely_polygon_to_svg(polygon, p):
 		<path d="{}" fill-rule="evenodd"/>\
 	</g>\
 </svg>'
+    p['left'] = polygon.bounds[0]
+    p['top'] = polygon.bounds[1]
     exy = transform_shapely_xy(p, polygon.exterior.xy)
     svg_str = path_to_svg(exy)
     for interior in polygon.interiors:
