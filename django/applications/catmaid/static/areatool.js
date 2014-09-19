@@ -21,6 +21,12 @@ var AreaServerModel = new function()
         var view_top = stack.screenPosition().top;
         var view_left = stack.screenPosition().left;
         var scale = stack.scale;
+        var url = '/user_slice';
+        var bound_rect = obj.getBoundingRect();
+        var o_left = bound_rect.left / scale + view_left;
+        var o_top = bound_rect.top / scale + view_top;
+
+
 
         for (var i = 0; i < obj.path.length; ++i)
         {
@@ -28,16 +34,14 @@ var AreaServerModel = new function()
             y.push(obj.path[i][2] / scale);
         }
 
-        url = '/user_slice';
-
         var data = {'r' : tool.width / (2.0 * scale), //r, x, y in stack coordinates
             'x' : x,
             'y' : y,
             'section' : stack.z,
             'id' : object_container.id,
             'assembly_id' : 1,
-            'left': obj.left / scale + view_left,
-            'top': obj.top / scale + view_top,
+            'left': o_left,
+            'top': o_top,
             'scale' : scale,
             'view_left': view_left,
             'view_top' : view_top
@@ -214,6 +218,7 @@ function FabricObjectContainer(obj, scale, screenPos, id)
     this.stackTop = y_o / scale + y_s;
     this.originalScale = scale;
     this.id = id;
+
 }
 
 /**

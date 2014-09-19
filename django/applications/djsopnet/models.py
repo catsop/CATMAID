@@ -45,6 +45,14 @@ class Slice(UserFocusedModel):
 
     size = models.IntegerField(db_index=True)
 
+class SliceHole(models.Model):
+    shape_x = IntegerArrayField()
+    shape_y = IntegerArrayField()
+
+class SliceHoleRelation(models.Model):
+    external = models.ForeignKey(Slice)
+    internal = models.ForeignKey(SliceHole)
+
 class Segment(UserFocusedModel):
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)

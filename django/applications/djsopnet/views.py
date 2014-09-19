@@ -955,18 +955,15 @@ def parse_area_geometry(req_object):
 
     return polygon
 
+def delete_slice(slice):
+    slice.delete()
 
 def geometry_bound(area_geometry):
     """
     Returns the lower-left and upper-right coordinates corresponding to the bounding box around the given area geometry.
     area_geometry is of the type returned by parse_area_geometry. As of this writing, this is a shapely polygon.
     """
-    xy = area_geometry.exterior.xy
-    min_x = min(xy[0])
-    min_y = min(xy[1])
-    max_x = max(xy[0])
-    max_y = max(xy[1])
-    return (min_x, min_y), (max_x, max_y)
+    return (area_geometry.bounds[0], area_geometry.bounds[1]), (area_geometry.bounds[2], area_geometry.bounds[3])
 
 def slice_merge_geometry(slices, slices_geometry, merge_geometry):
     """
@@ -985,9 +982,9 @@ def slice_merge_geometry(slices, slices_geometry, merge_geometry):
         union_geometry, slices[0].assembly, slices[0].stack, slices[0].project, slices[0].section)
 
     for slice in slices:
-        slice.delete()
+        delete_slice(slice)
 
-    return merge_slice
+    return merge_slice, union_geometry
 
 def slices_by_overlap_and_assembly(area_geometry, assembly, section, stack):
     """
@@ -1012,20 +1009,14 @@ def slices_by_overlap_and_assembly(area_geometry, assembly, section, stack):
 
     return ovlp_slices, ovlp_geometry
 
-def slice_field_from_geometry(area_geometry):
+def slice_field_from_geometry(shapely_ring):
     """
     Returns data used to populate the geometry in a Slice object.
     Presently, this function creates an x- and y-array pair, with internal polygon coordinates separated by -1. See the
     comments in geometry_from_slice for more info.
     """
-    x = area_geometry.exterior.xy[0]
-    y = area_geometry.exterior.xy[1]
-
-    for interior in area_geometry.interiors:
-        x.append(-1.0)
-        y.append(-1.0)
-        x.extend(interior.xy[0])
-        y.extend(interior.xy[1])
+    x = shapely_ring.xy[0]
+    y = shapely_ring.xy[1]
 
     return list(x), list(y)
 
@@ -1034,59 +1025,24 @@ def geometry_from_slice(slice):
     Returns a the geometry representation corresponding to a given Slice.
     At present, this function creates a shapely Polygon
 
-    Internal polygons representing holes are separated by -1 with the external hull coming first, like
-
-    x: [ 0 10 10  0]
-    y: [ 0  0 10 10], for a 10x10 square with no holes, or
-
-    x: [ 0 10 10  0 -1 4 6 6 4]
-    y: [ 0  0 10 10 -1 4 4 6 6], for a 10x10 square with a 2x2 hole in the center of it.
+    Internal polygons representing holes are stored in a SliceHole object, and are related to Slices by a
+    SliceHoleRelation
     """
     # float version of poly coordinates
     x = map(float, slice.shape_x)
     y = map(float, slice.shape_y)
 
-    # current x, y queue
-    xq = []
-    yq = []
-
-    # external coordinates
-    ext_xy = []
-
-    # list of internal coordinates
+    ext_xy = zip(x, y)
     int_xys = []
 
-    # internal function to populate ext_x, ext_y
-    def ext_fun(a_xq, a_yq):
-        ext_xy.extend(zip(a_xq, a_yq))
+    holes = [shr.internal for shr in SliceHoleRelation.objects.filter(external=slice)]
 
-    # internal function to populate int_xs, int_ys
-    def int_fun(a_xq, a_yq):
-        int_xy = zip(a_xq, a_yq)
+    for hole in holes:
+        int_xy = zip(map(float, hole.shape_x), map(float, hole.shape_y))
         # ensure that int_xy is cw, representing a negative space
         if LinearRing(int_xy).is_ccw:
             int_xy.reverse()
         int_xys.append(int_xy)
-
-    queue_fun = ext_fun
-
-    # If this turns out to be a bottleneck, try snipping out sub-arrays.
-    #
-    # Really, it would be best to optimize the storage structure in Slice, but this probably isn't a permanent
-    # persistence solution, anyhow.
-    for i in range(len(x)):
-        if x[i] < 0:
-            if y[i] >= 0:
-                raise ValueError('x and y lists were not synchronized')
-            queue_fun(xq, yq)
-            queue_fun = int_fun
-            xq = []
-            yq = []
-        else:
-            xq.append(x[i])
-            yq.append(y[i])
-    # x, y should not necessarily end in -1. Run queue_fun one last time to pick up the last run.
-    queue_fun(xq, yq)
 
     return Polygon(ext_xy, int_xys)
 
@@ -1113,6 +1069,10 @@ def slice_client_response(slice, area_geometry, replace_slices, req_object):
 
     left = (min_xy[0] - float(req_dict['view_left'])) * scale
     top = (min_xy[1] - float(req_dict['view_top'])) * scale
+
+    #f = open('/home/larry/bla.svg', 'w')
+    #f.write(svg)
+    #f.close()
 
     return HttpResponse(json.dumps({'id': slice.hash_value,
                                     'svg': svg,
@@ -1141,7 +1101,7 @@ def geometry_hash(area_geometry):
 
 def create_slice(area_geometry, assembly, stack, project, section):
     xy_min, xy_max = geometry_bound(area_geometry)
-    x, y = slice_field_from_geometry(area_geometry)
+    x, y = slice_field_from_geometry(area_geometry.exterior)
 
     slice = Slice(user=assembly.user,
                   stack=stack,
@@ -1159,6 +1119,16 @@ def create_slice(area_geometry, assembly, stack, project, section):
                   shape_x=map(int, x),
                   shape_y=map(int, y),
                   size=area_geometry.area)
+    slice.save()
+
+    for interior in area_geometry.interiors:
+        x, y = slice_field_from_geometry(interior)
+        hole = SliceHole(shape_x=map(int, x), shape_y=map(int, y))
+        hole.save()
+
+        hole_relation = SliceHoleRelation(external=slice, internal=hole)
+        hole_relation.save()
+
     return slice
 
 def user_insert_slice(request, project_id=None, stack_id=None):
@@ -1166,24 +1136,22 @@ def user_insert_slice(request, project_id=None, stack_id=None):
     p = get_object_or_404(Project, pk=project_id)
     try:
         try:
-            default_assembly = Assembly.objects.get(pk=1)
+            Assembly.objects.get(pk=1)
         except Assembly.DoesNotExist:
             u = User.objects.get(id=1)
             default_assembly = Assembly(user=u, assembly_type='neuron', name='default neuron')
             default_assembly.save()
+
         section = int(request.POST.get('section'))
         assembly_id = int(request.POST.get('assembly_id'))
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.POST)
         ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
 
-        print 'found', len(ovlp_slices), 'overlapping slices'
-
         if len(ovlp_slices) > 0:
-            slice = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
+            slice, area_geometry = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
         else:
             slice = create_slice(area_geometry, assembly, s, p, section)
-        slice.save()
         return slice_client_response(slice, area_geometry, ovlp_slices, request.POST)
     except:
         return error_response()
