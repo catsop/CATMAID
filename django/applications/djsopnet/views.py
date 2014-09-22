@@ -1156,6 +1156,9 @@ def user_insert_slice(request, project_id=None, stack_id=None):
     except:
         return error_response()
 
+def user_retrieve_slices_by_bound(request, project_id=None, stack_id=None):
+    pass
+
 # --- shapely-representation-specific code ---
 
 def path_to_svg(xy):
