@@ -1046,7 +1046,7 @@ def geometry_from_slice(slice):
 
     return Polygon(ext_xy, int_xys)
 
-def slice_client_response(slice, area_geometry, replace_slices, req_object):
+def slice_client_response(slice, area_geometry, replace_hashes, req_object):
     """
     Returns a response suitable for transmission to the client.
     Currently, this is a JSON representation of an SVG polygon path.
@@ -1062,7 +1062,8 @@ def slice_client_response(slice, area_geometry, replace_slices, req_object):
     min_xy, max_xy = geometry_bound(area_geometry)
     req_dict = safe_dict(req_object, 'view_left', 'view_top', 'scale', 'assembly_id', 'id')
     svg = shapely_polygon_to_svg(area_geometry, req_dict)
-    replace_hashes = [replace_slice.hash_value for replace_slice in replace_slices]
+    assembly_id = int(req_object.get('assembly_id'))
+
     replace_hashes.append(str(req_dict['id']))
 
     scale = float(req_dict['scale'])
@@ -1075,6 +1076,7 @@ def slice_client_response(slice, area_geometry, replace_slices, req_object):
     #f.close()
 
     return HttpResponse(json.dumps({'id': slice.hash_value,
+                                    'assembly_id': assembly_id,
                                     'svg': svg,
                                     'replace_ids': replace_hashes,
                                     'view_props': {'color': view_props.color, 'opacity': view_props.opacity},
@@ -1147,12 +1149,14 @@ def user_insert_slice(request, project_id=None, stack_id=None):
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.POST)
         ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
+        ovlp_hashes = [ovlp_slice.hash_value for ovlp_slice in ovlp_slices]
 
         if len(ovlp_slices) > 0:
             slice, area_geometry = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
         else:
             slice = create_slice(area_geometry, assembly, s, p, section)
-        return slice_client_response(slice, area_geometry, ovlp_slices, request.POST)
+
+        return slice_client_response(slice, area_geometry, ovlp_hashes, request.POST)
     except:
         return error_response()
 

@@ -39,7 +39,7 @@ var AreaServerModel = new function()
             'y' : y,
             'section' : stack.z,
             'id' : object_container.id,
-            'assembly_id' : 1,
+            'assembly_id' : area.assemblyId,
             'left': o_left,
             'top': o_top,
             'scale' : scale,
@@ -105,13 +105,14 @@ var AreaServerModel = new function()
 
 
 /**
- Area class maintains geometric information
+ Area class maintains geometric information for a given Assembly.
  */
-function Area(name)
+function Area(name, assemblyId)
 {
     this.color = 'rgb(255,0,0)';
     this.opacity = 1;
     this.name = name;
+    this.assemblyId = assemblyId;
 
     var self = this;
 
@@ -178,8 +179,8 @@ function Area(name)
         {
             var obj = objectTable[key];
             var idx = fabricObjects.indexOf(obj);
+            fabricObjects.splice(idx, 1);
             delete objectTable[key];
-            delete fabricObjects[idx];
         }
     };
 
@@ -229,7 +230,7 @@ function AreaTool()
     this.prototype = new Navigator();
     this.toolname = "Area Tracing Tool";
     this.width = 10;
-    this.currentArea = new Area("Dumb Area");
+    this.currentArea = new Area("Dumb Area", 1);
     // Replaced when register() is called
     this.stack = null;
     this.lastPos = null;
@@ -240,6 +241,18 @@ function AreaTool()
     var nextId = 0;
 
     var proto_mouseCatcher = null;
+
+    var areaById = function(id)
+    {
+        for (var idx = 0; idx < areas.length; ++idx)
+        {
+            if (areas[idx].assemblyId == id)
+            {
+                return areas[idx];
+            }
+        }
+        return null;
+    };
 
     this.addAction = function ( action ) {
         actions.push( action );
@@ -298,11 +311,39 @@ function AreaTool()
         }
     };
 
-    this.registerFabricObject = function(obj)
+    var assignObjectToArea = function(obj, areaIn)
     {
+        var area = null;
+        var areaType = typeof areaIn;
+
+        if (areaType == 'undefined')
+        {
+            area = self.currentArea;
+        }
+        else if(areaType == 'object')
+        {
+            area = areaIn;
+        }
+        else if (areaType == 'number')
+        {
+            area = areaById(areaIn);
+        }
+        else
+        {
+            console.log('Unexpected area type');
+        }
+
         var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
             self.stack.screenPosition(), nextId++);
-        self.currentArea.addObjectContainer(objectContainer);
+        area.addObjectContainer(objectContainer);
+
+        return objectContainer;
+    };
+
+    this.registerFabricObject = function(obj, areaIn)
+    {
+        var objectContainer = assignObjectToArea(obj, areaIn);
+
         AreaServerModel.pushTrace(self, self.currentArea, objectContainer);
     };
 
@@ -366,7 +407,7 @@ function AreaTool()
 
     this.register = function(parentStack)
     {
-        g_Area = self;
+        //g_Area = self;
 
         self.stack = parentStack;
 
@@ -375,7 +416,7 @@ function AreaTool()
         $("#edit_button_area").switchClass("button", "button_active", 0);
 
         self.prototype.register( parentStack, "edit_button_area" );
-        proto_mouseCatcher = self.prototype.mouseCatcher;
+        var proto_mouseCatcher = self.prototype.mouseCatcher;
 
         setupSubTools();
         //createCanvasLayer();
@@ -388,14 +429,12 @@ function AreaTool()
     this.unregister = function()
     {
         self.prototype.destroy( "edit_button_area" );
-        return;
     };
 
     this.destroy = function()
     {
         $("#edit_button_area").switchClass("button_active", "button", 0);
         $("#toolbox_area").hide();
-        return;
     };
 
     this.resize = function(height, width)
@@ -446,11 +485,26 @@ function AreaTool()
         {
             console.log(data.djerror);
         }
-
-        if (data.hasOwnProperty('svg'))
+        else
         {
-            console.log(data.svg);
+            var svgCall = function(objects, options)
+            {
+                var obj = fabric.util.groupSVGElements(objects, options);
+                var area = areaById(data.assembly_id);
+
+                assignObjectToArea(obj, area);
+                for (var idx = 0; idx < data.replace_ids.length; ++idx)
+                {
+                    area.removeObject(data.replace_ids[idx]);
+                }
+
+                self.redraw();
+            };
+
+            fabric.loadSVGFromString(data.svg, svgCall);
+
         }
+
     };
 
     /**
