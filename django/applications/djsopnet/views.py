@@ -177,7 +177,15 @@ def setup_blocks(request, project_id = None, stack_id = None):
         coredib = int(request.GET.get('cdepth'))
     except TypeError:
         return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), mimetype='text/json')
+    try:
+        _setup_blocks(project_id, stack_id, width, height, depth,
+                corewib, corehib, coredib)
+    except ValueError as e:
+        return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), mimetype='text/json')
 
+    return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+
+def _setup_blocks(project_id, stack_id, width, height, depth, corewib, corehib, coredib):
     s = get_object_or_404(Stack, pk=stack_id)
     p = get_object_or_404(Project, pk=project_id)
     u = User.objects.get(id=1)
@@ -198,7 +206,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
 
     try:
         info = BlockInfo.objects.get(stack=s)
-        return HttpResponse(json.dumps({'ok': False, 'reason' : 'already setup'}), mimetype='text/json')
+        raise ValueError("alrady setup")
     except BlockInfo.DoesNotExist:
 
         info = BlockInfo(user = u, project = p, stack = s,
@@ -234,8 +242,6 @@ def setup_blocks(request, project_id = None, stack_id = None):
                 core = Core(user=u, project=p, stack=s, min_x = x, min_y = y, min_z = z,
                             max_x = x_ub, max_y = y_ub, max_z = z_ub, solution_set_flag = False)
                 core.save()
-
-    return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
 
 # Query, agnostic to Model class
 def location_query(model, s, request):
