@@ -396,6 +396,7 @@ def get_core_solution_flag(request, project_id = None, stack_id = None):
 def do_insert_slices(stack, project, user, req_dict):
     try:
         n = int(req_dict.get('n'))
+        slices = []
         for i in range(n):
             i_str = str(i)
             section = int(req_dict.get('section_' + i_str))
@@ -422,10 +423,11 @@ def do_insert_slices(stack, project, user, req_dict):
                   min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
                   ctr_x = ctr_x, ctr_y = ctr_y, value = value,
                   shape_x = x, shape_y = y, size = len(x))
-            try:
-                slice.save()
-            except IntegrityError:
-                pass
+            slices.append(slice)
+        try:
+            Slice.objects.bulk_create(slices)
+        except IntegrityError:
+            pass
 
         return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
     except:
