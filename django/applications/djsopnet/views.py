@@ -1118,14 +1118,14 @@ def create_slice(area_geometry, assembly, stack, project, section):
                   ctr_x = area_geometry.centroid.xy[0][0],
                   ctr_y = area_geometry.centroid.xy[1][0],
                   value=0,
-                  shape_x=map(int, x),
-                  shape_y=map(int, y),
+                  shape_x=x,
+                  shape_y=y,
                   size=area_geometry.area)
     slice.save()
 
     for interior in area_geometry.interiors:
         x, y = slice_field_from_geometry(interior)
-        hole = SliceHole(shape_x=map(int, x), shape_y=map(int, y))
+        hole = SliceHole(shape_x=x, shape_y=y)
         hole.save()
 
         hole_relation = SliceHoleRelation(external=slice, internal=hole)

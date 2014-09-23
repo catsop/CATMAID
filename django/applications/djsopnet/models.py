@@ -27,10 +27,10 @@ class Slice(UserFocusedModel):
     section = models.IntegerField(db_index=True)
 
     # bounding box
-    min_x = models.IntegerField(db_index=True)
-    min_y = models.IntegerField(db_index=True)
-    max_x = models.IntegerField(db_index=True)
-    max_y = models.IntegerField(db_index=True)
+    min_x = models.FloatField(db_index=True)
+    min_y = models.FloatField(db_index=True)
+    max_x = models.FloatField(db_index=True)
+    max_y = models.FloatField(db_index=True)
 
     # centroid
     ctr_x = models.FloatField()
@@ -40,14 +40,14 @@ class Slice(UserFocusedModel):
     value = models.FloatField()
 
     # Geometry
-    shape_x = IntegerArrayField()
-    shape_y = IntegerArrayField()
+    shape_x = FloatArrayField()
+    shape_y = FloatArrayField()
 
     size = models.IntegerField(db_index=True)
 
 class SliceHole(models.Model):
-    shape_x = IntegerArrayField()
-    shape_y = IntegerArrayField()
+    shape_x = FloatArrayField()
+    shape_y = FloatArrayField()
 
 class SliceHoleRelation(models.Model):
     external = models.ForeignKey(Slice)
