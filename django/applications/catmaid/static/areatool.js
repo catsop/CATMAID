@@ -8,6 +8,52 @@ var AreaServerModel = new function()
     var areas = [];
     var django_url = '/sopnet/';
 
+    this.fakeATrace = function(tool)
+    {
+        var scale = tool.stack.scale;
+        var screenPosition = tool.stack.screenPosition();
+        var left = (100 - screenPosition.left) * scale;
+        var top = (100 - screenPosition.top) * scale;
+        var obj = new fabric.Rect({left:left, top:top, width:100 * scale, height:100 * scale});
+        tool.assignObjectToArea(obj);
+
+        tool.canvasLayer.canvas.add(obj);
+
+        var project = tool.stack.getProject();
+        var view_top = tool.stack.screenPosition().top;
+        var view_left = tool.stack.screenPosition().left;
+
+        var url = '/user_slice';
+        var bound_rect = obj.getBoundingRect();
+        var o_left = bound_rect.left / scale + view_left;
+        var o_top = bound_rect.top / scale + view_top;
+
+        var x = [0, 0, 100, 100, 0];
+        var y = [0, 100, 100, 0, 0];
+
+        var data = {'r' : 1, //r, x, y in stack coordinates
+            'x' : x,
+            'y' : y,
+            'section' : tool.stack.z,
+            'id' : -1,
+            'assembly_id' : 1,
+            'left': o_left,
+            'top': o_top,
+            'scale' : scale,
+            'view_left': view_left,
+            'view_top' : view_top
+        };
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": django_url + project.id + '/stack/' + tool.stack.id + url,
+            "data": data,
+            "success": tool.pushCallback
+        });
+    };
+
     /**
      Push a new trace (ie, fabricjs object) to the backend.
      */
@@ -26,7 +72,8 @@ var AreaServerModel = new function()
         var o_left = bound_rect.left / scale + view_left;
         var o_top = bound_rect.top / scale + view_top;
 
-
+        console.log('o_left: ' + o_left + ', o_top: ' + o_top);
+        console.log('o_left_c: ' + obj.left + ', o_top_c: ' + obj.top);
 
         for (var i = 0; i < obj.path.length; ++i)
         {
@@ -138,7 +185,7 @@ function Area(name, assemblyId)
 
     this.setColor = function(c)
     {
-        for (var idx = 0; idx < fabricObjects.length; ++i)
+        for (var idx = 0; idx < fabricObjects.length; ++idx)
         {
             fabricObjects[idx].obj.setColor(c);
         }
@@ -153,9 +200,9 @@ function Area(name, assemblyId)
     this.getObjects = function()
     {
         var objects = [];
-        for (var idx = 0; idx < fabricObjects.length; ++i)
+        for (var idx = 0; idx < fabricObjects.length; ++idx)
         {
-            objects.push(fabricObjects[i].obj)
+            objects.push(fabricObjects[idx].obj)
         }
         return objects;
     };
@@ -177,10 +224,16 @@ function Area(name, assemblyId)
     {
         if (objectTable.hasOwnProperty(key))
         {
-            var obj = objectTable[key];
-            var idx = fabricObjects.indexOf(obj);
+            var objectContainer = objectTable[key];
+            var idx = fabricObjects.indexOf(objectContainer);
             fabricObjects.splice(idx, 1);
             delete objectTable[key];
+
+            return objectContainer.obj;
+        }
+        else
+        {
+            return null;
         }
     };
 
@@ -311,8 +364,9 @@ function AreaTool()
         }
     };
 
-    var assignObjectToArea = function(obj, areaIn)
+    this.assignObjectToArea = function(obj, areaIn)
     {
+        // helper function to associate an object to an Area
         var area = null;
         var areaType = typeof areaIn;
 
@@ -340,9 +394,18 @@ function AreaTool()
         return objectContainer;
     };
 
+    /**
+     * Register a fabric.js Object to an Area
+     *
+     * @param obj the fabric.js object to register
+     * @param areaIn the area identifier, one of:
+     *        undefined - use the currentArea of this tool
+     *        object - use this Area object
+     *        number - use the Area with this assembly id
+     */
     this.registerFabricObject = function(obj, areaIn)
     {
-        var objectContainer = assignObjectToArea(obj, areaIn);
+        var objectContainer = self.assignObjectToArea(obj, areaIn);
 
         AreaServerModel.pushTrace(self, self.currentArea, objectContainer);
     };
@@ -407,7 +470,7 @@ function AreaTool()
 
     this.register = function(parentStack)
     {
-        //g_Area = self;
+        g_Area = self;
 
         self.stack = parentStack;
 
@@ -490,15 +553,29 @@ function AreaTool()
             var svgCall = function(objects, options)
             {
                 var obj = fabric.util.groupSVGElements(objects, options);
+                var scale = self.stack.scale;
+                var boundingBox = obj.getBoundingRect();
+                var deltaX = boundingBox.width / (2.0 * scale);
+                var deltaY = boundingBox.height / (2.0 * scale);
                 var area = areaById(data.assembly_id);
+                var objectScreenPosition = {left:data.left + deltaX, top:data.top + deltaY};
+                var objectContainer = new FabricObjectContainer(obj, data.scale,
+                    objectScreenPosition, data.id);
 
-                assignObjectToArea(obj, area);
+                console.log('left: ' + data.left + ', top: ' + data.top);
+
+                obj.setColor(data.view_props.color);
+                obj.setOpacity(data.view_props.color);
+
                 for (var idx = 0; idx < data.replace_ids.length; ++idx)
                 {
-                    area.removeObject(data.replace_ids[idx]);
+                    var rmObj = area.removeObject(data.replace_ids[idx]);
+                    self.canvasLayer.canvas.remove(rmObj);
                 }
 
-                self.redraw();
+                self.canvasLayer.canvas.add(obj);
+                area.addObjectContainer(objectContainer);
+                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
             };
 
             fabric.loadSVGFromString(data.svg, svgCall);
@@ -511,15 +588,15 @@ function AreaTool()
      * This function should return true if there was any action
      * linked to the key code, or false otherwise.
      */
-    /*this.handleKeyPress = function( e )
-     {
-     var keyAction = keyCodeToAction[e.keyCode];
-     if (keyAction) {
-     return keyAction.run(e);
-     } else {
-     return false;
-     }
-     }*/
+    this.handleKeyPress = function( e )
+    {
+        var keyAction = keyCodeToAction[e.keyCode];
+        if (keyAction) {
+            return keyAction.run(e);
+        } else {
+            return false;
+        }
+    };
 
     var keyCodeToAction = getKeyCodeToActionMap(actions);
 }

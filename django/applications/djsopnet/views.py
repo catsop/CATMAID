@@ -1068,8 +1068,11 @@ def slice_client_response(slice, area_geometry, replace_hashes, req_object):
 
     scale = float(req_dict['scale'])
 
-    left = (min_xy[0] - float(req_dict['view_left'])) * scale
-    top = (min_xy[1] - float(req_dict['view_top'])) * scale
+    #left = (min_xy[0] - float(req_dict['view_left'])) * scale
+    #top = (min_xy[1] - float(req_dict['view_top'])) * scale
+
+    left = min_xy[0] * scale
+    top = min_xy[1] * scale
 
     #f = open('/home/larry/bla.svg', 'w')
     #f.write(svg)
@@ -1082,7 +1085,8 @@ def slice_client_response(slice, area_geometry, replace_hashes, req_object):
                                     'view_props': {'color': view_props.color, 'opacity': view_props.opacity},
                                     'section': slice.section,
                                     'left': left,
-                                    'top': top}))
+                                    'top': top,
+                                    'scale' : scale}))
 
 
 def geometry_hash(area_geometry):
@@ -1189,6 +1193,8 @@ def transform_shapely_xy(p, xy):
     scale = float(p['scale'])
     xtr = [(x - p['left']) * scale for x in xy[0]]
     ytr = [(y - p['top']) * scale for y in xy[1]]
+    #xtr = [x * scale for x in xy[0]]
+    #ytr = [y * scale for y in xy[1]]
     return [xtr, ytr]
 
 def shapely_polygon_to_svg(polygon, p):
