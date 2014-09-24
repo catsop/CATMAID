@@ -61,7 +61,7 @@ class SopnetTest(object):
 		else:
 			raise ValueError("Please specify either %s in your "
 					"settings or initialize SopnetTest "
-					"with the appropriate parameters.")
+					"with the appropriate parameters." % name)
 
 	def __init__(self, project_id=None, raw_stack_id=None, membrane_stack_id=None,
 			block_width=None, block_height=None, block_depth=None,
