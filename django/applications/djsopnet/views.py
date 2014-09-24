@@ -399,35 +399,27 @@ def do_insert_slices(stack, project, user, req_dict):
         slices = []
         for i in range(n):
             i_str = str(i)
-            section = int(req_dict.get('section_' + i_str))
-            hash_value = req_dict.get('hash_' + i_str)
-            ctr_x = float(req_dict.get('cx_' + i_str))
-            ctr_y = float(req_dict.get('cy_' + i_str))
-            xlist = req_dict.get('x_' + i_str)
-            ylist = req_dict.get('y_' + i_str)
-            x = [int(xstr) for xstr in xlist.split(',')]
-            y = [int(ystr) for ystr in ylist.split(',')]
-            value = float(req_dict.get('value_' + i_str))
-            if x and y and len(x) > 0 and len(y) > 0:
-                min_x = min(x)
-                min_y = min(y)
-                max_x = max(x)
-                max_y = max(y)
-            else:
-                min_x = -1
-                min_y = -1
-                max_x = -1
-                max_y = -1
+            section = int(req_dict['section_' + i_str])
+            hash_value = req_dict['hash_' + i_str]
+            ctr_x = float(req_dict['cx_' + i_str])
+            ctr_y = float(req_dict['cy_' + i_str])
+            value = float(req_dict['value_' + i_str])
+            min_x = float(req_dict['minx_' + i_str])
+            min_y = float(req_dict['miny_' + i_str])
+            max_x = float(req_dict['maxx_' + i_str])
+            max_y = float(req_dict['maxy_' + i_str])
+            size = int(req_dict['size_' + i_str])
             slice = Slice(project = project, stack = stack, user = user,
                   assembly = None, hash_value = hash_value, section = section,
                   min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
                   ctr_x = ctr_x, ctr_y = ctr_y, value = value,
-                  shape_x = x, shape_y = y, size = len(x))
-            slices.append(slice)
-        try:
-            Slice.objects.bulk_create(slices)
-        except IntegrityError:
-            pass
+                  shape_x = [], shape_y = [], size = size)
+            try:
+                slice.save()
+            except IntegretryError:
+                # An IntegretryError is raised if a slice already exists. This can happen
+                # during normal operation.
+                pass
 
         return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
     except:
