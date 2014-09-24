@@ -66,7 +66,7 @@ class SopnetTest(object):
 	def __init__(self, project_id=None, raw_stack_id=None, membrane_stack_id=None,
 			block_width=None, block_height=None, block_depth=None,
 			core_width=None, core_height=None, core_depth=None,
-			catmaid_host=None, loglevel=None):
+			catmaid_host=None, component_dir=None, loglevel=None):
 		self.project_id = self.param("SOPNET_PROJECT_ID", project_id)
 		self.membrane_stack_id = self.param("SOPNET_MEMBRANE_STACK_ID",
 				membrane_stack_id)
@@ -78,6 +78,7 @@ class SopnetTest(object):
 		self.core_height = self.param("SOPNET_CORE_HEIGHT", core_height)
 		self.core_depth = self.param("SOPNET_CORE_DEPTH", core_depth)
 		self.catmaid_host = self.param("SOPNET_CATMAID_HOST", catmaid_host)
+		self.component_dir = self.param("SOPNET_COMPONENT_DIR", component_dir)
 		self.loglevel = self.param("SOPNET_LOGLEVEL", loglevel)
 
 	def log(self, msg):
@@ -116,5 +117,6 @@ class SopnetTest(object):
 		conf.setCatmaidRawStackId(self.raw_stack_id)
 		conf.setCatmaidMembraneStackId(self.membrane_stack_id)
 		conf.setCatmaidHost(self.catmaid_host)
+		conf.setComponentDirectory(self.component_dir)
 
 		return conf
