@@ -171,5 +171,18 @@ class BlockConflictRelation(models.Model):
     block = models.ForeignKey(Block)
     conflict = models.ForeignKey(SliceConflictSet)
 
+<<<<<<< HEAD
     class Meta:
         unique_together = ('block', 'conflict')
+=======
+class Constraint(UserFocusedModel):
+    pass
+
+class BlockConstraintRelation(models.Model):
+    constraint = models.ForeignKey(Constraint)
+    block = models.ForeignKey(Block)
+
+class ConstraintSegmentRelation(models.Model):
+    constraint = models.ForeignKey(Constraint)
+    segment = models.ForeignKey(Segment)
+>>>>>>> Add user constraint models and view (WIP)

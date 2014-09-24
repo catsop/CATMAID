@@ -4,6 +4,7 @@ import sys
 from django.http import HttpResponse
 
 from django.shortcuts import get_object_or_404
+from django.db import connection
 from django.db import IntegrityError
 from django.conf import settings
 
@@ -905,6 +906,24 @@ def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
         block_ids = [block.id for block in blocks]
 
         return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
+    except:
+        return error_response()
+
+def retrieve_user_constraints_by_blocks(request, project_id = None, stack_id = None):
+    try:
+        block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
+        cursor = connection.cursor()
+        cursor.execute('''
+            SELECT csr.constraint_id, array_agg(csr.segment_id) as segment_ids
+            FROM djsopnet_blockconstraintrelation bcr
+            JOIN djsopnet_constraintsegmentrelation csr
+                ON bcr.constraint_id = csr.constraint_id
+            WHERE bcr.block_id IN (%s)
+            GROUP BY csr.constraint_id
+            ''' % ','.join(map(str, block_ids)))
+        constraints = cursor.fetchall()
+
+        return HttpResponse(json.dumps({'ok' : True, 'constraints' : constraints}), mimetype = 'text/json')
     except:
         return error_response()
 
