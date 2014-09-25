@@ -682,9 +682,7 @@ def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
     try:
         block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
         blocks = Block.objects.filter(stack=s, id__in=block_ids)
-
-        segment_block_relations = SegmentBlockRelation.objects.filter(block__in = blocks)
-        segments = {sbr.segment for sbr in segment_block_relations}
+        segments = Segment.objects.filter(segmentblockrelation__block_id__in=block_ids)
 
         return generate_segments_response(segments)
     except:
