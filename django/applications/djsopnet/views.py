@@ -1060,7 +1060,7 @@ def slice_client_response(slice, area_geometry, replace_hashes, req_object):
         view_props.save()
 
     min_xy, max_xy = geometry_bound(area_geometry)
-    req_dict = safe_dict(req_object, 'view_left', 'view_top', 'scale', 'assembly_id', 'id')
+    req_dict = safe_dict(req_object, 'view_left', 'view_top', 'scale', 'assembly_id', 'id', 'r')
     svg = shapely_polygon_to_svg(area_geometry, req_dict)
     assembly_id = int(req_object.get('assembly_id'))
 
@@ -1068,25 +1068,13 @@ def slice_client_response(slice, area_geometry, replace_hashes, req_object):
 
     scale = float(req_dict['scale'])
 
-    #left = (min_xy[0] - float(req_dict['view_left'])) * scale
-    #top = (min_xy[1] - float(req_dict['view_top'])) * scale
-
-    left = min_xy[0] * scale
-    top = min_xy[1] * scale
-
-    #f = open('/home/larry/bla.svg', 'w')
-    #f.write(svg)
-    #f.close()
-
     return HttpResponse(json.dumps({'id': slice.hash_value,
                                     'assembly_id': assembly_id,
                                     'svg': svg,
                                     'replace_ids': replace_hashes,
                                     'view_props': {'color': view_props.color, 'opacity': view_props.opacity},
                                     'section': slice.section,
-                                    'left': left,
-                                    'top': top,
-                                    'scale' : scale}))
+                                    'offset': float(req_dict['r'])}))
 
 
 def geometry_hash(area_geometry):
@@ -1183,20 +1171,6 @@ def path_to_svg(xy):
 
     return svg_str
 
-def transform_shapely_xy(p, xy):
-    """
-    Converts a shapely-style point from stack coordinates to view coordinates
-
-    p - request_object containing data for xtrans, ytrans, wview, hview and scale.
-    xy - points, as returned for instance by Polygon.exterior.xy
-    """
-    scale = float(p['scale'])
-    xtr = [(x - p['left']) * scale for x in xy[0]]
-    ytr = [(y - p['top']) * scale for y in xy[1]]
-    #xtr = [x * scale for x in xy[0]]
-    #ytr = [y * scale for y in xy[1]]
-    return [xtr, ytr]
-
 def shapely_polygon_to_svg(polygon, p):
     """
     Returns a complete XML-SVG representation of a shapely polygon. The polygon is assumed to store
@@ -1215,11 +1189,9 @@ def shapely_polygon_to_svg(polygon, p):
 </svg>'
     p['left'] = polygon.bounds[0]
     p['top'] = polygon.bounds[1]
-    exy = transform_shapely_xy(p, polygon.exterior.xy)
-    svg_str = path_to_svg(exy)
+    svg_str = path_to_svg(polygon.exterior.xy)
     for interior in polygon.interiors:
-        ixy = transform_shapely_xy(p, interior.xy)
-        svg_str = ' '.join([svg_str, path_to_svg(ixy)])
+        svg_str = ' '.join([svg_str, path_to_svg(interior.xy)])
     return svg_template.format(svg_str)
 
 # --- convenience code for debug purposes ---

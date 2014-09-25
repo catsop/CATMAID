@@ -7,53 +7,7 @@ var AreaServerModel = new function()
     var areaTools = [];
     var areas = [];
     var django_url = '/sopnet/';
-
-    this.fakeATrace = function(tool)
-    {
-        var scale = tool.stack.scale;
-        var screenPosition = tool.stack.screenPosition();
-        var left = (100 - screenPosition.left) * scale;
-        var top = (100 - screenPosition.top) * scale;
-        var obj = new fabric.Rect({left:left, top:top, width:100 * scale, height:100 * scale});
-        tool.assignObjectToArea(obj);
-
-        tool.canvasLayer.canvas.add(obj);
-
-        var project = tool.stack.getProject();
-        var view_top = tool.stack.screenPosition().top;
-        var view_left = tool.stack.screenPosition().left;
-
-        var url = '/user_slice';
-        var bound_rect = obj.getBoundingRect();
-        var o_left = bound_rect.left / scale + view_left;
-        var o_top = bound_rect.top / scale + view_top;
-
-        var x = [0, 0, 100, 100, 0];
-        var y = [0, 100, 100, 0, 0];
-
-        var data = {'r' : 1, //r, x, y in stack coordinates
-            'x' : x,
-            'y' : y,
-            'section' : tool.stack.z,
-            'id' : -1,
-            'assembly_id' : 1,
-            'left': o_left,
-            'top': o_top,
-            'scale' : scale,
-            'view_left': view_left,
-            'view_top' : view_top
-        };
-
-        $.ajax({
-            "dataType": 'json',
-            "type": 'POST',
-            "cache": false,
-            "url": django_url + project.id + '/stack/' + tool.stack.id + url,
-            "data": data,
-            "success": tool.pushCallback
-        });
-    };
-
+    
     /**
      Push a new trace (ie, fabricjs object) to the backend.
      */
@@ -61,6 +15,7 @@ var AreaServerModel = new function()
     {
         var x = [];
         var y = [];
+        var pts = [];
         var obj = object_container.obj;
         var stack = tool.stack;
         var project = stack.getProject();
@@ -79,6 +34,7 @@ var AreaServerModel = new function()
         {
             x.push(obj.path[i][1] / scale);
             y.push(obj.path[i][2] / scale);
+            pts.push({x: obj.path[i][1], y: obj.path[i][2]});
         }
 
         var data = {'r' : tool.width / (2.0 * scale), //r, x, y in stack coordinates
@@ -364,11 +320,9 @@ function AreaTool()
         }
     };
 
-    this.assignObjectToArea = function(obj, areaIn)
+    this.getArea = function(areaIdentifier)
     {
-        // helper function to associate an object to an Area
-        var area = null;
-        var areaType = typeof areaIn;
+        var areaType = typeof areaIdentifier;
 
         if (areaType == 'undefined')
         {
@@ -376,20 +330,50 @@ function AreaTool()
         }
         else if(areaType == 'object')
         {
-            area = areaIn;
+            area = areaIdentifier;
         }
         else if (areaType == 'number')
         {
-            area = areaById(areaIn);
+            area = areaById(areaIdentifier);
         }
         else
         {
             console.log('Unexpected area type');
         }
 
-        var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
-            self.stack.screenPosition(), nextId++);
+        return area;
+    };
+
+    this.registerDeserializedFabricObject = function(obj, areaIn, id, scaleIn,
+                                                     screenRelativePositionIn)
+    {
+        var area = self.getArea(areaIn);
+        var scale = 1.0;
+        var screenRelativePosition = null;
+
+        obj.setOriginX('center');
+        obj.setOriginY('center');
+
+        if (typeof scaleIn != 'undefined')
+        {
+            scale = scaleIn;
+        }
+
+        if (typeof screenRelativePositionIn == 'undefined')
+        {
+            screenRelativePosition = {left: 0, top: 0};
+        }
+        else
+        {
+            screenRelativePosition = screenRelativePositionIn;
+        }
+
+        var objectContainer = new FabricObjectContainer(obj, scale, screenRelativePosition, id);
         area.addObjectContainer(objectContainer);
+
+        area.updatePosition(self.stack.screenPosition(), self.stack.scale);
+
+        self.canvasLayer.canvas.renderAll();
 
         return objectContainer;
     };
@@ -403,9 +387,13 @@ function AreaTool()
      *        object - use this Area object
      *        number - use the Area with this assembly id
      */
-    this.registerFabricObject = function(obj, areaIn)
+    this.registerFreshFabricObject = function(obj, areaIn)
     {
-        var objectContainer = self.assignObjectToArea(obj, areaIn);
+        var area = self.getArea(areaIn);
+        var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
+            self.stack.screenPosition(), nextId++);
+
+        area.addObjectContainer(objectContainer);
 
         AreaServerModel.pushTrace(self, self.currentArea, objectContainer);
     };
@@ -442,7 +430,7 @@ function AreaTool()
         canvas.on('path:created', function(e){
             if (self.currentArea)
             {
-                self.registerFabricObject(e.path);
+                self.registerFreshFabricObject(e.path);
             }
         });
 
@@ -512,9 +500,9 @@ function AreaTool()
         self.lastZ = currentZ();
     };
 
-    this.redraw = function() {
+    this.redraw = function(force) {
 
-        if (self.lastPos)
+        if (self.lastPos || force)
         {
             self.cacheScreenParameters();
 
@@ -553,33 +541,26 @@ function AreaTool()
             var svgCall = function(objects, options)
             {
                 var obj = fabric.util.groupSVGElements(objects, options);
-                var scale = self.stack.scale;
-                var boundingBox = obj.getBoundingRect();
-                var deltaX = boundingBox.width / (2.0 * scale);
-                var deltaY = boundingBox.height / (2.0 * scale);
-                var area = areaById(data.assembly_id);
-                var objectScreenPosition = {left:data.left + deltaX, top:data.top + deltaY};
-                var objectContainer = new FabricObjectContainer(obj, data.scale,
-                    objectScreenPosition, data.id);
-
-                console.log('left: ' + data.left + ', top: ' + data.top);
+                var area = self.getArea(data.assembly_id);
 
                 obj.setColor(data.view_props.color);
                 obj.setOpacity(data.view_props.color);
+
+                var offsetPosition = {left: data.offset, top: data.offset};
+
+                self.registerDeserializedFabricObject(obj, area, data.id, 1, offsetPosition);
+                self.canvasLayer.canvas.add(obj);
+
+                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
 
                 for (var idx = 0; idx < data.replace_ids.length; ++idx)
                 {
                     var rmObj = area.removeObject(data.replace_ids[idx]);
                     self.canvasLayer.canvas.remove(rmObj);
                 }
-
-                self.canvasLayer.canvas.add(obj);
-                area.addObjectContainer(objectContainer);
-                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
             };
 
             fabric.loadSVGFromString(data.svg, svgCall);
-
         }
 
     };
