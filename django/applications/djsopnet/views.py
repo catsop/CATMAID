@@ -988,6 +988,12 @@ def _clear_djsopnet(project_id = None, stack_id = None, delete_slices=True,
         Core.objects.filter(stack = s).delete()
         BlockInfo.objects.filter(stack = s).delete()
 
+    if delete_slices:
+        Block.objects.filter(stack=s).update(slices_flag=False)
+
+    if delete_segments:
+        Block.objects.filter(stack=s).update(segments_flag=False)
+
 def get_task_list(request):
     """ Retrieves a list of all tasks that are currently processed.
     """
