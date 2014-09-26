@@ -1061,7 +1061,7 @@ def slice_client_response(slice, area_geometry, replace_hashes, req_object):
 
     min_xy, max_xy = geometry_bound(area_geometry)
     req_dict = safe_dict(req_object, 'view_left', 'view_top', 'scale', 'assembly_id', 'id', 'r')
-    svg = shapely_polygon_to_svg(area_geometry, req_dict)
+    svg = shapely_polygon_to_svg(area_geometry)
     assembly_id = int(req_object.get('assembly_id'))
 
     replace_hashes.append(str(req_dict['id']))
@@ -1152,6 +1152,14 @@ def user_insert_slice(request, project_id=None, stack_id=None):
     except:
         return error_response()
 
+def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None):
+    #stack = get_object_or_404(Stack, pk=stack_id)
+    #project = get_object_or_404(Project, pk=project_id)
+    slice = get_object_or_404(Slice, pk=slice_id)
+    area_geometry = geometry_from_slice(slice)
+    svg = shapely_polygon_to_svg(area_geometry)
+    return HttpResponse(svg, mimetype='image/svg+xml')
+
 def user_retrieve_slices_by_bound(request, project_id=None, stack_id=None):
     pass
 
@@ -1171,7 +1179,7 @@ def path_to_svg(xy):
 
     return svg_str
 
-def shapely_polygon_to_svg(polygon, p):
+def shapely_polygon_to_svg(polygon):
     """
     Returns a complete XML-SVG representation of a shapely polygon. The polygon is assumed to store
     stack coordinates, while the svg will be returned in view coordinates. The front end may draw the
@@ -1187,8 +1195,6 @@ def shapely_polygon_to_svg(polygon, p):
 		<path d="{}" fill-rule="evenodd"/>\
 	</g>\
 </svg>'
-    p['left'] = polygon.bounds[0]
-    p['top'] = polygon.bounds[1]
     svg_str = path_to_svg(polygon.exterior.xy)
     for interior in polygon.interiors:
         svg_str = ' '.join([svg_str, path_to_svg(interior.xy)])

@@ -7,7 +7,7 @@ var AreaServerModel = new function()
     var areaTools = [];
     var areas = [];
     var django_url = '/sopnet/';
-    
+
     /**
      Push a new trace (ie, fabricjs object) to the backend.
      */
@@ -27,8 +27,9 @@ var AreaServerModel = new function()
         var o_left = bound_rect.left / scale + view_left;
         var o_top = bound_rect.top / scale + view_top;
 
-        console.log('o_left: ' + o_left + ', o_top: ' + o_top);
-        console.log('o_left_c: ' + obj.left + ', o_top_c: ' + obj.top);
+        /*console.log('o_left: ' + o_left + ', o_top: ' + o_top);
+        console.log('o_left_c: ' + obj.left + ', o_top_c: ' + obj.top);*/
+
 
         for (var i = 0; i < obj.path.length; ++i)
         {
@@ -500,9 +501,9 @@ function AreaTool()
         self.lastZ = currentZ();
     };
 
-    this.redraw = function(force) {
+    this.redraw = function() {
 
-        if (self.lastPos || force)
+        if (self.lastPos)
         {
             self.cacheScreenParameters();
 
@@ -560,7 +561,11 @@ function AreaTool()
                 }
             };
 
-            fabric.loadSVGFromString(data.svg, svgCall);
+            var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
+                '/polygon_slice/' + data.id + '.svg';
+
+            //fabric.loadSVGFromString(data.svg, svgCall);
+            fabric.loadSVGFromURL(sliceUrl, svgCall);
         }
 
     };
