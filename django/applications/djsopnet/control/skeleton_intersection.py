@@ -1,7 +1,7 @@
 from django.shortcuts import get_object_or_404
 
 from catmaid.models import Treenode, Stack, Project, User, ProjectStack
-from djsopnet.models import Slice, Segment
+from djsopnet.models import Slice, Segment, Constraint, ConstraintSegmentRelation
 import networkx as nx
 
 project_id=1
@@ -128,7 +128,7 @@ if len( skeleton_graph.successors( root_node_id ) ) != 1:
 	raise Exception('Skeleton graph root node requires to have only one continuation node in another section!')
 
 graph_traversal_nodes = [ super_graph_root_node_id ]
-
+all_intersection_segments = []
 for node_id in graph_traversal_nodes:
 	print '----'
 	successors_of_node = super_graph.successors( node_id )
@@ -178,7 +178,22 @@ for node_id in graph_traversal_nodes:
 		# create new user constraint for this set of segments
 		graph_traversal_nodes.append( successors_of_node[0] )
 
-	print 'intersection segments', intersection_segments
+	# print 'intersection segments', intersection_segments
+	all_intersection_segments.append( (node_id, intersection_segments) )
+
+def _generate_user_constraint_from_intersection_segments( skeletonid, super_graph, all_intersection_segments ):
+	for node_id, intersection_segments in all_intersection_segments:
+
+		# create a new constraint
+		constraint = Constraint(user = u, project = p, skeleton = skeletonid, \
+			associated_skeleton_nodes = super_graph.node[node_id]['nodes_in_same_section'] )
+		constraint.save()
+
+		constraint.id
+
+		for segment in intersection_segments:
+			ConstraintSegmentRelation( constraint=constraint,
+				segment = int(segment) )
 
 
 # how to map slices OR segments to blocks for the constraint
