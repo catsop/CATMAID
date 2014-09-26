@@ -11,22 +11,21 @@ var AreaServerModel = new function()
     /**
      Push a new trace (ie, fabricjs object) to the backend.
      */
-    this.pushTrace = function(tool, area, object_container)
+    this.pushTrace = function(stack, brushWidth, assemblyId, objectContainer, callback)
     {
         var x = [];
         var y = [];
         var pts = [];
-        var obj = object_container.obj;
-        var stack = tool.stack;
+        var obj = objectContainer.obj;
         var project = stack.getProject();
         var view_top = stack.screenPosition().top;
         var view_left = stack.screenPosition().left;
         var scale = stack.scale;
         var url = '/user_slice';
         var bound_rect = obj.getBoundingRect();
-        var o_left = (bound_rect.left + (tool.width / 2.0)) / scale + view_left;
-        var o_top = (bound_rect.top + (tool.width / 2.0)) / scale + view_top;
-        var r = tool.width / (2.0 * scale);
+        var o_left = (bound_rect.left + (brushWidth / 2.0)) / scale + view_left;
+        var o_top = (bound_rect.top + (brushWidth / 2.0)) / scale + view_top;
+        var r = brushWidth / (2.0 * scale);
 
         /*console.log('o_left: ' + o_left + ', o_top: ' + o_top);
         console.log('o_left_c: ' + obj.left + ', o_top_c: ' + obj.top);*/
@@ -43,8 +42,8 @@ var AreaServerModel = new function()
             'x' : x,
             'y' : y,
             'section' : stack.z,
-            'id' : object_container.id,
-            'assembly_id' : area.assemblyId,
+            'id' : objectContainer.id,
+            'assembly_id' : assemblyId,
             'left': o_left,
             'top': o_top,
             'scale' : scale,
@@ -58,8 +57,52 @@ var AreaServerModel = new function()
             "cache": false,
             "url": django_url + project.id + '/stack/' + stack.id + url,
             "data": data,
-            "success": tool.pushCallback
+            "success": callback
         });
+    };
+
+    this.traceIdsInView = function(stack, callback)
+    {
+        var project = stack.getProject();
+        var xMin = stack.screenPosition().left;
+        var yMin = stack.screenPosition().top;
+        var xMax = xMin + stack.viewWidth / stack.scale;
+        var yMax = yMin + stack.viewHeight / stack.scale;
+        var section = stack.z;
+
+        var url = django_url + project.id + '/stack/' + stack.id + '/slice_ids_in_view';
+
+        var data = {'x_min' : xMin,
+            'y_min' : yMin,
+            'x_max' : xMax,
+            'y_max' : yMax,
+            'section' : section};
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": url,
+            "data": data,
+            "success": callback
+        })
+    };
+
+    this.retrieveTraces = function(ids, stack, callback)
+    {
+        var project = stack.getProject();
+        var url = django_url + project.id + '/stack/' + stack.id + '/polygon_slices';
+
+        var data = {'id' : ids};
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": url,
+            "data": data,
+            "success": callback
+        })
     };
 
     /**
@@ -195,6 +238,19 @@ function Area(name, assemblyId)
         }
     };
 
+    this.removeObjects = function(keys)
+    {
+        for (var idx = 0; idx < keys.length; ++idx)
+        {
+            self.removeObject(keys[idx]);
+        }
+    };
+
+    this.hasObject = function(key)
+    {
+        return objectTable.hasOwnProperty(key);
+    };
+
     this.updatePosition = function(screenPos, scale)
     {
         for (var i = 0; i < fabricObjects.length; ++i)
@@ -212,10 +268,22 @@ function Area(name, assemblyId)
         }
     };
 
+    this.keepTracesAtZ = function(z)
+    {
+        rmKeys = [];
+        for (var idx = 0; idx < fabricObjects.length; ++idx)
+        {
+            if (fabricObjects[idx].z != z)
+            {
+                rmKeys.push(fabricObjects[idx].id);
+            }
+        }
+        self.removeObjects(rmKeys);
+    }
 }
 
 
-function FabricObjectContainer(obj, scale, screenPos, id)
+function FabricObjectContainer(obj, scale, screenPos, z, id)
 {
     var self = this;
 
@@ -230,6 +298,7 @@ function FabricObjectContainer(obj, scale, screenPos, id)
     this.stackTop = y_o / scale + y_s;
     this.originalScale = scale;
     this.id = id;
+    this.z = z;
 
 }
 
@@ -265,6 +334,194 @@ function AreaTool()
         return null;
     };
 
+    var setupProtoControls = function()
+    {
+        self.prototype.register( self.stack, "edit_button_area" );
+        proto_mouseCatcher = self.prototype.mouseCatcher;
+        proto_onmouseup = proto_mouseCatcher.onmouseup;
+        proto_onmousedown = proto_mouseCatcher.onmousedown;
+        proto_mouseCatcher.onmouseup = self.onmouseup;
+        proto_mouseCatcher.onmousedown = self.onmousedown;
+        proto_mouseCatcher.onmousemove = self.onmousemove;
+    };
+
+    var setupSubTools = function()
+    {
+        var box = createButtonsFromActions(
+            actions,
+            "toolbox_area",
+            "area_");
+        $( "#toolbox_area" ).replaceWith( box );
+    };
+
+    var createCanvasLayer = function()
+    {
+        self.canvasLayer = new AreaLayer( self.stack, self);
+        var canvas = self.canvasLayer.canvas;
+
+        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+        canvas.freeDrawingBrush.width = self.width;
+        canvas.isDrawingMode = true;
+
+        canvas.on('path:created', function(e){
+            if (self.currentArea)
+            {
+                self.registerFreshFabricObject(e.path);
+            }
+        });
+
+        /*self.canvasLayer.view.onmousedown = function(e){
+         return true
+         };
+
+         self.canvasLayer.view.onmouseup = function(e){
+         return true
+         };*/
+
+        //canvas.interactive = true;
+
+        self.stack.addLayer("AreaLayer", self.canvasLayer);
+        self.stack.resize();
+
+        self.canvasLayer.view.onmousedown = self.onmousedown;
+        self.canvasLayer.view.onmouseup = self.onmouseup;
+    };
+
+    var currentZ = function()
+    {
+        return self.stack.z * self.stack.resolution.z + self.stack.translation.z;
+    };
+
+    var trimTraces = function()
+    {
+        for (var idx = 0; idx < areas.length; ++idx)
+        {
+            areas[idx].keepTracesAtZ(self.stack.z);
+        }
+    };
+
+    var pushTraceCallback = function(data)
+    {
+        if (data.hasOwnProperty('djerror'))
+        {
+            console.log(data.djerror);
+            growlAlert('Error', 'Problem retrieving trace. See console');
+        }
+        else
+        {
+            var svgCall = function(objects, options)
+            {
+                var obj = fabric.util.groupSVGElements(objects, options);
+                var area = self.getArea(data.assembly_id);
+
+                obj.setColor(data.view_props.color);
+                obj.setOpacity(data.view_props.color);
+
+                self.registerDeserializedFabricObject(obj, area, data.id, data.section);
+                self.canvasLayer.canvas.add(obj);
+
+                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
+
+                if (data.hasOwnProperty('replace_ids'))
+                {
+                    for (var idx = 0; idx < data.replace_ids.length; ++idx)
+                    {
+                        var rmObj = area.removeObject(data.replace_ids[idx]);
+                        self.canvasLayer.canvas.remove(rmObj);
+                    }
+                }
+            };
+
+            fabric.loadSVGFromString(data.svg, svgCall);
+
+            // Somehow, using either loadSVGFromURL or reading the svg from a url and using
+            // loadSVGFromString causes fabricjs to ignore holes.
+
+            /*
+             var loadSVG = function(ajaxData)
+             {
+             fabric.loadSVGFromString(ajaxData, svgCall);
+             console.log('via http:', ajaxData);
+             console.log('via post:', data.svg);
+             };
+
+             var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
+             '/polygon_slice/' + data.id + '.svg';
+             fabric.loadSVGFromURL(sliceUrl, svgCall);
+
+             $.ajax({
+             "type": 'GET',
+             "cache": true,
+             "url": sliceUrl,
+             "success": loadSVG
+             });
+             */
+
+        }
+
+    };
+
+    var checkAreaAndTrace = function(areaIn, id)
+    {
+        var area = self.getArea(areaIn);
+        if (area == null)
+        {
+            return false;
+        }
+        else
+        {
+            return area.hasObject(id);
+        }
+    };
+
+    var retrieveTracesCallback = function(data)
+    {
+        if (data.hasOwnProperty('djerror'))
+        {
+            growlAlert('Error', 'Problem fetching traces. See console');
+        }
+        else
+        {
+            for (var idx = 0; idx < data.areas.length; ++idx)
+            {
+                pushTraceCallback(data.areas[idx]);
+            }
+
+            trimTraces();
+        }
+    };
+
+    var sliceIdsCallback = function(data)
+    {
+        console.log(data);
+        if (data.hasOwnProperty('djerror'))
+        {
+            growlAlert('Error', 'Problem retrieving trace ids. See console');
+        }
+        else
+        {
+            var needIds = [];
+            for (var idx = 0; idx < data.ids.length; ++idx)
+            {
+                if (!checkAreaAndTrace(data.assembly_ids[idx], data.ids[idx]))
+                {
+                    needIds.push(data.ids[idx]);
+                }
+            }
+
+            AreaServerModel.retrieveTraces(needIds, self.stack, retrieveTracesCallback);
+        }
+
+    };
+
+
+
+
+    this.fetchAreas = function()
+    {
+        AreaServerModel.traceIdsInView(self.stack, sliceIdsCallback);
+    };
+
     this.addAction = function ( action ) {
         actions.push( action );
     };
@@ -281,6 +538,7 @@ function AreaTool()
             WindowMaker.show('area-editting-tool');
             setupProtoControls();
             createCanvasLayer();
+            self.fetchAreas();
             return true;
         }
     }));
@@ -346,12 +604,13 @@ function AreaTool()
         return area;
     };
 
-    this.registerDeserializedFabricObject = function(obj, areaIn, id, scaleIn,
+    this.registerDeserializedFabricObject = function(obj, areaIn, id, zIn, scaleIn,
                                                      screenRelativePositionIn)
     {
         var area = self.getArea(areaIn);
         var scale = 1.0;
         var screenRelativePosition = null;
+        var z = zIn;
 
         obj.setOriginX('center');
         obj.setOriginY('center');
@@ -370,7 +629,12 @@ function AreaTool()
             screenRelativePosition = screenRelativePositionIn;
         }
 
-        var objectContainer = new FabricObjectContainer(obj, scale, screenRelativePosition, id);
+        if (typeof zIn == 'undefined')
+        {
+            z = self.stack.z;
+        }
+
+        var objectContainer = new FabricObjectContainer(obj, scale, screenRelativePosition, z, id);
         area.addObjectContainer(objectContainer);
 
         area.updatePosition(self.stack.screenPosition(), self.stack.scale);
@@ -393,70 +657,14 @@ function AreaTool()
     {
         var area = self.getArea(areaIn);
         var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
-            self.stack.screenPosition(), nextId++);
+            self.stack.screenPosition(), self.stack.z, nextId++);
 
         area.addObjectContainer(objectContainer);
 
-        AreaServerModel.pushTrace(self, self.currentArea, objectContainer);
+        AreaServerModel.pushTrace(self.stack, self.width, self.currentArea.assemblyId,
+            objectContainer, pushTraceCallback);
     };
 
-    var setupProtoControls = function()
-    {
-        self.prototype.register( self.stack, "edit_button_area" );
-        proto_mouseCatcher = self.prototype.mouseCatcher;
-        proto_onmouseup = proto_mouseCatcher.onmouseup;
-        proto_onmousedown = proto_mouseCatcher.onmousedown;
-        proto_mouseCatcher.onmouseup = self.onmouseup;
-        proto_mouseCatcher.onmousedown = self.onmousedown;
-        proto_mouseCatcher.onmousemove = self.onmousemove;
-    };
-
-    var setupSubTools = function()
-    {
-        var box = createButtonsFromActions(
-            actions,
-            "toolbox_area",
-            "area_");
-        $( "#toolbox_area" ).replaceWith( box );
-    };
-
-    var createCanvasLayer = function()
-    {
-        self.canvasLayer = new AreaLayer( self.stack, self);
-        var canvas = self.canvasLayer.canvas;
-
-        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-        canvas.freeDrawingBrush.width = self.width;
-        canvas.isDrawingMode = true;
-
-        canvas.on('path:created', function(e){
-            if (self.currentArea)
-            {
-                self.registerFreshFabricObject(e.path);
-            }
-        });
-
-        /*self.canvasLayer.view.onmousedown = function(e){
-         return true
-         };
-
-         self.canvasLayer.view.onmouseup = function(e){
-         return true
-         };*/
-
-        //canvas.interactive = true;
-
-        self.stack.addLayer("AreaLayer", self.canvasLayer);
-        self.stack.resize();
-
-        self.canvasLayer.view.onmousedown = self.onmousedown;
-        self.canvasLayer.view.onmouseup = self.onmouseup;
-    };
-
-    var currentZ = function()
-    {
-        return self.stack.z * self.stack.resolution.z + self.stack.translation.z;
-    };
 
     this.register = function(parentStack)
     {
@@ -469,7 +677,6 @@ function AreaTool()
         $("#edit_button_area").switchClass("button", "button_active", 0);
 
         self.prototype.register( parentStack, "edit_button_area" );
-        var proto_mouseCatcher = self.prototype.mouseCatcher;
 
         setupSubTools();
         //createCanvasLayer();
@@ -512,6 +719,8 @@ function AreaTool()
             {
                 areas[i].updatePosition(self.stack.screenPosition(), self.stack.scale);
             }
+
+            //self.fetchAreas();
         }
         else
         {
@@ -531,63 +740,7 @@ function AreaTool()
         return self.currentArea;
     };
 
-    this.pushCallback = function(data)
-    {
-        console.log(data);
-        if (data.hasOwnProperty('djerror'))
-        {
-            console.log(data.djerror);
-        }
-        else
-        {
-            var svgCall = function(objects, options)
-            {
-                var obj = fabric.util.groupSVGElements(objects, options);
-                var area = self.getArea(data.assembly_id);
 
-                obj.setColor(data.view_props.color);
-                obj.setOpacity(data.view_props.color);
-
-                self.registerDeserializedFabricObject(obj, area, data.id);
-                self.canvasLayer.canvas.add(obj);
-
-                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
-
-                for (var idx = 0; idx < data.replace_ids.length; ++idx)
-                {
-                    var rmObj = area.removeObject(data.replace_ids[idx]);
-                    self.canvasLayer.canvas.remove(rmObj);
-                }
-            };
-
-            fabric.loadSVGFromString(data.svg, svgCall);
-
-            // Somehow, using either loadSVGFromURL or reading the svg from a url and using
-            // loadSVGFromString causes fabricjs to ignore holes.
-
-            /*
-                        var loadSVG = function(ajaxData)
-                        {
-                            fabric.loadSVGFromString(ajaxData, svgCall);
-                            console.log('via http:', ajaxData);
-                            console.log('via post:', data.svg);
-                        };
-
-            var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
-                '/polygon_slice/' + data.id + '.svg';
-            fabric.loadSVGFromURL(sliceUrl, svgCall);
-
-            $.ajax({
-                "type": 'GET',
-                "cache": true,
-                "url": sliceUrl,
-                "success": loadSVG
-            });
-*/
-
-        }
-
-    };
 
     /**
      * This function should return true if there was any action

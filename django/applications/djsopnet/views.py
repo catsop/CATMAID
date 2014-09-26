@@ -986,6 +986,20 @@ def slice_merge_geometry(slices, slices_geometry, merge_geometry):
 
     return merge_slice, union_geometry
 
+def slices_by_bounding_box(bbox, section, stack):
+    """
+    Find all slices that are at least partially inside the bounding box.
+    bbox should be like [x_min, y_min, x_max, y_max]
+    """
+    slices = Slice.objects.filter(section=section,
+                                  stack=stack,
+                                  min_x__lte=bbox[2],
+                                  min_y__lte=bbox[3],
+                                  max_x__gte=bbox[0],
+                                  max_y__gte=bbox[1])
+    return slices
+
+
 def slices_by_overlap_and_assembly(area_geometry, assembly, section, stack):
     """
     Find a slice belonging to the given assembly that overlaps the given geometry, if it exists.
@@ -1046,7 +1060,7 @@ def geometry_from_slice(slice):
 
     return Polygon(ext_xy, int_xys)
 
-def slice_client_response(slice, area_geometry, replace_hashes, req_object):
+def slice_client_dict(slice, area_geometry, replace_hashes=None, **kwargs):
     """
     Returns a response suitable for transmission to the client.
     Currently, this is a JSON representation of an SVG polygon path.
@@ -1059,22 +1073,19 @@ def slice_client_response(slice, area_geometry, replace_hashes, req_object):
         view_props = ViewProperties(assembly=slice.assembly)
         view_props.save()
 
-    min_xy, max_xy = geometry_bound(area_geometry)
-    req_dict = safe_dict(req_object, 'view_left', 'view_top', 'scale', 'assembly_id', 'id', 'r')
     svg = shapely_polygon_to_svg(area_geometry)
-    assembly_id = int(req_object.get('assembly_id'))
+    assembly_id = kwargs['assembly_id']
 
-    replace_hashes.append(str(req_dict['id']))
+    if 'id' in kwargs:
+        replace_hashes.append(str(kwargs['id']))
 
-    scale = float(req_dict['scale'])
-
-    return HttpResponse(json.dumps({'id': slice.hash_value,
+    return {'id': slice.hash_value,
                                     'assembly_id': assembly_id,
                                     'svg': svg,
                                     'replace_ids': replace_hashes,
-                                    'view_props': {'color': view_props.color, 'opacity': view_props.opacity},
-                                    'section': slice.section,
-                                    'offset': float(req_dict['r'])}))
+                                    'view_props': {'color': view_props.color,
+                                                   'opacity': view_props.opacity},
+                                    'section': slice.section}
 
 
 def geometry_hash(area_geometry):
@@ -1148,7 +1159,13 @@ def user_insert_slice(request, project_id=None, stack_id=None):
         else:
             slice = create_slice(area_geometry, assembly, s, p, section)
 
-        return slice_client_response(slice, area_geometry, ovlp_hashes, request.POST)
+        return HttpResponse(json.dumps(
+            slice_client_dict(slice,
+                              area_geometry,
+                              ovlp_hashes,
+                              id=request.POST.get('id'),
+                              assembly_id=assembly_id)),
+                            mimetype='text/json')
     except:
         return error_response()
 
@@ -1160,8 +1177,36 @@ def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None
     svg = shapely_polygon_to_svg(area_geometry)
     return HttpResponse(svg, mimetype='image/svg+xml')
 
-def user_retrieve_slices_by_bound(request, project_id=None, stack_id=None):
-    pass
+def user_slice_hashes_in_bound(request, project_id=None, stack_id=None):
+    stack = get_object_or_404(Stack, pk=stack_id)
+    #p = get_object_or_404(Project, pk=project_id)
+    try:
+        x_min = float(request.POST.get('x_min'))
+        y_min = float(request.POST.get('y_min'))
+        x_max = float(request.POST.get('x_max'))
+        y_max = float(request.POST.get('y_max'))
+        section = int(request.POST.get('section'))
+        slices = slices_by_bounding_box([x_min, y_min, x_max, y_max], section, stack)
+        hashes = [slice.hash_value for slice in slices]
+        assembly_ids = [slice.assembly.id for slice in slices]
+
+        return HttpResponse(json.dumps({'ids': hashes,
+                                        'assembly_ids': assembly_ids}))
+    except:
+        return error_response()
+
+def user_slice_geometry_by_hash(request, project_id=None, stack_id=None):
+    stack = get_object_or_404(Stack, pk=stack_id)
+    try:
+        hashes = request.POST.getlist('id[]')
+        slices = Slice.objects.filter(pk__in=hashes, stack=stack)
+        slice_dicts = [slice_client_dict(slice,
+                                         geometry_from_slice(slice),
+                                         assembly_id=slice.assembly.id)
+                       for slice in slices]
+        return HttpResponse(json.dumps({'areas': slice_dicts}), mimetype='text/json')
+    except:
+        return error_response()
 
 # --- shapely-representation-specific code ---
 
