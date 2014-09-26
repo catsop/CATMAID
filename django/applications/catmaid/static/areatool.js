@@ -24,8 +24,9 @@ var AreaServerModel = new function()
         var scale = stack.scale;
         var url = '/user_slice';
         var bound_rect = obj.getBoundingRect();
-        var o_left = bound_rect.left / scale + view_left;
-        var o_top = bound_rect.top / scale + view_top;
+        var o_left = (bound_rect.left + (tool.width / 2.0)) / scale + view_left;
+        var o_top = (bound_rect.top + (tool.width / 2.0)) / scale + view_top;
+        var r = tool.width / (2.0 * scale);
 
         /*console.log('o_left: ' + o_left + ', o_top: ' + o_top);
         console.log('o_left_c: ' + obj.left + ', o_top_c: ' + obj.top);*/
@@ -38,7 +39,7 @@ var AreaServerModel = new function()
             pts.push({x: obj.path[i][1], y: obj.path[i][2]});
         }
 
-        var data = {'r' : tool.width / (2.0 * scale), //r, x, y in stack coordinates
+        var data = {'r' : r, //r, x, y in stack coordinates
             'x' : x,
             'y' : y,
             'section' : stack.z,
@@ -547,9 +548,7 @@ function AreaTool()
                 obj.setColor(data.view_props.color);
                 obj.setOpacity(data.view_props.color);
 
-                var offsetPosition = {left: data.offset, top: data.offset};
-
-                self.registerDeserializedFabricObject(obj, area, data.id, 1, offsetPosition);
+                self.registerDeserializedFabricObject(obj, area, data.id);
                 self.canvasLayer.canvas.add(obj);
 
                 area.updatePosition(self.stack.screenPosition(), self.stack.scale);
@@ -561,11 +560,31 @@ function AreaTool()
                 }
             };
 
+            fabric.loadSVGFromString(data.svg, svgCall);
+
+            // Somehow, using either loadSVGFromURL or reading the svg from a url and using
+            // loadSVGFromString causes fabricjs to ignore holes.
+
+            /*
+                        var loadSVG = function(ajaxData)
+                        {
+                            fabric.loadSVGFromString(ajaxData, svgCall);
+                            console.log('via http:', ajaxData);
+                            console.log('via post:', data.svg);
+                        };
+
             var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
                 '/polygon_slice/' + data.id + '.svg';
-
-            //fabric.loadSVGFromString(data.svg, svgCall);
             fabric.loadSVGFromURL(sliceUrl, svgCall);
+
+            $.ajax({
+                "type": 'GET',
+                "cache": true,
+                "url": sliceUrl,
+                "success": loadSVG
+            });
+*/
+
         }
 
     };
