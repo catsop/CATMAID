@@ -215,14 +215,25 @@ class IntegerArrayField(ArrayFieldBase):
     def db_type(self, connection):
         return 'integer[]'
 
+
 class FloatArrayField(ArrayFieldBase):
     """
-    An integer array field for PostgreSQL
+    A single-precision float array field for PostgreSQL
     """
-    description = _('Float array')
+    description = _('Double array')
 
     def db_type(self, connection):
         return 'real[]'
+
+
+class DoubleArrayField(ArrayFieldBase):
+    """
+    A double-precision float array field for PostgreSQL
+    """
+    description = _('Double array')
+
+    def db_type(self, connection):
+        return 'double precision[]'
 
 # ------------------------------------------------------------------------
 

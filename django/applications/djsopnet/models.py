@@ -2,7 +2,7 @@ from django.db import models
 from datetime import datetime
 
 from django.contrib.auth.models import User
-from catmaid.fields import IntegerArrayField, FloatArrayField
+from catmaid.fields import IntegerArrayField, DoubleArrayField
 from catmaid.models import Stack, UserFocusedModel
 
 ASSEMBLY_TYPES = (
@@ -20,10 +20,10 @@ class Assembly(models.Model):
      db_index=True)
     name = models.CharField(max_length=255)
 
-class Slice(UserFocusedModel):
+class Slice(models.Model):
+    id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
-    hash_value = models.CharField(max_length=20, primary_key=True)
     section = models.IntegerField(db_index=True)
 
     # bounding box
@@ -45,10 +45,10 @@ class Slice(UserFocusedModel):
 
     size = models.IntegerField(db_index=True)
 
-class Segment(UserFocusedModel):
+class Segment(models.Model):
+    id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)
     assembly = models.ForeignKey(Assembly, null=True)
-    hash_value = models.CharField(max_length=20, primary_key = True)
     # section infimum, or rather, the id of the section closest to z = -infinity to which this segment belongs.
     section_inf = models.IntegerField(db_index=True)
 
@@ -74,11 +74,11 @@ class Segment(UserFocusedModel):
     direction = models.IntegerField(db_index=True)
 
     # Slice relations
-    slice_a_hash = models.CharField(Slice, max_length=20, null=True, db_index=True)
-    slice_b_hash = models.CharField(Slice, max_length=20, null=True, db_index=True)
-    slice_c_hash = models.CharField(Slice, max_length=20, null=True, db_index=True)
+    slice_a = models.ForeignKey(Slice, related_name='segments_as_a')
+    slice_b = models.ForeignKey(Slice, null=True, related_name='segments_as_b')
+    slice_c = models.ForeignKey(Slice, null=True, related_name='segments_as_c')
 
-class Block(UserFocusedModel):
+class Block(models.Model):
     stack = models.ForeignKey(Stack)
 
     # bounding box
@@ -93,7 +93,7 @@ class Block(UserFocusedModel):
     segments_flag = models.BooleanField(default=False)
     solution_cost_flag = models.BooleanField(default=False)
 
-class Core(UserFocusedModel):
+class Core(models.Model):
     stack = models.ForeignKey(Stack)
 
     # bounding box
@@ -106,28 +106,33 @@ class Core(UserFocusedModel):
 
     solution_set_flag = models.BooleanField(default=False)
 
-class SegmentSolution(UserFocusedModel):
-    core = models.ForeignKey(Core, db_index=True)
-    segment = models.ForeignKey(Segment, db_index=True)
+class SegmentSolution(models.Model):
+    core = models.ForeignKey(Core)
+    segment = models.ForeignKey(Segment)
     solution = models.BooleanField()
 
-class SegmentCost(UserFocusedModel):
-    segment = models.OneToOneField(Segment, db_index=True)
-    cost = models.FloatField()
+    class Meta:
+        unique_together = ('core', 'segment')
 
-class SegmentFeatures(UserFocusedModel):
-    segment = models.OneToOneField(Segment, db_index=True)
-    features = FloatArrayField()
+class SegmentFeatures(models.Model):
+    segment = models.OneToOneField(Segment)
+    features = DoubleArrayField()
 
-class SliceBlockRelation(UserFocusedModel):
-    block = models.ForeignKey(Block, db_index=True)
-    slice = models.ForeignKey(Slice, db_index=True)
+class SliceBlockRelation(models.Model):
+    block = models.ForeignKey(Block)
+    slice = models.ForeignKey(Slice)
 
-class SegmentBlockRelation(UserFocusedModel):
-    block = models.ForeignKey(Block, db_index=True)
-    segment = models.ForeignKey(Segment, db_index=True)
+    class Meta:
+        unique_together = ('block', 'slice')
 
-class BlockInfo(UserFocusedModel):
+class SegmentBlockRelation(models.Model):
+    block = models.ForeignKey(Block)
+    segment = models.ForeignKey(Segment)
+
+    class Meta:
+        unique_together = ('block', 'segment')
+
+class BlockInfo(models.Model):
     stack = models.ForeignKey(Stack)
 
     # Block height, width, depth, measured units of pixels
@@ -149,18 +154,22 @@ class BlockInfo(UserFocusedModel):
 class FeatureName(models.Model):
     name = models.CharField(max_length=128)
 
-class FeatureNameInfo(UserFocusedModel):
-    stack = models.ForeignKey(Stack)
+class FeatureInfo(models.Model):
+    stack = models.OneToOneField(Stack, unique=True)
+    size = models.IntegerField(default=0)
     name_ids = IntegerArrayField()
-    size = models.IntegerField(default = 0)
+    weights = DoubleArrayField()
 
 class SliceConflictSet(models.Model):
-    pass
+    slice_a = models.ForeignKey(Slice, related_name='conflicts_as_a')
+    slice_b = models.ForeignKey(Slice, related_name='conflicts_as_b')
 
-class SliceConflictRelation(UserFocusedModel):
-    slice = models.ForeignKey(Slice)
-    conflict = models.ForeignKey(SliceConflictSet)
+    class Meta:
+        unique_together = ('slice_a', 'slice_b')
 
-class BlockConflictRelation(UserFocusedModel):
+class BlockConflictRelation(models.Model):
     block = models.ForeignKey(Block)
     conflict = models.ForeignKey(SliceConflictSet)
+
+    class Meta:
+        unique_together = ('block', 'conflict')
