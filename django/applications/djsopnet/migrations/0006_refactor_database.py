@@ -8,6 +8,9 @@ from django.db import models
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
+        def truncate_cascade(table):
+            db.execute('TRUNCATE TABLE "%s" CASCADE' % table)
+
         # Deleting model 'SegmentCost'
         db.delete_table(u'djsopnet_segmentcost')
 
@@ -40,7 +43,7 @@ class Migration(SchemaMigration):
         db.delete_column(u'djsopnet_block', 'user_id')
 
         # Clear sliceblockrelation table
-        db.clear_table(u'djsopnet_sliceblockrelation')
+        truncate_cascade(u'djsopnet_sliceblockrelation')
 
         # Deleting field 'SliceBlockRelation.project'
         db.delete_column(u'djsopnet_sliceblockrelation', 'project_id')
@@ -58,7 +61,7 @@ class Migration(SchemaMigration):
         db.create_unique(u'djsopnet_sliceblockrelation', ['block_id', 'slice_id'])
 
         # Clear segmentfeatures table
-        db.clear_table(u'djsopnet_segmentfeatures')
+        truncate_cascade(u'djsopnet_segmentfeatures')
 
         # Deleting field 'SegmentFeatures.project'
         db.delete_column(u'djsopnet_segmentfeatures', 'project_id')
@@ -88,7 +91,7 @@ class Migration(SchemaMigration):
         db.delete_column(u'djsopnet_blockinfo', 'user_id')
 
         # Clear blockconflictrelation table
-        db.clear_table(u'djsopnet_blockconflictrelation')
+        truncate_cascade(u'djsopnet_blockconflictrelation')
 
         # Deleting field 'BlockConflictRelation.project'
         db.delete_column(u'djsopnet_blockconflictrelation', 'project_id')
@@ -106,7 +109,7 @@ class Migration(SchemaMigration):
         db.create_unique(u'djsopnet_blockconflictrelation', ['block_id', 'conflict_id'])
 
         # Clear segmentblockrelation table
-        db.clear_table(u'djsopnet_segmentblockrelation')
+        truncate_cascade(u'djsopnet_segmentblockrelation')
 
         # Deleting field 'SegmentBlockRelation.project'
         db.delete_column(u'djsopnet_segmentblockrelation', 'project_id')
@@ -124,7 +127,7 @@ class Migration(SchemaMigration):
         db.create_unique(u'djsopnet_segmentblockrelation', ['block_id', 'segment_id'])
 
         # Clear segmentsolution table
-        db.clear_table(u'djsopnet_segmentsolution')
+        truncate_cascade(u'djsopnet_segmentsolution')
 
         # Deleting field 'SegmentSolution.project'
         db.delete_column(u'djsopnet_segmentsolution', 'project_id')
@@ -142,7 +145,7 @@ class Migration(SchemaMigration):
         db.create_unique(u'djsopnet_segmentsolution', ['core_id', 'segment_id'])
 
         # Clear segment table
-        db.clear_table(u'djsopnet_segment')
+        truncate_cascade(u'djsopnet_segment')
 
         # Deleting field 'Segment.slice_a_hash'
         db.delete_column(u'djsopnet_segment', 'slice_a_hash')
@@ -189,7 +192,7 @@ class Migration(SchemaMigration):
                       keep_default=False)
 
         # Clear sliceconflictset table
-        db.clear_table(u'djsopnet_sliceconflictset')
+        truncate_cascade(u'djsopnet_sliceconflictset')
 
         # Adding field 'SliceConflictSet.slice_a'
         db.add_column(u'djsopnet_sliceconflictset', 'slice_a',
@@ -217,7 +220,7 @@ class Migration(SchemaMigration):
         db.delete_column(u'djsopnet_core', 'project_id')
 
         # Clear slice table
-        db.clear_table(u'djsopnet_slice')
+        truncate_cascade(u'djsopnet_slice')
 
         # Deleting field 'Slice.creation_time'
         db.delete_column(u'djsopnet_slice', 'creation_time')
