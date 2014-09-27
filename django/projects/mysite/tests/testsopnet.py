@@ -102,7 +102,7 @@ class SopnetTest(object):
 		self.log("Setting up Sopnet parameters")
 		for s_id in (self.raw_stack_id, self.membrane_stack_id):
 			try:
-				_setup_blocks(self.project_id, s_id,
+				_setup_blocks(s_id,
 						self.block_width, self.block_height,
 						self.block_depth, self.core_width,
 						self.core_height, self.core_depth)
