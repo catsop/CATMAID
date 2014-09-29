@@ -1,6 +1,11 @@
-from djsopnet.models import *
+import json
+import sys
 
-def retrieve_slices_for_skeleton(request, skeleton_id = None):
+from django.http import HttpResponse
+
+from djsopnet.models import Constraint, ConstraintSegmentRelation, Segment, SegmentSolution, Slice
+
+def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, skeleton_id = None):
 	"""To visualize the slices found for a given skeleton, for which UserConstraints and solutions were generated,
 	we retrieve all segments with their solution flag, and retrieve all associated slices, and mark the
 	selected slices that are in the solution.
@@ -15,16 +20,33 @@ def retrieve_slices_for_skeleton(request, skeleton_id = None):
 	For those locations, a segment is associated. Then, a lookup function to retrieve for a given segments the
 	associated connected componente, i.e. the traversal along selected segments of the solution, can be called.
 	"""
+
+
+	# TOREMOVE: dummy example
+	data = {
+		'slices': {
+			1: {
+				'section': 0,
+				'min_x': 10, 'min_y': 60,
+				'max_x': 10, 'max_y': 60,
+				'url': 'http://neurocity.janelia.org/l3vnc/slices/0/3.png'
+			}
+		},
+		'segments': {
+		}
+	}
+	return HttpResponse(json.dumps((data), separators=(',', ':')))
+
 	data = {
 		'slices': {}, 'segments': {}, 'lookup': {}
 	}
 	# Retrieve the UserConstraints associated with a skeleton, and then all the associated segments
 	constraint_ids = Constraint.objects.filter( skeleton = skeleton_id ).values('id')
-	constraint_segment_ids = ConstraintSegmentRelation.objects.filter( contraint__in = constraint_ids ).values('segment')
+	constraint_segment_ids = ConstraintSegmentRelation.objects.filter( constraint__in = constraint_ids ).values('segment')
 
 	# Retrieve all Segments associated with these constraints including the solution flag
 	# TODO: type__in to only select continuation/branches needs to be benchmarked against two queries
-	segments = Segments.objects.filter( id__in = constraint_segment_ids, type__in = [2,3] ).values('id', 'section_inf', \
+	segments = Segment.objects.filter( id__in = constraint_segment_ids, type__in = [2,3] ).values('id', 'section_inf', \
 	 'type', 'direction', 'ctr_x', 'ctr_y')
 	# TODO: potentially retrieve ctr_x/y to display
 
@@ -51,7 +73,7 @@ def retrieve_slices_for_skeleton(request, skeleton_id = None):
 
 	# Retrieve all Slices associated to those segments. Mark the slices of selected solution segments.
 	# On demand retrieval from the client of additional slices of segments that are not part of the solution
-	slices = Slices.objects.filter( id__ind = list(slices_to_retrieve) ).values('id', 'min_x', 'min_y', 'max_x',
+	slices = Slice.objects.filter( id__ind = list(slices_to_retrieve) ).values('id', 'min_x', 'min_y', 'max_x',
 		'max_y', 'section')
 	for sli in slices:
 		data['slices'][sli['id']] = {
@@ -61,20 +83,6 @@ def retrieve_slices_for_skeleton(request, skeleton_id = None):
 		}
 	
 	# TODO: lookup locations
-
-	# TOREMOVE: dummy example
-	data = {
-		'slices': {
-			1: {
-				'section': 0,
-				'min_x': 10, 'min_y': 60,
-				'max_x': 10, 'max_y': 60,
-				'url': 'localhost/slices/slice001.png'
-			}
-		},
-		'segments': {
-		}
-	}
 
 	return HttpResponse(json.dumps((data), separators=(',', ':')))
 
