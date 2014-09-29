@@ -177,11 +177,17 @@ function Area(name, assemblyId)
 
     this.setOpacity = function(op)
     {
+        self.opacity = op;
         for (var idx = 0; idx < fabricObjects.length; ++i)
         {
             fabricObjects[idx].obj.opacity = op;
         }
         AreaServerModel.pushProperties(self);
+    };
+
+    this.getOpacity = function()
+    {
+        return self.opacity;
     };
 
     this.setColor = function(c)
@@ -400,6 +406,37 @@ function AreaTool()
         }
     };
 
+    var loadSVGFromURL = function(id, areaIn, section, replaceIds)
+    {
+        var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
+            '/polygon_slice/' + id + '.svg';
+
+        var svgCall = function(objects, options)
+        {
+            var obj = fabric.util.groupSVGElements(objects, options);
+            var area = self.getArea(areaIn);
+
+            obj.setColor(area.color);
+            obj.setOpacity(area.opacity);
+
+            self.registerDeserializedFabricObject(obj, area, id, section);
+            self.canvasLayer.canvas.add(obj);
+
+            area.updatePosition(self.stack.screenPosition(), self.stack.scale);
+
+            if (replaceIds != undefined && replaceIds != null)
+            {
+                for (var idx = 0; idx < replaceIds.length; ++idx)
+                {
+                    var rmObj = area.removeObject(replaceIds[idx]);
+                    self.canvasLayer.canvas.remove(rmObj);
+                }
+            }
+        };
+
+        fabric.loadSVGFromURL(sliceUrl, svgCall);
+    };
+
     var pushTraceCallback = function(data)
     {
         if (data.hasOwnProperty('djerror'))
@@ -422,7 +459,7 @@ function AreaTool()
 
                 area.updatePosition(self.stack.screenPosition(), self.stack.scale);
 
-                if (data.hasOwnProperty('replace_ids'))
+                if (data.hasOwnProperty('replace_ids') && data.replace_ids != null)
                 {
                     for (var idx = 0; idx < data.replace_ids.length; ++idx)
                     {
@@ -432,31 +469,7 @@ function AreaTool()
                 }
             };
 
-            fabric.loadSVGFromString(data.svg, svgCall);
-
-            // Somehow, using either loadSVGFromURL or reading the svg from a url and using
-            // loadSVGFromString causes fabricjs to ignore holes.
-
-            /*
-             var loadSVG = function(ajaxData)
-             {
-             fabric.loadSVGFromString(ajaxData, svgCall);
-             console.log('via http:', ajaxData);
-             console.log('via post:', data.svg);
-             };
-
-             var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
-             '/polygon_slice/' + data.id + '.svg';
-             fabric.loadSVGFromURL(sliceUrl, svgCall);
-
-             $.ajax({
-             "type": 'GET',
-             "cache": true,
-             "url": sliceUrl,
-             "success": loadSVG
-             });
-             */
-
+            loadSVGFromURL(data.id, svgCall);
         }
 
     };
@@ -478,6 +491,7 @@ function AreaTool()
     {
         if (data.hasOwnProperty('djerror'))
         {
+            console.log(data.djerror);
             growlAlert('Error', 'Problem fetching traces. See console');
         }
         else
@@ -493,9 +507,9 @@ function AreaTool()
 
     var sliceIdsCallback = function(data)
     {
-        console.log(data);
         if (data.hasOwnProperty('djerror'))
         {
+            console.log(data.djerror);
             growlAlert('Error', 'Problem retrieving trace ids. See console');
         }
         else
@@ -505,17 +519,12 @@ function AreaTool()
             {
                 if (!checkAreaAndTrace(data.assembly_ids[idx], data.ids[idx]))
                 {
-                    needIds.push(data.ids[idx]);
+                    loadSVGFromURL(data.ids[idx], data.assembly_ids[idx], self.stack.z);
                 }
             }
-
-            AreaServerModel.retrieveTraces(needIds, self.stack, retrieveTracesCallback);
         }
 
     };
-
-
-
 
     this.fetchAreas = function()
     {

@@ -1210,10 +1210,15 @@ def user_slice_geometry_by_hash(request, project_id=None, stack_id=None):
 
 # --- shapely-representation-specific code ---
 
-def path_to_svg(xy):
+def ring_to_svg(ring, ccw=True):
     """
     Converts a 2 x n array to an svg path string
     """
+    xy = ring.xy
+    if ring.is_ccw != ccw:
+        xy[0].reverse()
+        xy[1].reverse()
+
     ctrl_char = 'M'
     svg_str = ''
 
@@ -1240,9 +1245,12 @@ def shapely_polygon_to_svg(polygon):
 		<path d="{}" fill-rule="evenodd"/>\
 	</g>\
 </svg>'
-    svg_str = path_to_svg(polygon.exterior.xy)
+
+    # Exteriors written counter-clockwise, interiors clockwise.
+    # This ensures that holes are rendered properly.
+    svg_str = ring_to_svg(polygon.exterior, ccw=True)
     for interior in polygon.interiors:
-        svg_str = ' '.join([svg_str, path_to_svg(interior.xy)])
+        svg_str = ' '.join([svg_str, ring_to_svg(interior, ccw=False)])
     return svg_template.format(svg_str)
 
 # --- convenience code for debug purposes ---
