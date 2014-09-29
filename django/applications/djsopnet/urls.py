@@ -50,6 +50,9 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_blocks$', 'clear_blocks'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_djsopnet$', 'clear_djsopnet'),
 
+    # 3D Viewer retrieval methods for debugging
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_for_skeleton/(?P<skeleton_id>\d+)$', 'retrieve_slices_for_skeleton'),
+
     # Models
     (r'^tasks$', 'get_task_list'),
 

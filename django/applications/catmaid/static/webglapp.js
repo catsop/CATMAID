@@ -1496,6 +1496,37 @@ WebGLApplication.prototype.Space.prototype.updateSkeleton = function(skeletonmod
   return this.content.skeletons[skeletonmodel.id];
 };
 
+/** A volumetric representation of a neuron that may be associated with a skeleton
+ *  Two representational primities
+ *    (1) A set of slices which are 2D quads with the slice image as texture
+ *    (2) A mesh representation of the surface of the neuron
+ */
+WebGLApplication.prototype.Space.prototype.VolumeObject = function(space, model) {
+  this.space = space;
+
+  // representation of the neuron as sets of slices (2D bitmap masks) and segments
+  // that connect the slices
+  this.sliceset = {};
+  this.segmentset = {};
+};
+
+WebGLApplication.prototype.Space.prototype.VolumeObject.prototype.initialize_objects = function() {
+  // 2D quads with the slice as image texture
+  this.slicesetgeometry = {};
+  // lines with attached spheres as handlers
+  this.segmentsetgeometry = {};
+};
+
+WebGLApplication.prototype.Space.prototype.VolumeObject.prototype.destroy = function() {
+  this.removeActorFromScene();
+  // TODO: remove the models
+};
+
+WebGLApplication.prototype.Space.prototype.VolumeObject.prototype.removeActorFromScene = function() {
+  // TODO: iterate through the geometries and remove them
+};
+
+
 /** An object to represent a skeleton in the WebGL space.
  *  The skeleton consists of three geometries:
  *    (1) one for the edges between nodes, represented as a list of contiguous pairs of points; 
@@ -2697,4 +2728,71 @@ WebGLApplication.prototype.toggle_usercolormap_dialog = function() {
       $('#usercolormap-table > tbody:last').append( rowElement );
     }
   }
+};
+
+/**
+ * Initial entry point to test retrieval of broken_slices
+ */
+WebGLApplication.prototype.showSlices = function() {
+  var space = this.space;
+  console.log('show slices', this.space);
+  // for a skeleton id, retrieve a slice set from the API
+  requestQueue.register(django_url + "sopnet/" + project.id + "/stack/1/slices_for_skeleton/1",
+    "POST",
+    {},
+    function (status, text, xml) {
+      if (200 !== status) return;
+      if (!text || text === " ") return;
+      var json = $.parseJSON(text);
+      if (json.error) return alert(json.error);
+      console.log('returned data', json);
+      var slices = Object.keys(json.slices);
+      if( 0 !== slices ) {
+        var slice;
+        slices.forEach(function(id) {
+          slice = json.slices[id];
+          console.log('slice: ', id, slice);
+
+          var material = new THREE.MeshLambertMaterial({
+            map: THREE.ImageUtils.loadTexture( slice.url ),
+            side: THREE.DoubleSide
+          });
+          
+          var geometry = new THREE.Geometry();
+          geometry.vertices.push( new THREE.Vector3( slice.min_x, slice.min_y, slice.section ) );
+          geometry.vertices.push( new THREE.Vector3( slice.max_x, slice.min_y, slice.section ) );
+          geometry.vertices.push( new THREE.Vector3( slice.min_x, slice.max_y, slice.section ) );
+          geometry.vertices.push( new THREE.Vector3( slice.max_x, slice.max_y, slice.section ) );
+          geometry.faces.push( new THREE.Face4( 0, 1, 3, 2 ) );
+
+          // var mesh = space.content.newMesh(geometry, material);
+          var mesh = new THREE.Mesh( geometry, material );
+          console.log('new quad mesh', mesh);
+
+          // space.add( mesh );
+
+        });
+      }
+
+      space.render();
+
+    });
+
+
+  // TOREMOVE: dummy testing
+    var geometry = new THREE.Geometry(),
+        xwidth = stack.dimension.x * stack.resolution.x,
+        ywidth = stack.dimension.y * stack.resolution.y,
+        material = new THREE.MeshBasicMaterial( { color: 0x151349, side: THREE.DoubleSide } );
+
+    geometry.vertices.push( new THREE.Vector3( 0,0,0 ) );
+    geometry.vertices.push( new THREE.Vector3( xwidth,0,0 ) );
+    geometry.vertices.push( new THREE.Vector3( 0,ywidth,0 ) );
+    geometry.vertices.push( new THREE.Vector3( xwidth,ywidth,0 ) );
+    geometry.faces.push( new THREE.Face4( 0, 1, 3, 2 ) );
+
+    space.add( new THREE.Mesh( geometry, material ) );
+
+
+
 };
