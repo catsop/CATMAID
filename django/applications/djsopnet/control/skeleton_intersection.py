@@ -57,10 +57,10 @@ def _retrieve_slices_in_boundingbox(resolution, translation, location):
 		max_x__gte = (location['x'] - translation['x']) / resolution['x'],
 		min_y__lte = (location['y'] - translation['y']) / resolution['y'],
 		max_y__gte = (location['y'] - translation['y']) / resolution['y'],
-	).values('hash_value')
+	).values('id')
 	# TODO: for retrieved slices, perform a pixel-based lookup to select only the
 	# really intersecting slices
-	return set( [r['hash_value'] for r in retslices] )
+	return set( [r['id'] for r in retslices] )
 
 
 def _retrieve_slices_in_boundingbox_multiple_locations(resolution, translation, locations):
@@ -72,9 +72,9 @@ def _retrieve_slices_in_boundingbox_multiple_locations(resolution, translation, 
 
 
 def _retrieve_end_segments_for_sliceset( sliceset, direction ):
-		return  set([s['hash_value'] for s in \
-			Segment.objects.filter( slice_a_hash__in = list(sliceset), type = 0, \
-				direction = direction ).values('hash_value')])
+		return  set([s['id'] for s in \
+			Segment.objects.filter( slice_a_id_in = list(sliceset), type = 0, \
+				direction = direction ).values('id')])
 
 
 def _generate_user_constraint_from_intersection_segments( skeletonid, super_graph, all_intersection_segments ):
@@ -181,10 +181,10 @@ for node_id in graph_traversal_nodes:
 			top_node = tmp_node
 
 		# Segments whose 'upper' slice is in the set of slices associated with the super node (only continuation egments)
-		top_segments = set([s['hash_value'] for s in Segment.objects.filter( slice_a_hash__in = list(top_node['sliceset']), type = 1 ).values('hash_value')])
+		top_segments = set([s['id'] for s in Segment.objects.filter( slice_a_id__in = list(top_node['sliceset']), type = 1 ).values('id')])
 
 		# Segments whow 'lower' slice is in the set of slices associated with the one successor of the super node
-		bottom_segments = set([s['hash_value'] for s in Segment.objects.filter( slice_b_hash__in = list(bottom_node['sliceset']), type = 1 ).values('hash_value')])
+		bottom_segments = set([s['id'] for s in Segment.objects.filter( slice_b_id__in = list(bottom_node['sliceset']), type = 1 ).values('id')])
 
 		# only select those continuation segments that are consistent with the skeleton
 		intersection_segments = top_segments.intersection( bottom_segments )
