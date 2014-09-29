@@ -86,6 +86,18 @@ def _generate_user_constraint_from_intersection_segments( skeletonid, super_grap
 			ConstraintSegmentRelation( constraint=constraint,
 				segment = int(segment) ).save()
 
+def _get_section_node_dictionary( super_graph ):
+	section_node_dictionary = dict()
+	for node_id in super_graph.nodes():
+		# check if there are already nodes listed in the dictionary for the section of the current node
+		node_section = super_graph.node[node_id]['z']
+		if node_section in section_node_dictionary:
+			# if yes append the current node
+			section_node_dictionary[node_section].append(node_id)
+		else:
+			# if no create a new entry with the current node
+			section_node_dictionary[node_section] = [node_id]
+	return section_node_dictionary
 
 ####################################################################################
 # Start script that goes later into a function that is called for a given skeleton
@@ -94,7 +106,7 @@ def _generate_user_constraint_from_intersection_segments( skeletonid, super_grap
 project_id=1
 raw_stack_id=1
 membrane_stack_id=2
-selected_skeleton_id=40
+selected_skeleton_id=16
 lookup_locations = []
 # keep track of sites on the skeleton for later manual reviewing of the SOPNET solution
 # no_slice_found: at the skeleton node location
@@ -133,6 +145,7 @@ if len( skeleton_graph.successors( root_node_id ) ) != 1:
 	raise Exception('Skeleton graph root node requires to have only one continuation node in another section!')
 
 super_graph = _build_skeleton_super_graph(skeleton_graph)
+section_node_dictionary = _get_section_node_dictionary(super_graph)
 
 for node_id, d in super_graph.nodes_iter(data=True):
 	data_for_skeleton_nodes = [skeleton_graph.node[skeleton_node_id] for skeleton_node_id in d['nodes_in_same_section']]
@@ -150,7 +163,14 @@ for node_id in graph_traversal_nodes:
 	successors_of_node = super_graph.successors( node_id )
 	nr_of_successors = len( successors_of_node )
 	if nr_of_successors > 1:
-		# found a branch node, skip it for now
+		# Found a branch node
+		# In this case either a continuation of a branch is compatible with the annotation
+		# In the case of a continuation both chidren of the branch node should be contained in a single slice
+		# In the case of a branch node slice_b should be compatible with one of the children and slice_c with the other child
+		
+		# Continuation case:
+		
+		
 		graph_traversal_nodes.extend( successors_of_node )
 	elif nr_of_successors == 0 or node_id == super_graph_root_node_id:
 		# print 'found leaf node'
