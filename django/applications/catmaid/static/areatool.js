@@ -130,32 +130,13 @@ var AreaServerModel = new function()
             }
         }
     };
-
-    /**
-     * Update the list of areas with respect to the current parameters of the given tool and return a
-     * list of visible areas.
-     */
-    this.pullAreas = function(tool)
-    {
-        // for now, just return the areas.
-        return areas;
-    };
-
-    /**
-     * Add a new area. This pushes the new area onto the area list, and syncs it with the server.
-     */
-    this.addArea = function(area)
-    {
-        areas.push(area);
-    };
-
 };
 
 
 /**
  Area class maintains geometric information for a given Assembly.
  */
-function Area(name, assemblyId)
+function Area(name, assemblyId, canvasIn)
 {
     this.color = 'rgb(255,0,0)';
     this.opacity = 1;
@@ -163,7 +144,7 @@ function Area(name, assemblyId)
     this.assemblyId = assemblyId;
 
     var self = this;
-
+    var canvas = canvasIn;
     var fabricObjects = [];
     var objectTable = {};
 
@@ -233,6 +214,7 @@ function Area(name, assemblyId)
         {
             var objectContainer = objectTable[key];
             var idx = fabricObjects.indexOf(objectContainer);
+            canvas.remove(objectContainer.obj);
             fabricObjects.splice(idx, 1);
             delete objectTable[key];
 
@@ -305,7 +287,6 @@ function FabricObjectContainer(obj, scale, screenPos, z, id)
     this.originalScale = scale;
     this.id = id;
     this.z = z;
-
 }
 
 /**
@@ -316,28 +297,29 @@ function AreaTool()
     this.prototype = new Navigator();
     this.toolname = "Area Tracing Tool";
     this.width = 10;
-    this.currentArea = new Area("Dumb Area", 1);
     // Replaced when register() is called
     this.stack = null;
     this.lastPos = null;
 
+    var currentArea = null;
     var self = this;
     var actions = [];
-    var areas = [this.currentArea];
+    var areas = [];
     var nextId = 0;
+    var assemblyTable = {};
 
     var proto_mouseCatcher = null;
 
     var areaById = function(id)
     {
-        for (var idx = 0; idx < areas.length; ++idx)
+        if (assemblyTable.hasOwnProperty(id))
         {
-            if (areas[idx].assemblyId == id)
-            {
-                return areas[idx];
-            }
+            return assemblyTable[id];
         }
-        return null;
+        else
+        {
+            return null;
+        }
     };
 
     var setupProtoControls = function()
@@ -370,27 +352,19 @@ function AreaTool()
         canvas.isDrawingMode = true;
 
         canvas.on('path:created', function(e){
-            if (self.currentArea)
+            if (currentArea != null)
             {
                 self.registerFreshFabricObject(e.path);
             }
         });
-
-        /*self.canvasLayer.view.onmousedown = function(e){
-         return true
-         };
-
-         self.canvasLayer.view.onmouseup = function(e){
-         return true
-         };*/
-
-        //canvas.interactive = true;
 
         self.stack.addLayer("AreaLayer", self.canvasLayer);
         self.stack.resize();
 
         self.canvasLayer.view.onmousedown = self.onmousedown;
         self.canvasLayer.view.onmouseup = self.onmouseup;
+
+        self.setCurrentArea(new Area("Dumb Area", 1, self.canvasLayer.canvas));
     };
 
     var currentZ = function()
@@ -429,7 +403,7 @@ function AreaTool()
                 for (var idx = 0; idx < replaceIds.length; ++idx)
                 {
                     var rmObj = area.removeObject(replaceIds[idx]);
-                    self.canvasLayer.canvas.remove(rmObj);
+                    //self.canvasLayer.canvas.remove(rmObj);
                 }
             }
         };
@@ -595,7 +569,7 @@ function AreaTool()
 
         if (areaType == 'undefined')
         {
-            area = self.currentArea;
+            area = currentArea;
         }
         else if(areaType == 'object')
         {
@@ -670,14 +644,14 @@ function AreaTool()
 
         area.addObjectContainer(objectContainer);
 
-        AreaServerModel.pushTrace(self.stack, self.width, self.currentArea.assemblyId,
+        AreaServerModel.pushTrace(self.stack, self.width, currentArea.assemblyId,
             objectContainer, pushTraceCallback);
     };
 
 
     this.register = function(parentStack)
     {
-        g_Area = self;
+        g_AreaTool = self;
 
         self.stack = parentStack;
 
@@ -690,7 +664,6 @@ function AreaTool()
         setupSubTools();
         //createCanvasLayer();
 
-        AreaServerModel.addArea(self.currentArea);
         AreaServerModel.registerTool(self);
 
     };
@@ -722,14 +695,18 @@ function AreaTool()
 
         if (self.lastPos)
         {
+            if (self.lastZ != self.stack.z)
+            {
+                self.fetchAreas();
+                trimTraces();
+            }
+
             self.cacheScreenParameters();
 
             for (i = 0; i < areas.length; ++i)
             {
                 areas[i].updatePosition(self.stack.screenPosition(), self.stack.scale);
             }
-
-            //self.fetchAreas();
         }
         else
         {
@@ -741,15 +718,34 @@ function AreaTool()
 
     this.setArea = function(area)
     {
-        self.currentArea = area;
+        currentArea = area;
     };
 
     this.getArea = function()
     {
-        return self.currentArea;
+        return currentArea;
     };
 
+    this.hasAreaWithId = function(id)
+    {
+        return assemblyTable.hasOwnProperty(id);
+    };
 
+    this.setCurrentArea = function(area)
+    {
+        if (!self.hasAreaWithId(area.assemblyId))
+        {
+            self.addArea(area);
+        }
+
+        currentArea = area;
+    };
+
+    this.addArea = function(area)
+    {
+        assemblyTable[area.assemblyId] = area;
+        areas.push(area);
+    };
 
     /**
      * This function should return true if there was any action
@@ -766,4 +762,6 @@ function AreaTool()
     };
 
     var keyCodeToAction = getKeyCodeToActionMap(actions);
+
+
 }
