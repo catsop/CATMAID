@@ -48,9 +48,9 @@ def create_testdata():
 	psm = ProjectStack(project=p, stack=sm)
 	psm.save()
 
-	print("SOPNET_PROJECT_ID = %s", p.id)
-	print("SOPNET_RAW_STACK_ID = %s", sr.id)
-	print("SOPNET_MEMBRANE_STACK_ID", sm.id)
+	print("SOPNET_PROJECT_ID = %s" % p.id)
+	print("SOPNET_RAW_STACK_ID = %s" % sr.id)
+	print("SOPNET_MEMBRANE_STACK_ID = %s" % m.id)
 
 class SopnetTest(object):
 	def param(self, name, override):
