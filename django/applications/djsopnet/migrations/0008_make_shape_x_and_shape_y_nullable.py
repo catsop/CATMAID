@@ -8,244 +8,20 @@ from django.db import models
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        def truncate_cascade(table):
-            db.execute('TRUNCATE TABLE "%s" CASCADE' % table)
 
-        # Deleting model 'SegmentCost'
-        db.delete_table(u'djsopnet_segmentcost')
+        # Changing field 'Slice.shape_y'
+        db.alter_column(u'djsopnet_slice', 'shape_y', self.gf('catmaid.fields.IntegerArrayField')(null=True))
 
-        # Deleting model 'SliceConflictRelation'
-        db.delete_table(u'djsopnet_sliceconflictrelation')
-
-        # Deleting model 'FeatureNameInfo'
-        db.delete_table(u'djsopnet_featurenameinfo')
-
-        # Adding model 'FeatureInfo'
-        db.create_table(u'djsopnet_featureinfo', (
-            (u'id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
-            ('stack', self.gf('django.db.models.fields.related.OneToOneField')(to=orm['catmaid.Stack'], unique=True)),
-            ('size', self.gf('django.db.models.fields.IntegerField')(default=0)),
-            ('name_ids', self.gf('catmaid.fields.IntegerArrayField')()),
-            ('weights', self.gf('catmaid.fields.DoubleArrayField')()),
-        ))
-        db.send_create_signal(u'djsopnet', ['FeatureInfo'])
-
-        # Deleting field 'Block.creation_time'
-        db.delete_column(u'djsopnet_block', 'creation_time')
-
-        # Deleting field 'Block.edition_time'
-        db.delete_column(u'djsopnet_block', 'edition_time')
-
-        # Deleting field 'Block.project'
-        db.delete_column(u'djsopnet_block', 'project_id')
-
-        # Deleting field 'Block.user'
-        db.delete_column(u'djsopnet_block', 'user_id')
-
-        # Clear sliceblockrelation table
-        truncate_cascade(u'djsopnet_sliceblockrelation')
-
-        # Deleting field 'SliceBlockRelation.project'
-        db.delete_column(u'djsopnet_sliceblockrelation', 'project_id')
-
-        # Deleting field 'SliceBlockRelation.edition_time'
-        db.delete_column(u'djsopnet_sliceblockrelation', 'edition_time')
-
-        # Deleting field 'SliceBlockRelation.creation_time'
-        db.delete_column(u'djsopnet_sliceblockrelation', 'creation_time')
-
-        # Deleting field 'SliceBlockRelation.user'
-        db.delete_column(u'djsopnet_sliceblockrelation', 'user_id')
-
-        # Adding unique constraint on 'SliceBlockRelation', fields ['block', 'slice']
-        db.create_unique(u'djsopnet_sliceblockrelation', ['block_id', 'slice_id'])
-
-        # Clear segmentfeatures table
-        truncate_cascade(u'djsopnet_segmentfeatures')
-
-        # Deleting field 'SegmentFeatures.project'
-        db.delete_column(u'djsopnet_segmentfeatures', 'project_id')
-
-        # Deleting field 'SegmentFeatures.creation_time'
-        db.delete_column(u'djsopnet_segmentfeatures', 'creation_time')
-
-        # Deleting field 'SegmentFeatures.edition_time'
-        db.delete_column(u'djsopnet_segmentfeatures', 'edition_time')
-
-        # Deleting field 'SegmentFeatures.user'
-        db.delete_column(u'djsopnet_segmentfeatures', 'user_id')
-
-
-        # Changing field 'SegmentFeatures.features'
-        db.alter_column(u'djsopnet_segmentfeatures', 'features', self.gf('catmaid.fields.DoubleArrayField')())
-        # Deleting field 'BlockInfo.project'
-        db.delete_column(u'djsopnet_blockinfo', 'project_id')
-
-        # Deleting field 'BlockInfo.edition_time'
-        db.delete_column(u'djsopnet_blockinfo', 'edition_time')
-
-        # Deleting field 'BlockInfo.creation_time'
-        db.delete_column(u'djsopnet_blockinfo', 'creation_time')
-
-        # Deleting field 'BlockInfo.user'
-        db.delete_column(u'djsopnet_blockinfo', 'user_id')
-
-        # Clear blockconflictrelation table
-        truncate_cascade(u'djsopnet_blockconflictrelation')
-
-        # Deleting field 'BlockConflictRelation.project'
-        db.delete_column(u'djsopnet_blockconflictrelation', 'project_id')
-
-        # Deleting field 'BlockConflictRelation.edition_time'
-        db.delete_column(u'djsopnet_blockconflictrelation', 'edition_time')
-
-        # Deleting field 'BlockConflictRelation.creation_time'
-        db.delete_column(u'djsopnet_blockconflictrelation', 'creation_time')
-
-        # Deleting field 'BlockConflictRelation.user'
-        db.delete_column(u'djsopnet_blockconflictrelation', 'user_id')
-
-        # Adding unique constraint on 'BlockConflictRelation', fields ['block', 'conflict']
-        db.create_unique(u'djsopnet_blockconflictrelation', ['block_id', 'conflict_id'])
-
-        # Clear segmentblockrelation table
-        truncate_cascade(u'djsopnet_segmentblockrelation')
-
-        # Deleting field 'SegmentBlockRelation.project'
-        db.delete_column(u'djsopnet_segmentblockrelation', 'project_id')
-
-        # Deleting field 'SegmentBlockRelation.edition_time'
-        db.delete_column(u'djsopnet_segmentblockrelation', 'edition_time')
-
-        # Deleting field 'SegmentBlockRelation.creation_time'
-        db.delete_column(u'djsopnet_segmentblockrelation', 'creation_time')
-
-        # Deleting field 'SegmentBlockRelation.user'
-        db.delete_column(u'djsopnet_segmentblockrelation', 'user_id')
-
-        # Adding unique constraint on 'SegmentBlockRelation', fields ['block', 'segment']
-        db.create_unique(u'djsopnet_segmentblockrelation', ['block_id', 'segment_id'])
-
-        # Clear segmentsolution table
-        truncate_cascade(u'djsopnet_segmentsolution')
-
-        # Deleting field 'SegmentSolution.project'
-        db.delete_column(u'djsopnet_segmentsolution', 'project_id')
-
-        # Deleting field 'SegmentSolution.user'
-        db.delete_column(u'djsopnet_segmentsolution', 'user_id')
-
-        # Deleting field 'SegmentSolution.creation_time'
-        db.delete_column(u'djsopnet_segmentsolution', 'creation_time')
-
-        # Deleting field 'SegmentSolution.edition_time'
-        db.delete_column(u'djsopnet_segmentsolution', 'edition_time')
-
-        # Adding unique constraint on 'SegmentSolution', fields ['core', 'segment']
-        db.create_unique(u'djsopnet_segmentsolution', ['core_id', 'segment_id'])
-
-        # Clear segment table
-        truncate_cascade(u'djsopnet_segment')
-
-        # Deleting field 'Segment.slice_a_hash'
-        db.delete_column(u'djsopnet_segment', 'slice_a_hash')
-
-        # Deleting field 'Segment.slice_c_hash'
-        db.delete_column(u'djsopnet_segment', 'slice_c_hash')
-
-        # Deleting field 'Segment.creation_time'
-        db.delete_column(u'djsopnet_segment', 'creation_time')
-
-        # Deleting field 'Segment.edition_time'
-        db.delete_column(u'djsopnet_segment', 'edition_time')
-
-        # Deleting field 'Segment.project'
-        db.delete_column(u'djsopnet_segment', 'project_id')
-
-        # Deleting field 'Segment.slice_b_hash'
-        db.delete_column(u'djsopnet_segment', 'slice_b_hash')
-
-        # Deleting field 'Segment.user'
-        db.delete_column(u'djsopnet_segment', 'user_id')
-
-        # Deleting field 'Segment.hash_value'
-        db.delete_column(u'djsopnet_segment', 'hash_value')
-
-        # Adding field 'Segment.id'
-        db.add_column(u'djsopnet_segment', 'id',
-                      self.gf('django.db.models.fields.BigIntegerField')(primary_key=True),
-                      keep_default=False)
-
-        # Adding field 'Segment.slice_a'
-        db.add_column(u'djsopnet_segment', 'slice_a',
-                      self.gf('django.db.models.fields.related.ForeignKey')(related_name='segments_as_a', to=orm['djsopnet.Slice']),
-                      keep_default=False)
-
-        # Adding field 'Segment.slice_b'
-        db.add_column(u'djsopnet_segment', 'slice_b',
-                      self.gf('django.db.models.fields.related.ForeignKey')(related_name='segments_as_b', null=True, to=orm['djsopnet.Slice']),
-                      keep_default=False)
-
-        # Adding field 'Segment.slice_c'
-        db.add_column(u'djsopnet_segment', 'slice_c',
-                      self.gf('django.db.models.fields.related.ForeignKey')(related_name='segments_as_c', null=True, to=orm['djsopnet.Slice']),
-                      keep_default=False)
-
-        # Clear sliceconflictset table
-        truncate_cascade(u'djsopnet_sliceconflictset')
-
-        # Adding field 'SliceConflictSet.slice_a'
-        db.add_column(u'djsopnet_sliceconflictset', 'slice_a',
-                      self.gf('django.db.models.fields.related.ForeignKey')(related_name='conflicts_as_a', to=orm['djsopnet.Slice']),
-                      keep_default=False)
-
-        # Adding field 'SliceConflictSet.slice_b'
-        db.add_column(u'djsopnet_sliceconflictset', 'slice_b',
-                      self.gf('django.db.models.fields.related.ForeignKey')(related_name='conflicts_as_b', to=orm['djsopnet.Slice']),
-                      keep_default=False)
-
-        # Adding unique constraint on 'SliceConflictSet', fields ['slice_a', 'slice_b']
-        db.create_unique(u'djsopnet_sliceconflictset', ['slice_a_id', 'slice_b_id'])
-
-        # Deleting field 'Core.creation_time'
-        db.delete_column(u'djsopnet_core', 'creation_time')
-
-        # Deleting field 'Core.user'
-        db.delete_column(u'djsopnet_core', 'user_id')
-
-        # Deleting field 'Core.edition_time'
-        db.delete_column(u'djsopnet_core', 'edition_time')
-
-        # Deleting field 'Core.project'
-        db.delete_column(u'djsopnet_core', 'project_id')
-
-        # Clear slice table
-        truncate_cascade(u'djsopnet_slice')
-
-        # Deleting field 'Slice.creation_time'
-        db.delete_column(u'djsopnet_slice', 'creation_time')
-
-        # Deleting field 'Slice.edition_time'
-        db.delete_column(u'djsopnet_slice', 'edition_time')
-
-        # Deleting field 'Slice.project'
-        db.delete_column(u'djsopnet_slice', 'project_id')
-
-        # Deleting field 'Slice.user'
-        db.delete_column(u'djsopnet_slice', 'user_id')
-
-        # Deleting field 'Slice.hash_value'
-        db.delete_column(u'djsopnet_slice', 'hash_value')
-
-        # Adding field 'Slice.id'
-        db.add_column(u'djsopnet_slice', 'id',
-                      self.gf('django.db.models.fields.BigIntegerField')(primary_key=True),
-                      keep_default=False)
-
+        # Changing field 'Slice.shape_x'
+        db.alter_column(u'djsopnet_slice', 'shape_x', self.gf('catmaid.fields.IntegerArrayField')(null=True))
 
     def backwards(self, orm):
-        raise RuntimeError("Cannot reverse this migration.")
 
+        # Changing field 'Slice.shape_y'
+        db.alter_column(u'djsopnet_slice', 'shape_y', self.gf('catmaid.fields.IntegerArrayField')(default=[]))
+
+        # Changing field 'Slice.shape_x'
+        db.alter_column(u'djsopnet_slice', 'shape_x', self.gf('catmaid.fields.IntegerArrayField')(default=[]))
 
     models = {
         u'auth.group': {
@@ -416,8 +192,8 @@ class Migration(SchemaMigration):
             'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'section': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'shape_x': ('catmaid.fields.IntegerArrayField', [], {}),
-            'shape_y': ('catmaid.fields.IntegerArrayField', [], {}),
+            'shape_x': ('catmaid.fields.IntegerArrayField', [], {'null': 'True'}),
+            'shape_y': ('catmaid.fields.IntegerArrayField', [], {'null': 'True'}),
             'size': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
             'value': ('django.db.models.fields.FloatField', [], {})
