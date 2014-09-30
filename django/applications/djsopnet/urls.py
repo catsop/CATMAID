@@ -53,6 +53,7 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slice_ids_in_view$', 'user_slice_hashes_in_bound'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/polygon_slices$', 'user_slice_geometry_by_hash'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/polygon_slice/(?P<slice_id>\d+).svg$', 'polygon_slice_by_hash'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/list_assemblies$', 'user_list_assemblies'),
 
     # Models
     (r'^tasks$', 'get_task_list'),

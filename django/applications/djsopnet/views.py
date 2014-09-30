@@ -1088,13 +1088,16 @@ def slice_client_dict(slice, area_geometry, replace_hashes=None, **kwargs):
                                     'section': slice.section}
 
 
-def geometry_hash(area_geometry):
+def geometry_assembly_hash(area_geometry, assembly):
     """
     Generate the hash value used in the postgres Slice representation.
 
     This code works by mixing the values of the x,y point pairs in the polygon boundary
     """
-    h = 0
+    if assembly is not None:
+        h = assembly.id
+    else:
+        h = 0
     for xy in zip(area_geometry.exterior.xy[0], area_geometry.exterior.xy[1]):
         h = 37 * 37 * h + 37 * hash(xy[0]) + hash(xy[1])
     for interior in area_geometry.interiors:
@@ -1108,11 +1111,16 @@ def create_slice(area_geometry, assembly, stack, project, section):
     xy_min, xy_max = geometry_bound(area_geometry)
     x, y = slice_field_from_geometry(area_geometry.exterior)
 
-    slice = Slice(user=assembly.user,
+    if assembly is None:
+        user = models.User.objects.get(pk=1)
+    else:
+        user = assembly.user
+
+    slice = Slice(user=user,
                   stack=stack,
                   project=project,
                   assembly=assembly,
-                  hash_value=geometry_hash(area_geometry),
+                  hash_value=geometry_assembly_hash(area_geometry, assembly),
                   section=section,
                   min_x=xy_min[0],
                   min_y=xy_min[1],
@@ -1135,6 +1143,16 @@ def create_slice(area_geometry, assembly, stack, project, section):
         hole_relation.save()
 
     return slice
+
+def user_list_assemblies(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    #p = get_object_or_404(Project, pk=project_id)
+
+    stack_slices = Slice.objects.filter(stack = s)
+    assemblies = {slice.assembly for slice in stack_slices}
+    assembly_dicts = [{'id': assembly.id, 'name': assembly.name} for assembly in assemblies]
+
+    return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
 def user_insert_slice(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
