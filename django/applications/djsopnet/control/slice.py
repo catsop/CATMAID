@@ -1,5 +1,4 @@
 import json
-import sys
 
 from django.http import HttpResponse
 
@@ -50,18 +49,25 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 
 	constraint_segment_ids = ConstraintSegmentRelation.objects.filter( constraint__in = constraint_ids ).values('segment')
 
-	# Retrieve all Segments associated with these constraints including the solution flag
-	# TODO: type__in to only select continuation/branches needs to be benchmarked against two separate queries
-	segments = Segment.objects.filter( id__in = constraint_segment_ids, type__in = [2,3] ).values('id', 'section_inf', \
-	 'type', 'direction', 'ctr_x', 'ctr_y')
+	# Retrieve all continuation and branch Segments associated with these constraints
+	segments = Segment.objects.filter( id__in = constraint_segment_ids, type__gt = 1 ).values('id', 'section_inf', 'type', 'ctr_x', 'ctr_y')
 
 	for seg in segments:
 		data['segments'][seg['id']] = {
 			'section': seg['section_inf'],
 			'type': seg['type'],
-			'direction': seg['direction'],
-			'ctr_x': seg['ctr_x'], 'ctr_y': seg['ctr_y']
+			'ctr_x': seg['ctr_x'],
+			'ctr_y': seg['ctr_y'],
+			'left': [], 'right': []
 		}
+
+	segment_slices = SegmentSlice.objects.filter( segment__in = data['segments'].keys() ).values('slice', 'segment', 'direction')
+	for ss in segment_slices:
+		if ss['direction']:
+			direction = 'left'
+		else:
+			direction = 'right'
+		data['segments'][ss['segment']][direction].append( ss['slice'] )
 
 	# add the solution flag to the segments
 	segment_solutions = SegmentSolution.objects.filter( segment__in = data['segments'].keys() ).value('segment', 'solution')
@@ -69,12 +75,7 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 	for sol in segment_solutions:
 		seg = data['segments'][sol['segment']]
 		seg['solution'] = sol['solution']
-		if seg['type'] >= 2:
-			# continuation segment
-			slices_to_retrieve.add( seg['slice_a'] )
-			slices_to_retrieve.add( seg['slice_b'] )
-		if seg['type'] == 3:
-			slices_to_retrieve.add( seg['slice_c'] )
+		slices_to_retrieve.update( seg['left'] + seg['right'] ) # add all slices for retrieval
 
 	# Retrieve all Slices associated to those segments. Mark the slices of selected solution segments.
 	# On demand retrieval from the client of additional slices of segments that are not part of the solution
@@ -88,7 +89,6 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 		}
 	
 	# TODO: lookup locations
-
 	return HttpResponse(json.dumps((data), separators=(',', ':')))
 
 
@@ -99,3 +99,5 @@ def retrieve_connected_component_from_initial_segment(request, segment_id = None
 	to a segment, this breaks down to a lookup of the ID and retrieval of the connected component
 	associated with the initial segment """
 	pass
+
+

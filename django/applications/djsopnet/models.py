@@ -176,7 +176,7 @@ class Constraint(UserFocusedModel):
     # the skeleton that defined the constraint
     skeleton = models.ForeignKey(ClassInstance, null=True, default=None)
 
-    # store the list of skeleton node ids that defined the constraint
+    # TODO: remove this property
     associated_skeleton_nodes = IntegerArrayField(null=True, default=None)
 
 class BlockConstraintRelation(models.Model):
