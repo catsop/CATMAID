@@ -69,7 +69,7 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 	for sol in segment_solutions:
 		seg = data['segments'][sol['segment']]
 		seg['solution'] = sol['solution']
-		if seg['type'] == 2:
+		if seg['type'] >= 2:
 			# continuation segment
 			slices_to_retrieve.add( seg['slice_a'] )
 			slices_to_retrieve.add( seg['slice_b'] )
