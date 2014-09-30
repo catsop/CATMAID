@@ -19,7 +19,6 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 
 	For those locations, a segment is associated. Then, a lookup function to retrieve for a given segments the
 	associated connected componente, i.e. the traversal along selected segments of the solution, can be called.
-	"""
 
 
 	# TOREMOVE: dummy example
@@ -27,28 +26,34 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 		'slices': {
 			1: {
 				'section': 0,
-				'min_x': 10, 'min_y': 60,
-				'max_x': 10, 'max_y': 60,
-				'url': 'http://neurocity.janelia.org/l3vnc/slices/0/3.png'
-			}
+				'min_x': 0, 'min_y': 0,
+				'width': 50, 'height': 50,
+				'url': 'http://neurocity.janelia.org/l3vnc/slices/0/3.png',
+				'color': "rgb(255,0,0)"
+			},
 		},
 		'segments': {
 		}
 	}
 	return HttpResponse(json.dumps((data), separators=(',', ':')))
 
+
+	"""
 	data = {
 		'slices': {}, 'segments': {}, 'lookup': {}
 	}
 	# Retrieve the UserConstraints associated with a skeleton, and then all the associated segments
 	constraint_ids = Constraint.objects.filter( skeleton = skeleton_id ).values('id')
+
+	if len(constraint_ids) == 0:
+		return HttpResponse(json.dumps(({'error': 'No UserConstaints were generated for this skeleton.'}), separators=(',', ':')))	
+
 	constraint_segment_ids = ConstraintSegmentRelation.objects.filter( constraint__in = constraint_ids ).values('segment')
 
 	# Retrieve all Segments associated with these constraints including the solution flag
-	# TODO: type__in to only select continuation/branches needs to be benchmarked against two queries
+	# TODO: type__in to only select continuation/branches needs to be benchmarked against two separate queries
 	segments = Segment.objects.filter( id__in = constraint_segment_ids, type__in = [2,3] ).values('id', 'section_inf', \
 	 'type', 'direction', 'ctr_x', 'ctr_y')
-	# TODO: potentially retrieve ctr_x/y to display
 
 	for seg in segments:
 		data['segments'][seg['id']] = {

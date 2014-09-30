@@ -2732,12 +2732,19 @@ WebGLApplication.prototype.toggle_usercolormap_dialog = function() {
 
 /**
  * Initial entry point to test retrieval of broken_slices
+ *
+ * TODO: This is for initial testing only. Adding proper content objects later.
  */
 WebGLApplication.prototype.showSlices = function() {
-  var space = this.space;
-  console.log('show slices', this.space);
+  var skeleton_id = SkeletonAnnotations.getActiveSkeletonId();
+  if(null === skeleton_id) {
+    alert('Need active skeleton to show slices!')
+    return;
+  }
+
+  var space = this.space, stack = space.stack, t = stack.translation, r = stack.resolution;
   // for a skeleton id, retrieve a slice set from the API
-  requestQueue.register(django_url + "sopnet/" + project.id + "/stack/1/slices_for_skeleton/1",
+  requestQueue.register(django_url + "sopnet/" + project.id + "/stack/" + space.stack.id + "/slices_for_skeleton/" + skeleton_id,
     "POST",
     {},
     function (status, text, xml) {
@@ -2751,48 +2758,30 @@ WebGLApplication.prototype.showSlices = function() {
         var slice;
         slices.forEach(function(id) {
           slice = json.slices[id];
-          console.log('slice: ', id, slice);
-
-          var material = new THREE.MeshLambertMaterial({
+          var material = new THREE.MeshBasicMaterial({
+            // TODO: Color(1,0,0) does not work with current THREE.js version (replace)
+            color: new THREE.Color( slice.color ), 
             map: THREE.ImageUtils.loadTexture( slice.url ),
-            side: THREE.DoubleSide
+            transparent: true, alphaTest: 0.5, side: THREE.DoubleSide
           });
-          
-          var geometry = new THREE.Geometry();
-          geometry.vertices.push( new THREE.Vector3( slice.min_x, slice.min_y, slice.section ) );
-          geometry.vertices.push( new THREE.Vector3( slice.max_x, slice.min_y, slice.section ) );
-          geometry.vertices.push( new THREE.Vector3( slice.min_x, slice.max_y, slice.section ) );
-          geometry.vertices.push( new THREE.Vector3( slice.max_x, slice.max_y, slice.section ) );
-          geometry.faces.push( new THREE.Face4( 0, 1, 3, 2 ) );
+          // transparent PNG visualized on both sides
+          // http://stackoverflow.com/questions/11165345/three-js-webgl-transparent-planes-hiding-other-planes-behind-them
 
-          // var mesh = space.content.newMesh(geometry, material);
-          var mesh = new THREE.Mesh( geometry, material );
-          console.log('new quad mesh', mesh);
+          var minx = t.x + slice.min_x * r.x,
+              miny = t.y + slice.min_y * r.y,
+              width = t.x + slice.width * r.x,
+              height = t.y + slice.height * r.y,
+              zsection = t.z + slice.section * r.z,
+              c = space.toSpace( new THREE.Vector3(minx, miny, zsection));
 
-          // space.add( mesh );
+          var geometry = new THREE.PlaneGeometry( width, height );
+          var plane = new THREE.Mesh( geometry, material );
+          plane.position.set( c.x + width/2, c.y - height/2, c.z );
+          space.add( plane );
 
         });
       }
-
       space.render();
-
     });
-
-
-  // TOREMOVE: dummy testing
-    var geometry = new THREE.Geometry(),
-        xwidth = stack.dimension.x * stack.resolution.x,
-        ywidth = stack.dimension.y * stack.resolution.y,
-        material = new THREE.MeshBasicMaterial( { color: 0x151349, side: THREE.DoubleSide } );
-
-    geometry.vertices.push( new THREE.Vector3( 0,0,0 ) );
-    geometry.vertices.push( new THREE.Vector3( xwidth,0,0 ) );
-    geometry.vertices.push( new THREE.Vector3( 0,ywidth,0 ) );
-    geometry.vertices.push( new THREE.Vector3( xwidth,ywidth,0 ) );
-    geometry.faces.push( new THREE.Face4( 0, 1, 3, 2 ) );
-
-    space.add( new THREE.Mesh( geometry, material ) );
-
-
 
 };
