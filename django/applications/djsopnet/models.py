@@ -68,15 +68,13 @@ class Segment(models.Model):
     # 2 - Branch
     type = models.IntegerField(db_index=True)
 
-    # direction
-    # 0 - "Left"
-    # 1 - "Right"
-    direction = models.IntegerField(db_index=True)
+class SegmentSlice(models.Model):
+    slice = models.ForeignKey(Slice)
+    segment = models.ForeignKey(Segment)
+    direction = models.BooleanField() # true for left, false for right
 
-    # Slice relations
-    slice_a = models.ForeignKey(Slice, related_name='segments_as_a')
-    slice_b = models.ForeignKey(Slice, null=True, related_name='segments_as_b')
-    slice_c = models.ForeignKey(Slice, null=True, related_name='segments_as_c')
+    class Meta:
+        unique_together = ('slice', 'segment')
 
 class Block(models.Model):
     stack = models.ForeignKey(Stack)
@@ -109,7 +107,6 @@ class Core(models.Model):
 class SegmentSolution(models.Model):
     core = models.ForeignKey(Core)
     segment = models.ForeignKey(Segment)
-    solution = models.BooleanField()
 
     class Meta:
         unique_together = ('core', 'segment')
