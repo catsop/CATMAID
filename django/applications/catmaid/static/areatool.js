@@ -5,7 +5,6 @@
 var AreaServerModel = new function()
 {
     var areaTools = [];
-    var areas = [];
     var django_url = '/sopnet/';
 
     /**
@@ -94,6 +93,23 @@ var AreaServerModel = new function()
         var url = django_url + project.id + '/stack/' + stack.id + '/polygon_slices';
 
         var data = {'id' : ids};
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": url,
+            "data": data,
+            "success": callback
+        })
+    };
+
+    this.retrieveAreas = function(stack, callback)
+    {
+        var project = stack.getProject();
+        var url = django_url + project.id + '/stack/' + stack.id + '/list_assemblies';
+
+        var data = {};
 
         $.ajax({
             "dataType": 'json',
@@ -301,6 +317,10 @@ function AreaTool()
     this.stack = null;
     this.lastPos = null;
 
+    // mouse state
+    // 0: nothing
+    // 1: painting
+    var mouseState = 0;
     var currentArea = null;
     var self = this;
     var actions = [];
@@ -309,6 +329,11 @@ function AreaTool()
     var assemblyTable = {};
 
     var proto_mouseCatcher = null;
+
+    var isPainting = function()
+    {
+        return mouseState == 1;
+    };
 
     var areaById = function(id)
     {
@@ -513,22 +538,28 @@ function AreaTool()
         return actions;
     };
 
+    this.setWidget = function(widgetIn)
+    {
+        widget = widgetIn;
+    };
+
     this.addAction( new Action({
         helpText: "Area editting tool",
         buttonName: "editor",
         buttonID: "area_edit_button",
         run: function(e) {
-            WindowMaker.show('area-editting-tool');
-            setupProtoControls();
-            createCanvasLayer();
-            self.fetchAreas();
+            areaWindow = WindowMaker.show('area-editting-tool');
+            if (areaWindow.hasOwnProperty('areaWidget'))
+            {
+                areaWindow.areaWidget.setTool(self);
+            }
             return true;
         }
     }));
 
     this.onmousemove = function(e)
     {
-        if (e.button == 0)
+        if (e.button == 0 && isPainting())
         {
             self.canvasLayer.canvas._onMouseMoveInDrawingMode(e);
             return true;
@@ -537,22 +568,28 @@ function AreaTool()
 
     this.onmousedown = function(e)
     {
-        if (e.button == 1)
+        // Do some drawing! But only if we have an active area to trace and we're using the left
+        // mouse button.
+        if (currentArea != null && e.button == 0)
+        {
+            // Now we're painting.
+            mouseState = 1;
+            self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
+            return true;
+        }
+        // Otherwise, pass the event through to the prototype navigator.
+        else if(e.button == 1)
         {
             proto_onmousedown(e);
             return true;
         }
-        else if(e.button == 0)
-        {
-            self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
-            return true;
-        }
-
     };
 
-    this.onmouseup = function(e) {
-        if (e.button == 1)
+    this.onmouseup = function(e)
+    {
+        if (e.button == 1 && isPainting())
         {
+            mouseState = 0;
             proto_onmouseup(e);
             return true;
         }
@@ -569,22 +606,21 @@ function AreaTool()
 
         if (areaType == 'undefined')
         {
-            area = currentArea;
+            return currentArea;
         }
         else if(areaType == 'object')
         {
-            area = areaIdentifier;
+            return areaIdentifier;
         }
         else if (areaType == 'number')
         {
-            area = areaById(areaIdentifier);
+            return areaById(areaIdentifier);
         }
         else
         {
             console.log('Unexpected area type');
+            return null;
         }
-
-        return area;
     };
 
     this.registerDeserializedFabricObject = function(obj, areaIn, id, zIn, scaleIn,
@@ -652,25 +688,30 @@ function AreaTool()
     this.register = function(parentStack)
     {
         g_AreaTool = self;
+        g_Nav = self.prototype;
 
-        self.stack = parentStack;
+        if (self.stack == null)
+        {
+            self.stack = parentStack;
 
-        $("#toolbox_area").show();
+            $("#toolbox_area").show();
 
-        $("#edit_button_area").switchClass("button", "button_active", 0);
+            $("#edit_button_area").switchClass("button", "button_active", 0);
 
-        self.prototype.register( parentStack, "edit_button_area" );
+            self.prototype.register(parentStack, "edit_button_area");
 
-        setupSubTools();
-        //createCanvasLayer();
+            setupSubTools();
+            createCanvasLayer();
+            setupProtoControls();
+            self.fetchAreas();
 
-        AreaServerModel.registerTool(self);
-
+            AreaServerModel.registerTool(self);
+        }
     };
 
     this.unregister = function()
     {
-        self.prototype.destroy( "edit_button_area" );
+        //self.prototype.destroy( "edit_button_area" );
     };
 
     this.destroy = function()
@@ -763,5 +804,156 @@ function AreaTool()
 
     var keyCodeToAction = getKeyCodeToActionMap(actions);
 
-
 }
+
+var AreaTraceWidget = function() {};
+
+AreaTraceWidget.prototype = {};
+
+/**
+ * Initializes the area tool widget in the given container.
+ *
+ * Most of the following code was cribbed from settings.js
+ */
+AreaTraceWidget.prototype.init = function(space) {
+    var tool = null;
+    var assemblySelectElement = null;
+
+    this.setTool = function(inTool)
+    {
+        tool = inTool;
+        AreaServerModel.retrieveAreas(tool.stack,
+        function(data)
+        {
+            console.log(data);
+        })
+    };
+
+    this.setAreas = function(areas)
+    {
+        if (assemblySelectElement != null)
+        {
+            aseEnd = assemblySelectElement.remove().end();
+            var currentArea = tool.getArea();
+
+            for (var idx = 0; idx < areas.length; ++idx)
+            {
+                var area = areas[idx];
+                if (area === currentArea)
+                {
+                    aseEnd.append('<option selected value=\"' + area.assemblyId +'\">' +
+                        area.name + '</option>');
+                }
+                else
+                {
+                    aseEnd.append('<option value=\"' + area.assemblyId +'\">' +
+                        area.name + '</option>');
+                }
+            }
+        }
+    };
+
+    /**
+     * Helper function to create a collapsible settings container.
+     */
+    var addSettingsContainer = function (parent, name, closed) {
+        var content = $('<div/>').addClass('content');
+        if (closed) {
+            content.css('display', 'none');
+        }
+        var sc = $('<div/>')
+            .addClass('settings-container')
+            .append($('<p/>')
+                .addClass('title')
+                .append($('<span/>')
+                    .addClass(closed ? 'extend-box-closed' : 'extend-box-open'))
+                .append(name))
+            .append(content);
+
+        $(parent).append(sc);
+
+        return content;
+    };
+
+    /**
+     * Helper function to add a labeled control.
+     */
+    var createLabeledControl = function (name, control) {
+        return $('<div/>').addClass('setting')
+            .append($('<label/>')
+                .append($('<span/>').addClass('description').append(name))
+                .append(control));
+    };
+
+    /**
+     * Helper function to create a checkbox with label.
+     */
+    var createCheckboxSetting = function (name, handler) {
+        var cb = $('<input/>').attr('type', 'checkbox');
+        if (handler) {
+            cb.change(handler);
+        }
+        var label = $('<div/>')
+            .addClass('setting')
+            .append($('<label/>').append(cb).append(name));
+
+        return label;
+    };
+
+    var createAssemblySelector = function(name, handler)
+    {
+        var cb = $('<select id=\"assembly\" name=\"selectAssembly\" size=\"12\">' +
+            '<option value=\"nuttin\">nothing</option>' +
+            '<option value=\"somepin\">something</option>' +
+                '</select>');
+
+        if (handler)
+        {
+            cb.change(handler);
+        }
+
+        var selector = $('<div/>').addClass('setting').append(cb).append(name);
+
+        return selector;
+    };
+
+    /**
+     * Helper function to create a text input field with label.
+     */
+    var createInputSetting = function (name, val, handler) {
+        var input = $('<input/>').attr('type', 'text').val(val);
+        return createLabeledControl(name, input);
+    };
+
+    /*
+     * Adds a grid settings to the given container.
+     */
+    var addAssemblySelector = function (container) {
+        var ds = addSettingsContainer(container, "Assemblies");
+        var assemblySelector = createAssemblySelector("Select an assembly",
+            function()
+            {
+                console.log(this);
+            });
+        $(ds).append(assemblySelector);
+    };
+
+    addAssemblySelector(space);
+
+    // Add collapsing support to all settings containers
+    $("p.title", space).click(function () {
+        var section = this;
+        $(section).next(".content").animate(
+            { height: "toggle",
+                opacity: "toggle" },
+            { complete: function () {
+                // change open/close indicator box
+                var open_elements = $(".extend-box-open", section);
+                if (open_elements.length > 0) {
+                    open_elements.attr('class', 'extend-box-closed');
+                } else {
+                    $(".extend-box-closed", section).attr('class', 'extend-box-open');
+                }
+            }});
+    });
+};

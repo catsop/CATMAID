@@ -1403,7 +1403,7 @@ var WindowMaker = new function()
 
   var createAreaWidget = function()
   {
-    var win = new CMWWindow( "Area Tool" );
+    /*var win = new CMWWindow( "Area Tool" );
     var content = win.getFrame();
     content.style.backgroundColor = "#ffffff";
 
@@ -1443,8 +1443,29 @@ var WindowMaker = new function()
       //VolumeTracingPalette.init(project.getId());
       //VolumeTracingPalette.setWindow(win);
 
+      return win;*/
+
+      var win = new CMWWindow("Areas");
+      var content = win.getFrame();
+      var container = createContainer("areas");
+      container.setAttribute('id', 'areas_widget');
+      content.appendChild( container );
+      content.style.backgroundColor = "#ffffff";
+
+      // Wire it up
+      addListener(win, container);
+      addLogic(win);
+
+      // Initialize settings window with container added to the DOM
+      var areaTraceWidget = new AreaTraceWidget();
+      areaTraceWidget.init(container);
+
+      // Klugey!
+      win.areaWidget = areaTraceWidget;
+
       return win;
-  }
+
+  };
 
   var appendSelect = function(div, name, entries) {
     var select = document.createElement('select');
@@ -2492,7 +2513,7 @@ var WindowMaker = new function()
     "neuron-annotations": createNeuronAnnotationsWindow,
     "neuron-navigator": createNeuronNavigatorWindow,
     "settings": createSettingsWindow,
-    "area-editting-tool": createAreaWidget,
+    "area-editting-tool": createAreaWidget
   };
 
   /** If the window for the given name is already showing, just focus it.
@@ -2505,6 +2526,7 @@ var WindowMaker = new function()
       } else {
         windows[name] = creators[name]();
       }
+      return windows[name];
     } else {
       alert("No known window with name " + name);
     }
