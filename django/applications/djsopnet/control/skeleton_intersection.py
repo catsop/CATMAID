@@ -166,6 +166,8 @@ section_node_dictionary = _get_section_node_dictionary(super_graph)
 
 graph_traversal_nodes = [ super_graph_root_node_id ]
 allCompatibleSegments = []
+# List of edges for which no compatible segment could be found:
+uncompatibleLocations = []
 for current_node_id in graph_traversal_nodes:
 	# We will need the successors of the current node to traverse the graph and to find the segments that constitute the skeleton constraints.
 	successors_of_node = super_graph.successors( current_node_id )
@@ -203,7 +205,7 @@ for current_node_id in graph_traversal_nodes:
 
 		compatibleBranches = []
 
-		# Downward branches
+		# Downward branches: branches that have the a-slice in the upper section
 		# Set of slices that contain nodes of the current skeleton in the section of the bottom node
 		bottomSectionSliceSet = []
 		for nodeInSection in section_node_dictionary[bottom_node['z']]:
@@ -229,7 +231,7 @@ for current_node_id in graph_traversal_nodes:
 		DACbranchesContEdgeAndNode = DACbranchesContEdge.intersection( branchesContNode )
 		compatibleBranches.extend( DACbranchesContEdgeAndNode )
 
-		# Upward branches
+		# Upward branches: branches that have the a-slice in the lower section
 		# Set of slices that contain nodes of the current skeleton in the section of the top node
 		topSectionSliceSet = []
 		for nodeInSection in section_node_dictionary[top_node['z']]:
@@ -260,3 +262,13 @@ for current_node_id in graph_traversal_nodes:
 		compatibleSegments = compatibleContinuations.union( compatibleBranches )
 
 		allCompatibleSegments.append( ((current_node_id, successor_id), compatibleSegments) )
+
+		# When no compatible segment is found for a particular edge we want to store the edge in a lookup table to review that location later manually.
+		# In this case no user constraint should be added.
+		if len(compatibleSegments) == 0:
+			skeletonNodesInCurrentNode = super_graph.node[current_node_id]['nodes_in_same_section']
+			skeletonNodesInSuccessorNode = super_graph.node[successor_id]['nodes_in_same_section']
+			super_edge_in_skeleton = (skeletonNodesInCurrentNode, skeletonNodesInSuccessorNode)
+			super_graph_edge = (current_node_id, successor_id)
+			uncompatibleLocations.append( (super_edge_in_skeleton, super_graph_edge) )
+
