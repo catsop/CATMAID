@@ -563,7 +563,7 @@ var WindowMaker = new function()
     // TOREMOVE: this serves as an entry point for debugging
     var slices = document.createElement('input');
     slices.setAttribute("type", "button");
-    slices.setAttribute("value", "Slices");
+    slices.setAttribute("value", "Show slices");
     slices.onclick = WA.showSlices.bind(WA);
     buttons.appendChild(slices);
 
