@@ -40,8 +40,8 @@ class Slice(models.Model):
     value = models.FloatField()
 
     # Geometry
-    shape_x = IntegerArrayField()
-    shape_y = IntegerArrayField()
+    shape_x = IntegerArrayField(null=True)
+    shape_y = IntegerArrayField(null=True)
 
     size = models.IntegerField(db_index=True)
 
