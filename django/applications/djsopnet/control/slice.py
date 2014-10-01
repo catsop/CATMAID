@@ -92,12 +92,52 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
 	return HttpResponse(json.dumps((data), separators=(',', ':')))
 
 
-def retrieve_connected_component_from_initial_segment(request, segment_id = None):
-	""" Retrieve slices and segments that are connected from an initial starting segment
+def retrieve_connected_component_starting_from_initial_slice(request, slice_id = None):
+	""" Retrieve slices and segments that are connected from an initial starting slice
 
-	TODO: If we implement a mapping table from a connected component ID (e.g. skeletonID, assemblyID)
-	to a segment, this breaks down to a lookup of the ID and retrieval of the connected component
-	associated with the initial segment """
-	pass
+	Traverse the slices and segments along segments which are in the solution. If none of the
+	outgoing segments are in the solution, return these locations separately with all the associated
+	segments.
 
+	Returned data structure can be used for e.g. 
+		- for visualization of the slices and segments in 3d
+		- associate the set of slices and segments with an assembly id
+		- iterative expansion of a neuron by processing additional core blocks
+		  at no_solution_segments locations
+	"""
 
+	data = { 'slices': [], 'segments': [], 'no_solution_segments': {} }
+
+	slices_to_visit = [(slice_id, True), (slice_id, False)]
+
+	for sliceid, direction in slices_to_visit:
+
+		data['slices'].append( sliceid )
+
+		# We want to traverse in direction seen from slice, which is 'not direction', seen from segment
+		reverse_direction = not direction
+		segments = [s['segment'] for s in SegmentSlice.objects.filter( slice = sliceid, direction = reverse_direction).values('segment', 'slice', 'direction')]
+		# any of those segments in the solution?
+		solutions = [s['segment'] for s in SegmentSolution.objects.filter( segment__in = segments ).values('segment')]
+
+		if len(solutions) == 1:
+			# if yes: look up corresponding slices in direction
+			solution_segmentid = solutions[0]
+			# add solution segment to returned data
+			data['segments'].append( solution_segmentid )
+
+			# retrieve slices associated to the solution segmente and add to list for traversal
+			associated_slices = [(s['slice'],s['direction']) for s in SegmentSlice.objects.filter( slice = solution_segmentid ).values('segment', 'slice', 'direction')]
+
+			for associated_sliceid, associated_direction in associated_slices:
+				if associated_slice != sliceid:
+					# only add slice if not yet visited
+					slices_to_visit.extend( (associated_sliceid, associated_direction) )
+
+		else:
+			# if no: add all segments to no_solution_segments
+			data['no_solution_segments'][ (sliceid, direction) ] = {
+				segments
+			}
+
+	return HttpResponse(json.dumps((data), separators=(',', ':')))
