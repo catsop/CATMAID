@@ -157,10 +157,8 @@ if len( skeleton_graph.successors( root_node_id ) ) != 1:
 	raise Exception('Skeleton graph root node requires to have only one continuation node in another section!')
 
 # To find the set of constraints that ensures a solution that is compatible with an interpretation of a particular skeleton we will procede as follows:
-# For each edge in the supergraph we will add the constraint that this edge is either part of a continuation or part of a branch.
-# For the continuations we will select all segments that 'contain' the edge.
-# For the branches we will select segments that contian the edge and at least one additional node in one of the two sections of the edge.
-# This might lead to the acceptance of unlikely branch segments which is hopefully prevented by virtue of these branch segments not being generated in sopnet.
+# For each edge in the supergraph we will find segments in the database that contain the edge, that is segments where at least one upper slice is in the sliceset of the top node and at least one lower slice is in the sliceset of the bottom node.
+# Additionally we want to further select those segments where all the other slices cover nodes of the supergraph, that is all upper slices are contained within the section slice set of the upper node and all the bottom slices are contained within the section slice set of the bottom node. 
 
 section_node_dictionary = _get_section_node_dictionary(super_graph)
 
@@ -188,78 +186,34 @@ for current_node_id in graph_traversal_nodes:
 		top_node = super_graph.node[top_node_id]
 		bottom_node = super_graph.node[bottom_node_id]
 
-		# CONTINUATIONS
-		# We will need to find the continuations that contain the edge in question
-
-		# Continuations that contain the top node:
-		continuationsContTopNode = set([s['id'] for s in Segment.objects.filter( slice_a_id__in = list(top_node['sliceset']), type = 1 ).values('id')])
-		# Continuations that contain the bottom node:
-		continuationsContBottomNode = set([s['id'] for s in Segment.objects.filter( slice_b_id__in = list(bottom_node['sliceset']), type = 1 ).values('id')])	
-		
-		# Continuations that contain the top and the bottom node:
-		compatibleContinuations = continuationsContTopNode.intersection( continuationsContBottomNode )
-
-		# BRANCHES
-		# We will also need to find the branches where the edge is contained in one arm and the other arm contains another node of the same skeleton
-		# super graph
-
-		compatibleBranches = []
-
-		# Downward branches: branches that have the a-slice in the upper section
-		# Set of slices that contain nodes of the current skeleton in the section of the bottom node
 		bottomSectionSliceSet = []
 		for nodeInSection in section_node_dictionary[bottom_node['z']]:
 			bottomSectionSliceSet.extend(list(bottom_node['sliceset']))
- 
-		# Edge in AB-arm
-		DABbranchesContTopNode = set([s['id'] for s in Segment.objects.filter( slice_a_id__in = list(top_node['sliceset']), type = 2 ).values('id')])
-		DABbranchesContBottomNode = set([s['id'] for s in Segment.objects.filter( slice_b_id__in = list(bottom_node['sliceset']), type = 2 ).values('id')])
-		DABbranchesContEdge = DABbranchesContTopNode.intersection( DABbranchesContBottomNode ) 
-
-		# AC-arm contains another node of the skeleton
-		branchesContNode = set([s['id'] for s in Segment.objects.filter( slice_c_id__in = bottomSectionSliceSet, type = 2 ).values('id')])
-		DABbranchesContEdgeAndNode = DABbranchesContEdge.intersection( branchesContNode )
-		compatibleBranches.extend( DABbranchesContEdgeAndNode )
-
-		# Edge in AC-arm
-		DACbranchesContTopNode = set([s['id'] for s in Segment.objects.filter( slice_a_id__in = list(top_node['sliceset']), type = 2 ).values('id')])
-		DACbranchesContBottomNode = set([s['id'] for s in Segment.objects.filter( slice_c_id__in = list(bottom_node['sliceset']), type = 2 ).values('id')])
-		DACbranchesContEdge = DACbranchesContTopNode.intersection( DACbranchesContBottomNode ) 
-
-		# AB-arm contains another node of the skeleton
-		branchesContNode = set([s['id'] for s in Segment.objects.filter( slice_b_id__in = bottomSectionSliceSet, type = 2 ).values('id')])
-		DACbranchesContEdgeAndNode = DACbranchesContEdge.intersection( branchesContNode )
-		compatibleBranches.extend( DACbranchesContEdgeAndNode )
-
-		# Upward branches: branches that have the a-slice in the lower section
-		# Set of slices that contain nodes of the current skeleton in the section of the top node
+		
 		topSectionSliceSet = []
 		for nodeInSection in section_node_dictionary[top_node['z']]:
 			topSectionSliceSet.extend(list(top_node['sliceset']))
 
-		# Edge in AB-arm
-		UABbranchesContTopNode = set([s['id'] for s in Segment.objects.filter( slice_b_id__in = list(top_node['sliceset']), type = 2 ).values('id')])
-		UABbranchesContBottomNode = set([s['id'] for s in Segment.objects.filter( slice_a_id__in = list(bottom_node['sliceset']), type = 2 ).values('id')])
-		UABbranchesContEdge = UABbranchesContTopNode.intersection( UABbranchesContBottomNode ) 
+		string_top_node_sliceset = str(top_node['sliceset']).strip('[]')
+		string_bottom_node_sliceset = str(bottom_node['sliceset']).strip('[]')
 
-		# AC-arm contains another node of the skeleton
-		branchesContNode = set([s['id'] for s in Segment.objects.filter( slice_c_id__in = topSectionSliceSet, type = 2 ).values('id')])
-		UABbranchesContEdgeAndNode = UABbranchesContEdge.intersection( branchesContNode )
-		compatibleBranches.extend( UABbranchesContEdgeAndNode )
-
-		# Edge in AC-arm
-		UACbranchesContTopNode = set([s['id'] for s in Segment.objects.filter( slice_c_id__in = list(top_node['sliceset']), type = 2 ).values('id')])
-		UACbranchesContBottomNode = set([s['id'] for s in Segment.objects.filter( slice_a_id__in = list(bottom_node['sliceset']), type = 2 ).values('id')])
-		UACbranchesContEdge = UACbranchesContTopNode.intersection( UACbranchesContBottomNode ) 
-
-		# AB-arm contains another node of the skeleton
-		branchesContNode = set([s['id'] for s in Segment.objects.filter( slice_b_id__in = topSectionSliceSet, type = 2 ).values('id')])
-		UACbranchesContEdgeAndNode = UACbranchesContEdge.intersection( branchesContNode )
-		compatibleBranches.extend( UACbranchesContEdgeAndNode )
+		query_string = 	'SELECT DISTINCT ss1.id FROM djsopnet_segmentslice ss1 ' + \
+				'JOIN djsopnet_segmentslice ss2 ' + \
+				'ON ss1.segment_id = ss2.segment_id ' + \
+				'WHERE ss1.slice_id IN (' + string_top_node_sliceset + ')' +\
+				'AND ss2.slice_id IN (' + string_bottom_node_sliceset + ' );'
 
 
-		# At this point all compatible continuations and branches should have been found, so we can combine them to find all the compatible segments.
-		compatibleSegments = compatibleContinuations.union( compatibleBranches )
+		segmentsContainingEdge_id = set(segment['id'] for segment in Segment.objects.raw( query_string ))
+
+		compatibleSegments_id = []
+		# Then select those where all (the other) top and bottom sections are in the respective section slice sets
+		for segment_id in segmentsContainingEdge_id:
+			# Get the slices that constitute the segment
+			top_slices = set([s['slice'] for s in SegmentSlice.objects.filter( segment=segment_id, direction=True ).values('slice')])
+			bottom_slices = set([s['slice'] for s in SegmentSlice.objects.filter( segment=segment_id, direction=False ).values('slice')])
+			if top_slices <= set(topSectionSliceSet) and bottom_slices <= set(bottomSectionSliceSet):
+				compatibleSegments_id.append(segment_id)
 
 		allCompatibleSegments.append( ((current_node_id, successor_id), compatibleSegments) )
 
