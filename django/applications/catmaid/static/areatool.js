@@ -818,6 +818,7 @@ AreaTraceWidget.prototype = {};
 AreaTraceWidget.prototype.init = function(space) {
     var tool = null;
     var assemblySelectElement = null;
+    var self = this;
 
     this.setTool = function(inTool)
     {
@@ -825,30 +826,48 @@ AreaTraceWidget.prototype.init = function(space) {
         AreaServerModel.retrieveAreas(tool.stack,
         function(data)
         {
-            console.log(data);
+            self.setAreas(data);
         })
     };
 
-    this.setAreas = function(areas)
+    this.setAreas = function(data)
     {
         if (assemblySelectElement != null)
         {
-            aseEnd = assemblySelectElement.remove().end();
-            var currentArea = tool.getArea();
+            //var aseEnd = assemblySelectElement.remove().end();
 
-            for (var idx = 0; idx < areas.length; ++idx)
+            var assemblies = data.assemblies;
+            var currentArea = tool.getArea();
+            var selectText = '';
+            var idx;
+
+            for (idx = 0; idx < assemblySelectElement[0].length; ++idx)
             {
-                var area = areas[idx];
-                if (area === currentArea)
-                {
-                    aseEnd.append('<option selected value=\"' + area.assemblyId +'\">' +
-                        area.name + '</option>');
+                assemblySelectElement[0].remove(0)
+            }
+
+            if (assemblies.length > 0) {
+                for (idx = 0; idx < assemblies.length; ++idx) {
+                    var assy = assemblies[idx];
+
+                    if (assy.name == currentArea.name)
+                    {
+                        selectText = 'selected';
+                    }
+                    else
+                    {
+                        selectText = '';
+                    }
+
+                    var optionString = '<option ' + selectText +
+                        ' value="' + assy.id + '">' +
+                        assy.name + ' (' + assy.type + ')</option>';
+                    assemblySelectElement.append(optionString).css('color', assy.color);
                 }
-                else
-                {
-                    aseEnd.append('<option value=\"' + area.assemblyId +'\">' +
-                        area.name + '</option>');
-                }
+            }
+            else
+            {
+                assemblySelectElement.append('<option/>');
             }
         }
     };
@@ -902,10 +921,8 @@ AreaTraceWidget.prototype.init = function(space) {
 
     var createAssemblySelector = function(name, handler)
     {
-        var cb = $('<select id=\"assembly\" name=\"selectAssembly\" size=\"12\">' +
-            '<option value=\"nuttin\">nothing</option>' +
-            '<option value=\"somepin\">something</option>' +
-                '</select>');
+        var cb = $('<select id="selectAssembly" name="selectAssembly" size="12">' +
+            '</select>');
 
         if (handler)
         {
@@ -930,12 +947,13 @@ AreaTraceWidget.prototype.init = function(space) {
      */
     var addAssemblySelector = function (container) {
         var ds = addSettingsContainer(container, "Assemblies");
-        var assemblySelector = createAssemblySelector("Select an assembly",
+        var assemblySelectDiv = createAssemblySelector("Select an assembly",
             function()
             {
                 console.log(this);
             });
-        $(ds).append(assemblySelector);
+        $(ds).append(assemblySelectDiv);
+        assemblySelectElement = $('#selectAssembly');
     };
 
     addAssemblySelector(space);
