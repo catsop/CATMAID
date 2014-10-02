@@ -101,15 +101,42 @@ var AreaServerModel = new function()
             "url": url,
             "data": data,
             "success": callback
-        })
+        });
     };
 
-    this.retrieveAreas = function(stack, callback)
+    this.createNewAssembly = function(stack, name, type, callback)
+    {
+        var project = stack.getProject();
+        var url = django_url + project.id + '/stack/' + stack.id + '/create_new_assembly';
+
+        var data = {'name' : name,
+            'type': type};
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": url,
+            "data": data,
+            "success": callback
+        });
+    };
+
+    this.retrieveAreas = function(stack, callback, regex)
     {
         var project = stack.getProject();
         var url = django_url + project.id + '/stack/' + stack.id + '/list_assemblies';
+        var data;
 
-        var data = {};
+        if (regex)
+        {
+            data = {'regex': regex};
+        }
+        else
+        {
+            data = {};
+        }
+
 
         $.ajax({
             "dataType": 'json',
@@ -820,22 +847,38 @@ AreaTraceWidget.prototype.init = function(space) {
     var assemblySelectElement = null;
     var self = this;
 
+    var selectAssembly = function()
+    {
+        console.log(this);
+    };
+
+    var updateAssemblySearchBox = function()
+    {
+
+    };
+
+    var updateAssemblySettings = function(regex)
+    {
+        AreaServerModel.retrieveAreas(tool.stack,
+            self.updateAssemblySelect,
+            regex);
+    };
+
     this.setTool = function(inTool)
     {
         tool = inTool;
-        AreaServerModel.retrieveAreas(tool.stack,
+        updateAssemblySettings();
+        /*AreaServerModel.retrieveAreas(tool.stack,
         function(data)
         {
-            self.setAreas(data);
-        })
+            self.updateAssemblySelect(data);
+        })*/
     };
 
-    this.setAreas = function(data)
+    this.updateAssemblySelect = function(data)
     {
         if (assemblySelectElement != null)
         {
-            //var aseEnd = assemblySelectElement.remove().end();
-
             var assemblies = data.assemblies;
             var currentArea = tool.getArea();
             var selectText = '';
@@ -919,17 +962,63 @@ AreaTraceWidget.prototype.init = function(space) {
         return label;
     };
 
-    var createAssemblySelector = function(name, handler)
+    var createAssemblySelector = function(handler)
     {
-        var cb = $('<select id="selectAssembly" name="selectAssembly" size="12">' +
+        var selectElement = $('<select id="selectAssembly" name="selectAssembly" size="12">' +
             '</select>');
+        var regexInput = $('<input name="assembly_regex" id="assemblyRegexInput"/>');
 
-        if (handler)
-        {
-            cb.change(handler);
-        }
+        var searchButton = $('<button/>').text('Search').click(
+            function()
+            {
+                updateAssemblySettings(regexInput.val());
+            }
+        );
 
-        var selector = $('<div/>').addClass('setting').append(cb).append(name);
+        var createButton = $('<button/>').text('Create New').click(
+            function()
+            {
+                var newAssemblyInput = $('<input name="new_assembly_input" />');
+                var newAssemblyType = $('<select name="new_assembly_select"/>').append(
+                    '<option selected value="neuron">Neuron</option>'
+                ).append(
+                    '<option value="synapse">Synapse</option>'
+                ).append(
+                    '<option value="mitochondrion">Mitochondria</option>'
+                ).append(
+                    '<option value="glia">Glia</option>'
+                );
+
+                var okButton = $('<button/>').text('OK').click(
+                    function()
+                    {
+                        $.unblockUI();
+                        console.log(newAssemblyInput.val());
+                        console.log(newAssemblyType.value);
+                        AreaServerModel.createNewAssembly(tool.stack, newAssemblyInput.val(),
+                            newAssemblyType.val(), self.updateAssemblySelect);
+                    }
+                );
+
+                var cancelButton = $('<button/>').text('Cancel').click(
+                    function()
+                    {
+                        $.unblockUI();
+                    }
+                );
+
+                var newAssemblyDiv = $('<div/>').append('Name:').append(newAssemblyInput);
+                newAssemblyDiv.append('Type:').append(newAssemblyType).append('<br>');
+                newAssemblyDiv.append(okButton).append(cancelButton);
+                newAssemblyDiv.css({width: 500});
+
+                $.blockUI({message: newAssemblyDiv});
+            }
+        );
+
+        selectElement.change(selectAssembly);
+
+        var selector = $('<div/>').append(selectElement).append(regexInput).append(searchButton).append(createButton);
 
         return selector;
     };
@@ -942,21 +1031,34 @@ AreaTraceWidget.prototype.init = function(space) {
         return createLabeledControl(name, input);
     };
 
+    var createAssemblyManager = function()
+    {
+        var assemblySelectDiv = createAssemblySelector();
+
+
+        assemblySelectDiv.css({width: '200px', float: 'left'});
+
+        var managerDiv = $('<div/>').append(assemblySelectDiv);
+
+        return managerDiv;
+    };
+
     /*
-     * Adds a grid settings to the given container.
+     * Adds an Assembly selector
      */
-    var addAssemblySelector = function (container) {
+    var addAssemblyManager = function (container) {
         var ds = addSettingsContainer(container, "Assemblies");
-        var assemblySelectDiv = createAssemblySelector("Select an assembly",
-            function()
-            {
-                console.log(this);
-            });
-        $(ds).append(assemblySelectDiv);
+
+        var assemblyManagerDiv = createAssemblyManager();
+
+        //var assemblySelectDiv = createAssemblySelector(selectAssembly);
+        $(ds).append(assemblyManagerDiv);
         assemblySelectElement = $('#selectAssembly');
     };
 
-    addAssemblySelector(space);
+
+
+    addAssemblyManager(space);
 
     // Add collapsing support to all settings containers
     $("p.title", space).click(function () {

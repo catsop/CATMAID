@@ -1144,17 +1144,8 @@ def create_slice(area_geometry, assembly, stack, project, section):
 
     return slice
 
-def user_list_assemblies(request, project_id=None, stack_id=None):
-    """
-    List Assemblies for the given stack, including id, name, type, color and opacity.
-
-    Creates a default ViewProperties object for any Assembly that does not already have one.
-
-    """
-    s = get_object_or_404(Stack, pk=stack_id)
-    #p = get_object_or_404(Project, pk=project_id)
-
-    stack_slices = Slice.objects.filter(stack = s)
+def list_assemblies(stack):
+    stack_slices = Slice.objects.filter(stack=stack)
     assemblies = {slice.assembly for slice in stack_slices}
     view_properties = ViewProperties.objects.filter(assembly__in = assemblies)
 
@@ -1173,6 +1164,32 @@ def user_list_assemblies(request, project_id=None, stack_id=None):
                        'type': vp.assembly.assembly_type,
                        'color': vp.color,
                        'opacity': vp.opacity} for vp in view_properties]
+
+    return assembly_dicts
+
+def user_list_assemblies(request, project_id=None, stack_id=None):
+    """
+    List Assemblies for the given stack, including id, name, type, color and opacity.
+
+    Creates a default ViewProperties object for any Assembly that does not already have one.
+
+    """
+    s = get_object_or_404(Stack, pk=stack_id)
+    #p = get_object_or_404(Project, pk=project_id)
+
+    assembly_dicts = list_assemblies(s)
+
+    return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
+
+def user_create_assembly(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    u = User.objects.get(pk=1)
+    name = request.POST.get('name')
+    type = request.POST.get('type')
+
+    Assembly(name=name, assembly_type=type,user=u).save()
+
+    assembly_dicts = list_assemblies(s)
 
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
