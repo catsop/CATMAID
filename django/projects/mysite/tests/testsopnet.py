@@ -112,11 +112,14 @@ class SopnetTest(object):
 
 	def get_configuration(self):
 		conf = ps.ProjectConfiguration()
-		conf.setBackendType(ps.BackendType.Django)
+		conf.setBackendType(ps.BackendType.PostgreSql)
 		conf.setCatmaidProjectId(self.project_id)
 		conf.setCatmaidRawStackId(self.raw_stack_id)
 		conf.setCatmaidMembraneStackId(self.membrane_stack_id)
 		conf.setCatmaidHost(self.catmaid_host)
 		conf.setComponentDirectory(self.component_dir)
+		conf.setBlockSize(ps.point3(self.block_width, self.block_height, self.block_depth))
+		conf.setVolumeSize(ps.point3(1024, 1024, 20))
+		conf.setCoreSize(ps.point3(self.core_width, self.core_height, self.core_depth))
 
 		return conf
