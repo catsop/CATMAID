@@ -173,11 +173,13 @@ class BlockConflictRelation(models.Model):
 
 class Constraint(UserFocusedModel):
 
+    pass
+
     # the skeleton that defined the constraint
-    skeleton = models.ForeignKey(ClassInstance, null=True, default=None)
+    # skeleton = models.ForeignKey(ClassInstance, null=True, default=None)
 
     # TODO: remove this property
-    associated_skeleton_nodes = IntegerArrayField(null=True, default=None)
+    # associated_skeleton_nodes = IntegerArrayField(null=True, default=None)
 
 class BlockConstraintRelation(models.Model):
     constraint = models.ForeignKey(Constraint)

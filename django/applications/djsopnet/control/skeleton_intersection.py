@@ -4,8 +4,76 @@ import networkx as nx
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
-from catmaid.models import Treenode, Stack, Project, User, ProjectStack
-from djsopnet.models import Slice, Segment, Constraint, ConstraintSegmentRelation
+from catmaid.models import Treenode, Stack, Project, User, ProjectStack, ClassInstance
+from djsopnet.models import Slice, Segment, SegmentSlice, Constraint, ConstraintSegmentRelation
+
+def _generate_test_data( project_id = None, stack_id = None ):
+	""" Come up with some test data to test this module """
+
+	s = get_object_or_404(Stack, pk=stack_id)
+	p = get_object_or_404(Project, pk=project_id)
+
+	# Generate slices:
+	s1 = Slice(id=1,stack=s,section=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,value=1.2,size=2)
+	s2 = Slice(id=2,stack=s,section=0,min_x=1,min_y=1,max_x=1024,max_y=1024,ctr_x=0,ctr_y=0,value=1.2,size=2)
+	s3 = Slice(id=3,stack=s,section=1,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,value=1.2,size=2)
+	s4 = Slice(id=4,stack=s,section=1,min_x=512,min_y=1,max_x=1024,max_y=512,ctr_x=0,ctr_y=0,value=1.2,size=2)
+	s5 = Slice(id=5,stack=s,section=1,min_x=1,min_y=1,max_x=1024,max_y=1024,ctr_x=0,ctr_y=0,value=1.2,size=2)
+	s1.save()
+	s2.save()
+	s3.save()
+	s4.save()
+	s5.save()
+
+	# Generate segments:
+	seg1 = Segment(id=1,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=1)
+	seg2 = Segment(id=2,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=1)
+	seg3 = Segment(id=3,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=2)
+	seg4 = Segment(id=4,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=1)
+	seg5 = Segment(id=5,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=1)
+	seg6 = Segment(id=6,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=1)
+	seg7 = Segment(id=7,stack=s,section_inf=0,min_x=1,min_y=1,max_x=512,max_y=512,ctr_x=0,ctr_y=0,type=2)
+	seg1.save()
+	seg2.save()
+	seg3.save()
+	seg4.save()
+	seg5.save()
+	seg6.save()
+	seg7.save()
+
+	# Generate segment slices
+	ss1 = SegmentSlice(slice=s1,segment=seg1,direction=True)
+	ss2 = SegmentSlice(slice=s3,segment=seg1,direction=False)
+	ss3 = SegmentSlice(slice=s1,segment=seg2,direction=True)
+	ss4 = SegmentSlice(slice=s5,segment=seg2,direction=False)
+	ss5 = SegmentSlice(slice=s1,segment=seg3,direction=True)
+	ss6 = SegmentSlice(slice=s3,segment=seg3,direction=False)
+	ss7 = SegmentSlice(slice=s4,segment=seg3,direction=False)
+	ss8 = SegmentSlice(slice=s2,segment=seg4,direction=True)
+	ss9 = SegmentSlice(slice=s3,segment=seg4,direction=False)
+	ss10 = SegmentSlice(slice=s2,segment=seg5,direction=True)
+	ss11 = SegmentSlice(slice=s4,segment=seg5,direction=False)
+	ss12 = SegmentSlice(slice=s2,segment=seg6,direction=True)
+	ss13 = SegmentSlice(slice=s5,segment=seg6,direction=False)
+	ss14 = SegmentSlice(slice=s2,segment=seg7,direction=True)
+	ss15 = SegmentSlice(slice=s3,segment=seg7,direction=False)
+	ss16 = SegmentSlice(slice=s4,segment=seg7,direction=False)
+	ss1.save()
+	ss2.save()
+	ss3.save()
+	ss4.save()
+	ss5.save()
+	ss6.save()
+	ss7.save()
+	ss8.save()
+	ss9.save()
+	ss10.save()
+	ss11.save()
+	ss12.save()
+	ss13.save()
+	ss14.save()
+	ss15.save()
+	ss16.save()
 
 
 def _build_skeleton_super_graph(skeleton_graph):
@@ -80,13 +148,13 @@ def _retrieve_end_segments_for_sliceset( sliceset, direction ):
 				direction = direction ).values('id')])
 
 
-def _generate_user_constraint_from_intersection_segments( skeletonid, super_graph, allCompatibleSegments ):
+def _generate_user_constraint_from_intersection_segments( skt, super_graph, allCompatibleSegments, u, p ):
 	for current_and_successor_node_id, compatible_segments in allCompatibleSegments:
-		constraint = Constraint(user = u, project = p, skeleton = skeletonid )
+		constraint = Constraint(user = u, project = p) # skeleton = skt <-- needs database modification
 		constraint.save()
 		for segment in compatible_segments:
 			ConstraintSegmentRelation( constraint=constraint,
-				segment = int(segment) ).save()
+				segment_id = int(segment) ).save()
 
 def _get_section_node_dictionary( super_graph ):
 	section_node_dictionary = dict()
@@ -101,8 +169,10 @@ def _get_section_node_dictionary( super_graph ):
 			section_node_dictionary[node_section] = [node_id]
 	return section_node_dictionary
 
-def _generate_user_constraints( project_id = None, stack_id = None, skeleton_id = None ):
+def _generate_user_constraints( user_id = None, project_id = None, stack_id = None, skeleton_id = None ):
+	u = get_object_or_404(User, pk=user_id)
 	s = get_object_or_404(Stack, pk=stack_id)
+	skt = get_object_or_404(ClassInstance, pk=skeleton_id)
 	p = get_object_or_404(Project, pk=project_id)
 	t = ProjectStack.objects.filter( stack = s, project = p )[0].translation
 	translation = {'x': t.x, 'y': t.y, 'z': t.z}
@@ -179,17 +249,31 @@ def _generate_user_constraints( project_id = None, stack_id = None, skeleton_id 
 			for nodeInSection in section_node_dictionary[top_node['z']]:
 				topSectionSliceSet.extend(list(top_node['sliceset']))
 
-			string_top_node_sliceset = str(top_node['sliceset']).strip('[]')
-			string_bottom_node_sliceset = str(bottom_node['sliceset']).strip('[]')
+			string_top_node_sliceset = '('
+			for n in top_node['sliceset']:
+				string_top_node_sliceset = string_top_node_sliceset + str(n) + ','
+			string_top_node_sliceset = string_top_node_sliceset[:-1]
+			string_top_node_sliceset = string_top_node_sliceset + ')'
+			print 'Top node slice set: ' + string_top_node_sliceset
+
+			string_bottom_node_sliceset = '('
+			for n in bottom_node['sliceset']:
+				string_bottom_node_sliceset = string_bottom_node_sliceset + str(n) + ','
+			string_bottom_node_sliceset = string_bottom_node_sliceset[:-1]
+			string_bottom_node_sliceset = string_bottom_node_sliceset + ')'
+			print 'Bottom node slice set: ' + string_bottom_node_sliceset
 
 			query_string = 	'SELECT DISTINCT ss1.id FROM djsopnet_segmentslice ss1 ' + \
 					'JOIN djsopnet_segmentslice ss2 ' + \
 					'ON ss1.segment_id = ss2.segment_id ' + \
-					'WHERE ss1.slice_id IN (' + string_top_node_sliceset + ')' +\
-					'AND ss2.slice_id IN (' + string_bottom_node_sliceset + ' );'
+					'WHERE ss1.slice_id IN ' + string_top_node_sliceset + ' ' +\
+					'AND ss2.slice_id IN ' + string_bottom_node_sliceset + ';'
 
+			segmentsContainingEdge_id = set()
+			for ss in SegmentSlice.objects.raw( query_string ):
+				segmentsContainingEdge_id.add(ss.segment.id)
 
-			segmentsContainingEdge_id = set(segment['id'] for segment in Segment.objects.raw( query_string ))
+			print 'SegmentsContainingEdge: ' + str(segmentsContainingEdge_id)
 
 			compatibleSegments_id = []
 			# Then select those where all (the other) top and bottom sections are in the respective section slice sets
@@ -212,7 +296,7 @@ def _generate_user_constraints( project_id = None, stack_id = None, skeleton_id 
 				allCompatibleSegments.append( ((current_node_id, successor_id), compatibleSegments_id) )
 
 	# generate user constraints from intersection
-	_generate_user_constraint_from_intersection_segments( skeleton_id, super_graph, allCompatibleSegments )
+	_generate_user_constraint_from_intersection_segments( skt, super_graph, allCompatibleSegments, u, p )
 
 	return {'all_compatible_segments': allCompatibleSegments, 'uncompatible_locations': uncompatibleLocations}
 
@@ -227,3 +311,6 @@ def generate_user_constraints(request, project_id = None, stack_id = None, skele
 #	- N-way branch for which no branch segment exists: in supergraph if more than two successors
 #	- continuation where no continuation segment exists
 # -> those location are not mapped to any user constraint to constrain the solution, but stored and displayed for review
+
+#_generate_user_constraints( 1, 1, 1, 40 )
+
