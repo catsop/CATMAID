@@ -1144,14 +1144,15 @@ def create_slice(area_geometry, assembly, stack, project, section):
 
     return slice
 
-def list_assemblies(stack):
-    stack_slices = Slice.objects.filter(stack=stack)
-    assemblies = {slice.assembly for slice in stack_slices}
-    view_properties = ViewProperties.objects.filter(assembly__in = assemblies)
+def assemblies_to_dict(assemblies):
+
+    view_properties_q = ViewProperties.objects.filter(assembly__in = assemblies)
 
     # Find the Assemblies without existing view properties
-    vp_assemblies = [vp.assembly for vp in view_properties]
+    vp_assemblies = [vp.assembly for vp in view_properties_q]
     novp_assemblies = [assembly for assembly in assemblies if assembly not in vp_assemblies]
+
+    view_properties = [vp for vp in view_properties_q]
 
     # Create ViewProperties for assemblies that don't have one
     for assembly in novp_assemblies:
@@ -1176,8 +1177,9 @@ def user_list_assemblies(request, project_id=None, stack_id=None):
     """
     s = get_object_or_404(Stack, pk=stack_id)
     #p = get_object_or_404(Project, pk=project_id)
+    assemblies = Assembly.objects.filter(stack=s)
 
-    assembly_dicts = list_assemblies(s)
+    assembly_dicts = assemblies_to_dict(assemblies)
 
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
@@ -1187,9 +1189,11 @@ def user_create_assembly(request, project_id=None, stack_id=None):
     name = request.POST.get('name')
     type = request.POST.get('type')
 
-    Assembly(name=name, assembly_type=type,user=u).save()
+    Assembly(name=name, assembly_type=type,user=u, stack=s).save()
 
-    assembly_dicts = list_assemblies(s)
+    assemblies = Assembly.objects.filter(stack=s)
+
+    assembly_dicts = assemblies_to_dict(assemblies)
 
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
@@ -1197,13 +1201,6 @@ def user_insert_slice(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     p = get_object_or_404(Project, pk=project_id)
     try:
-        try:
-            Assembly.objects.get(pk=1)
-        except Assembly.DoesNotExist:
-            u = User.objects.get(id=1)
-            default_assembly = Assembly(user=u, assembly_type='neuron', name='default neuron')
-            default_assembly.save()
-
         section = int(request.POST.get('section'))
         assembly_id = int(request.POST.get('assembly_id'))
         assembly = Assembly.objects.get(pk=assembly_id)
@@ -1224,6 +1221,7 @@ def user_insert_slice(request, project_id=None, stack_id=None):
                               assembly_id=assembly_id)),
                             mimetype='text/json')
     except:
+        print 'assembly_id', request.POST.get('assembly_id')
         return error_response()
 
 def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None):
@@ -1234,7 +1232,7 @@ def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None
     svg = shapely_polygon_to_svg(area_geometry)
     return HttpResponse(svg, mimetype='image/svg+xml')
 
-def user_slice_hashes_in_bound(request, project_id=None, stack_id=None):
+def user_slices_assemblies_in_bound(request, project_id=None, stack_id=None):
     stack = get_object_or_404(Stack, pk=stack_id)
     #p = get_object_or_404(Project, pk=project_id)
     try:
@@ -1246,9 +1244,11 @@ def user_slice_hashes_in_bound(request, project_id=None, stack_id=None):
         slices = slices_by_bounding_box([x_min, y_min, x_max, y_max], section, stack)
         hashes = [slice.hash_value for slice in slices]
         assembly_ids = [slice.assembly.id for slice in slices]
+        assemblies = {slice.assembly for slice in slices}
+        slices_dict = {'ids': hashes, 'assembly_ids': assembly_ids}
+        assembly_dicts = assemblies_to_dict(assemblies)
 
-        return HttpResponse(json.dumps({'ids': hashes,
-                                        'assembly_ids': assembly_ids}))
+        return HttpResponse(json.dumps({'slices': slices_dict, 'assemblies': assembly_dicts, 'section' : section}))
     except:
         return error_response()
 

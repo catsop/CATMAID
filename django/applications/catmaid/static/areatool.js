@@ -60,7 +60,7 @@ var AreaServerModel = new function()
         });
     };
 
-    this.traceIdsInView = function(stack, callback)
+    this.tracesInView = function(stack, callback)
     {
         var project = stack.getProject();
         var xMin = stack.screenPosition().left;
@@ -69,7 +69,7 @@ var AreaServerModel = new function()
         var yMax = yMin + stack.viewHeight / stack.scale;
         var section = stack.z;
 
-        var url = django_url + project.id + '/stack/' + stack.id + '/slice_ids_in_view';
+        var url = django_url + project.id + '/stack/' + stack.id + '/slices_in_view';
 
         var data = {'x_min' : xMin,
             'y_min' : yMin,
@@ -179,17 +179,26 @@ var AreaServerModel = new function()
 /**
  Area class maintains geometric information for a given Assembly.
  */
-function Area(name, assemblyId, canvasIn)
+function Area(name, assemblyId, canvasIn, viewProps)
 {
-    this.color = 'rgb(255,0,0)';
-    this.opacity = 1;
-    this.name = name;
-    this.assemblyId = assemblyId;
-
     var self = this;
     var canvas = canvasIn;
     var fabricObjects = [];
     var objectTable = {};
+
+    if (viewProps)
+    {
+        this.color = viewProps.color;
+        this.opacity = viewProps.opacity;
+    }
+    else
+    {
+        this.color = '#ff8800';
+        this.opacity = 0.5;
+    }
+
+    this.name = name;
+    this.assemblyId = assemblyId;
 
     this.transform = function(t)
     {
@@ -415,8 +424,6 @@ function AreaTool()
 
         self.canvasLayer.view.onmousedown = self.onmousedown;
         self.canvasLayer.view.onmouseup = self.onmouseup;
-
-        self.setCurrentArea(new Area("Dumb Area", 1, self.canvasLayer.canvas));
     };
 
     var currentZ = function()
@@ -432,7 +439,7 @@ function AreaTool()
         }
     };
 
-    var loadSVGFromURL = function(id, areaIn, section, replaceIds)
+    var readSVGAreaFromURL = function(id, areaIn, section, replaceIds)
     {
         var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
             '/polygon_slice/' + id + '.svg';
@@ -455,7 +462,7 @@ function AreaTool()
                 for (var idx = 0; idx < replaceIds.length; ++idx)
                 {
                     var rmObj = area.removeObject(replaceIds[idx]);
-                    //self.canvasLayer.canvas.remove(rmObj);
+                    self.canvasLayer.canvas.remove(rmObj);
                 }
             }
         };
@@ -495,7 +502,7 @@ function AreaTool()
                 }
             };
 
-            loadSVGFromURL(data.id, svgCall);
+            readSVGAreaFromURL(data.id, data.assembly_id, data.section, data.replace_ids);
         }
 
     };
@@ -531,7 +538,7 @@ function AreaTool()
         }
     };
 
-    var sliceIdsCallback = function(data)
+    var slicesCallback = function(data)
     {
         if (data.hasOwnProperty('djerror'))
         {
@@ -540,21 +547,47 @@ function AreaTool()
         }
         else
         {
-            var needIds = [];
-            for (var idx = 0; idx < data.ids.length; ++idx)
+            var areaData = data.assemblies;
+            var traceData = data.slices;
+            var idx;
+            var section = data.section;
+
+            for (idx = 0; idx < areaData.length; ++idx)
             {
-                if (!checkAreaAndTrace(data.assembly_ids[idx], data.ids[idx]))
+                self.getOrCreateArea(areaData[idx]);
+            }
+
+            for (idx = 0; idx < traceData.ids.length; ++idx)
+            {
+
+
+
+                if (!checkAreaAndTrace(traceData.assembly_ids[idx], traceData.ids[idx]))
                 {
-                    loadSVGFromURL(data.ids[idx], data.assembly_ids[idx], self.stack.z);
+                    readSVGAreaFromURL(traceData.ids[idx], traceData.assembly_ids[idx], section);
                 }
             }
         }
 
     };
 
+    this.getOrCreateArea = function(areaData)
+    {
+        if (self.hasAreaWithId(areaData.id))
+        {
+            return self.getArea(areaData.id);
+        }
+        else
+        {
+            var area = new Area(areaData.name, areaData.id, self.canvasLayer.canvas, areaData);
+            self.addArea(area);
+            return area;
+        }
+    };
+
     this.fetchAreas = function()
     {
-        AreaServerModel.traceIdsInView(self.stack, sliceIdsCallback);
+        AreaServerModel.tracesInView(self.stack, slicesCallback);
     };
 
     this.addAction = function ( action ) {
@@ -591,6 +624,10 @@ function AreaTool()
             self.canvasLayer.canvas._onMouseMoveInDrawingMode(e);
             return true;
         }
+        else
+        {
+            return false;
+        }
     };
 
     this.onmousedown = function(e)
@@ -605,7 +642,7 @@ function AreaTool()
             return true;
         }
         // Otherwise, pass the event through to the prototype navigator.
-        else if(e.button == 1)
+        else
         {
             proto_onmousedown(e);
             return true;
@@ -614,15 +651,15 @@ function AreaTool()
 
     this.onmouseup = function(e)
     {
-        if (e.button == 1 && isPainting())
+        if (e.button == 0 && isPainting())
+        {
+            self.canvasLayer.canvas._onMouseUpInDrawingMode(e);
+            return true;
+        }
+        else
         {
             mouseState = 0;
             proto_onmouseup(e);
-            return true;
-        }
-        else if (e.button == 0)
-        {
-            self.canvasLayer.canvas._onMouseUpInDrawingMode(e);
             return true;
         }
     };
@@ -639,7 +676,7 @@ function AreaTool()
         {
             return areaIdentifier;
         }
-        else if (areaType == 'number')
+        else if (areaType == 'number' || areaType == 'string')
         {
             return areaById(areaIdentifier);
         }
@@ -789,10 +826,12 @@ function AreaTool()
         currentArea = area;
     };
 
+/*
     this.getArea = function()
     {
         return currentArea;
     };
+*/
 
     this.hasAreaWithId = function(id)
     {
@@ -847,11 +886,6 @@ AreaTraceWidget.prototype.init = function(space) {
     var assemblySelectElement = null;
     var self = this;
 
-    var selectAssembly = function()
-    {
-        console.log(this);
-    };
-
     var updateAssemblySearchBox = function()
     {
 
@@ -862,6 +896,17 @@ AreaTraceWidget.prototype.init = function(space) {
         AreaServerModel.retrieveAreas(tool.stack,
             self.updateAssemblySelect,
             regex);
+    };
+
+    var selectAssembly = function()
+    {
+        // In this scope, this === $('#selectAssembly')[0] should return True.
+        area = tool.getOrCreateArea({
+            name: this.name,
+            id: this.value,
+            color: this.getAttribute('area_color'),
+            opacity: this.getAttribute('area_opacity')});
+        tool.setCurrentArea(area);
     };
 
     this.setTool = function(inTool)
@@ -883,8 +928,9 @@ AreaTraceWidget.prototype.init = function(space) {
             var currentArea = tool.getArea();
             var selectText = '';
             var idx;
-
-            for (idx = 0; idx < assemblySelectElement[0].length; ++idx)
+            var n = assemblySelectElement[0].length;
+            
+            for (idx = 0; idx < n; ++idx)
             {
                 assemblySelectElement[0].remove(0)
             }
@@ -893,7 +939,9 @@ AreaTraceWidget.prototype.init = function(space) {
                 for (idx = 0; idx < assemblies.length; ++idx) {
                     var assy = assemblies[idx];
 
-                    if (assy.name == currentArea.name)
+                    tool.getOrCreateArea(assy);
+
+                    if (currentArea != null && assy.name == currentArea.name)
                     {
                         selectText = 'selected';
                     }
@@ -903,6 +951,9 @@ AreaTraceWidget.prototype.init = function(space) {
                     }
 
                     var optionString = '<option ' + selectText +
+                        ' name="' + assy.name + '" ' +
+                        ' area_color="' + assy.color + '" ' +
+                        ' area_opacity="' + assy.opacity + '" ' +
                         ' value="' + assy.id + '">' +
                         assy.name + ' (' + assy.type + ')</option>';
                     assemblySelectElement.append(optionString).css('color', assy.color);
