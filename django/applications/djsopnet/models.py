@@ -19,6 +19,7 @@ class Assembly(models.Model):
     assembly_type = models.CharField(max_length=32, choices=ASSEMBLY_TYPES,
      db_index=True)
     name = models.CharField(max_length=255)
+    stack = models.ForeignKey(Stack)
 
 class Slice(UserFocusedModel):
     stack = models.ForeignKey(Stack)
