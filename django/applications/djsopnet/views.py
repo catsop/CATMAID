@@ -108,30 +108,30 @@ def block_info_dict(block_info, stack):
 
 def generate_slice_response(slice):
     if slice:
-        return HttpResponse(json.dumps(slice_dict(slice)), mimetype = 'text/json')
+        return HttpResponse(json.dumps(slice_dict(slice)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'hash' : 'nope'}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'hash' : 'nope'}), content_type = 'text/json')
 
 def generate_segment_response(segment):
     if segment:
-        return HttpResponse(json.dumps(segment_dict(segment)), mimetype = 'text/json')
+        return HttpResponse(json.dumps(segment_dict(segment)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
 
 
 def generate_slices_response(slices):
     slice_list = [slice_dict(slice) for slice in slices]
-    return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), mimetype = 'text/json')
+    return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type = 'text/json')
 
 def generate_segments_response(segments):
     segment_list = [segment_dict(segment) for segment in segments]
-    return HttpResponse(json.dumps({'ok' : True, 'segments' : segment_list}), mimetype = 'text/json')
+    return HttpResponse(json.dumps({'ok' : True, 'segments' : segment_list}), content_type = 'text/json')
 
 def generate_block_response(block):
     if block:
-        return HttpResponse(json.dumps(block_dict(block)), mimetype = 'text/json')
+        return HttpResponse(json.dumps(block_dict(block)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
 
 def generate_blocks_response(blocks):
     if blocks is not None:
@@ -142,9 +142,9 @@ def generate_blocks_response(blocks):
 
 def generate_core_response(core):
     if core:
-        return HttpResponse(json.dumps(core_dict(core)), mimetype = 'text/json')
+        return HttpResponse(json.dumps(core_dict(core)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
 
 def generate_cores_response(cores):
     if cores is not None:
@@ -156,9 +156,9 @@ def generate_cores_response(cores):
 
 def generate_block_info_response(block_info, stack):
     if block_info:
-        return HttpResponse(json.dumps(block_info_dict(block_info, stack)), mimetype = 'text/json')
+        return HttpResponse(json.dumps(block_info_dict(block_info, stack)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
 
 def generate_conflict_response(conflicts, stack):
     conflict_dicts = []
@@ -173,7 +173,7 @@ def generate_features_response(features):
         segment_hash = id_to_hash(feature.segment_id)
         feature_values = feature.features
         features_dicts.append({'hash' : segment_hash, 'fv': feature_values})
-    return HttpResponse(json.dumps({'ok':True, 'features' : features_dicts}), mimetype='text/json')
+    return HttpResponse(json.dumps({'ok':True, 'features' : features_dicts}), content_type='text/json')
 
 def error_response():
     sio = StringIO()
@@ -197,14 +197,14 @@ def setup_blocks(request, project_id = None, stack_id = None):
         corehib = int(request.GET.get('cheight'))
         coredib = int(request.GET.get('cdepth'))
     except TypeError:
-        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), content_type='text/json')
     try:
         _setup_blocks(stack_id, width, height, depth,
                 corewib, corehib, coredib)
     except ValueError as e:
-        return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), content_type='text/json')
 
-    return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+    return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
 
 def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -346,7 +346,7 @@ def stack_info(request, project_id = None, stack_id = None):
                   'tile_size' : [s.tile_width, s.tile_height],
                   'file_extension' : s.file_extension,
                   'image_base' : s.image_base}
-    return HttpResponse(json.dumps(stack_dict), mimetype='text/json')
+    return HttpResponse(json.dumps(stack_dict), content_type='text/json')
 
 def block_info(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -365,18 +365,18 @@ def set_flag(s, request, flag_name, id_field = 'block_id', type = Block):
         box = type.objects.get(stack = s, id = id)
         setattr(box, flag_name, flag)
         box.save()
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
     except type.DoesNotExist:
-        return HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
 def get_flag(s, request, flag_name, id_field = 'block_id', type = Block):
     id = int(request.GET.get(id_field))
     try:
         box = type.objects.get(stack = s, id = id)
         flag = getattr(box, flag_name)
-        return HttpResponse(json.dumps({flag_name : flag}), mimetype='text/json')
+        return HttpResponse(json.dumps({flag_name : flag}), content_type='text/json')
     except type.DoesNotExist:
-        return HttpResponse(json.dumps({flag_name : False, 'ok' : False}), mimetype='text/json')
+        return HttpResponse(json.dumps({flag_name : False, 'ok' : False}), content_type='text/json')
 
 def set_block_slice_flag(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -440,7 +440,7 @@ def do_insert_slices(stack, req_dict):
                 # during normal operation.
                 pass
 
-        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
     except:
         return error_response()
 
@@ -468,10 +468,10 @@ def associate_slices_to_block(request, project_id = None, stack_id = None):
             bsr = SliceBlockRelation(block_id = block_id, slice_id = slice_id)
             bsr.save()
 
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
 
     except Block.DoesNotExist:
-        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), content_type='text/json')
     except:
         return error_response()
 
@@ -533,7 +533,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
                 blockConflict = BlockConflictRelation(block = block, conflict = sliceConflict)
                 blockConflict.save()
 
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
 
     except:
 
@@ -562,7 +562,7 @@ def retrieve_block_ids_by_slices(request, project_id = None, stack_id = None):
         blocks = {br.block for br in block_relations}
         block_ids = [block.id for block in blocks]
 
-        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), content_type='text/json')
     except:
         return error_response()
 
@@ -637,7 +637,7 @@ def do_insert_segments(stack, dict):
                               slice_c_id = hash_to_id(slice_c_hash))
             segment.save()
 
-        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
     except:
         return error_response()
 
@@ -665,9 +665,9 @@ def associate_segments_to_block(request, project_id = None, stack_id = None):
             bsr = SegmentBlockRelation(block = block, segment = segment)
             bsr.save()
 
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
     except Block.DoesNotExist:
-        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), content_type='text/json')
     except:
         return error_response()
 
@@ -698,18 +698,18 @@ def set_feature_names(request, project_id = None, stack_id = None):
 
         existing_names = get_feature_names(s, p)
         if existing_names == names:
-            return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+            return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
         else:
             return HttpResponse(json.dumps({'ok' : False,
                                             'reason' : 'tried to set different feature names'}),
-                                mimetype='text/json')
+                                content_type='text/json')
     except FeatureInfo.DoesNotExist:
         if setup_feature_names(names, s, p):
-            return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+            return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
         else:
             return HttpResponse(json.dumps({'ok' : False,
                                             'reason' : 'something went horribly, horribly awry'}),
-                                mimetype='text/json')
+                                content_type='text/json')
     except:
         return error_response()
 
@@ -717,7 +717,7 @@ def retrieve_feature_names(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     p = get_object_or_404(Project, pk = project_id)
     names = get_feature_names(s, p)
-    return HttpResponse(json.dumps({'names' : names}), mimetype='text/json')
+    return HttpResponse(json.dumps({'names' : names}), content_type='text/json')
 
 
 def do_set_segment_features(stack, req_dict):
@@ -752,7 +752,7 @@ def do_set_segment_features(stack, req_dict):
                     json.dumps({'ok': False,
                                 'reason' : 'feature list is the wrong size',
                                 'count' : count}),
-                    mimetype='text/json')
+                    content_type='text/json')
 
             feature_float_list = map(float, feature_str_list)
 
@@ -766,7 +766,7 @@ def do_set_segment_features(stack, req_dict):
 
             count += 1
 
-        return HttpResponse(json.dumps({'ok': True, 'count' : count}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': True, 'count' : count}), content_type='text/json')
     except:
         return error_response()
 
@@ -826,7 +826,7 @@ def set_segment_solutions(request, project_id = None, stack_id = None):
             segment_solution.save()
             count += 1
 
-        return HttpResponse(json.dumps({'ok' : True, 'count' : count}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True, 'count' : count}), content_type='text/json')
 
     except:
         return error_response()
@@ -841,7 +841,7 @@ def retrieve_segment_solutions(request, project_id = None, stack_id = None):
                            'solution' : solution.solution} for solution in solutions]
 
         return HttpResponse(json.dumps({'ok' : True, 'solutions' : solution_dicts}),
-                            mimetype='text/json')
+                            content_type='text/json')
     except:
         return error_response()
 
@@ -855,7 +855,7 @@ def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
         blocks = {br.block for br in block_relations}
         block_ids = [block.id for block in blocks]
 
-        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), content_type='text/json')
     except:
         return error_response()
 
@@ -873,7 +873,7 @@ def retrieve_user_constraints_by_blocks(request, project_id = None, stack_id = N
             ''' % ','.join(map(str, block_ids)))
         constraints = cursor.fetchall()
 
-        return HttpResponse(json.dumps({'ok' : True, 'constraints' : constraints}), mimetype = 'text/json')
+        return HttpResponse(json.dumps({'ok' : True, 'constraints' : constraints}), content_type = 'text/json')
     except:
         return error_response()
 
@@ -883,18 +883,18 @@ def clear_slices(request, project_id = None, stack_id = None):
     sure = request.GET.get('sure')
     if sure == 'yes':
         Slice.objects.filter(stack = s).delete()
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
     else:
-        HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+        HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
 def clear_segments(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
     if sure == 'yes':
         Segment.objects.filter(stack = s).delete()
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
     else:
-        HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+        HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
 def clear_blocks(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
@@ -903,17 +903,17 @@ def clear_blocks(request, project_id = None, stack_id = None):
         Block.objects.filter(stack = s).delete()
         Core.objects.filter(stack = s).delete()
         BlockInfo.objects.filter(stack = s).delete()
-        return HttpResponse(json.dumps({'ok' : True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
     else:
-        HttpResponse(json.dumps({'ok' : False}), mimetype='text/json')
+        HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
 def clear_djsopnet(request, project_id = None, stack_id = None):
     sure = request.GET.get('sure')
     if sure == 'yes':
         _clear_djsopnet(project_id, stack_id)
-        return HttpResponse(json.dumps({'ok': True}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
     else:
-        return HttpResponse(json.dumps({'ok': False}), mimetype='text/json')
+        return HttpResponse(json.dumps({'ok': False}), content_type='text/json')
 
 def _clear_djsopnet(project_id = None, stack_id = None, delete_slices=True,
         delete_segments=True):
