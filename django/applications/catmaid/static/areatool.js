@@ -1,4 +1,24 @@
 
+
+/*
+Nomenclature:
+
+Area: a representation of a generic object, which may be neuron, mito, glia, etc., consisting
+      of one or more Traces
+
+Trace: a single geometric representation. Currently, Trace' are polygonal, but the future may bring
+       traces represented as bitmaps. Essentially, a Trace is a 2D geometry associated with a
+       section and makes up a portion of an Area.
+
+Assembly: The database representation of an Area, essentially analogous.
+
+Slice: This is the Sopnet name for what we call a Trace, and therefore also the name of the
+       Trace representation in the database.
+
+ */
+
+
+
 /**
  AreaServerModel singleton class abstracts area persistence
  */
@@ -122,15 +142,15 @@ var AreaServerModel = new function()
         });
     };
 
-    this.retrieveAreas = function(stack, callback, regex)
+    this.retrieveAreas = function(stack, callback, dataIn)
     {
         var project = stack.getProject();
         var url = django_url + project.id + '/stack/' + stack.id + '/list_assemblies';
         var data;
 
-        if (regex)
+        if (dataIn)
         {
-            data = {'regex': regex};
+            data = dataIn;
         }
         else
         {
@@ -886,16 +906,145 @@ AreaTraceWidget.prototype.init = function(space) {
     var assemblySelectElement = null;
     var self = this;
 
-    var updateAssemblySearchBox = function()
+
+    /**
+     * Helper function to create a checkbox with label.
+     */
+    var createCheckboxHelper = function (name, handler) {
+        var cb = $('<input/>').attr('type', 'checkbox');
+        if (handler) {
+            cb.change(handler);
+        }
+        var label = $('<div/>')
+            .append($('<label/>').append(cb).append(name));
+
+        return label;
+    };
+
+    /*===== Tool Selector =====*/
+    var toolActions = [];
+
+    this.addAction = function(action)
+    {
+        toolActions.push(action);
+    };
+
+    this.setToolMode = function(mode)
+    {
+        console.log('Got set tool mode to ' + mode);
+    };
+
+    var setAutoFill = function()
     {
 
     };
 
-    var updateAssemblySettings = function(regex)
+    var createToolBoxDiv = function()
+    {
+        var toolBox = createButtonsFromActions(toolActions, 'area_tool_box', 'area_tool_');
+        var autoFillCheckbox = createCheckboxHelper('Automatically Fill Holes', setAutoFill);
+        var toolBoxDiv = $('<div id="areas_toolbox" />').append(toolBox).append('<br>');
+        toolBoxDiv.append(autoFillCheckbox);
+
+        return toolBoxDiv;
+    };
+
+    var addAssemblyToolBox = function(container)
+    {
+        //$(container).append(createToolBoxDiv());
+        var tb = addSettingsContainer(container, "Tools");
+        var toolBoxDiv = createToolBoxDiv();
+        $(tb).append(toolBoxDiv);
+    };
+
+    /*===== Assembly Property Editor =====*/
+
+    var colorWheel;
+    var opacitySlider;
+
+    /**
+     * Update the color wheel and opacity slider values to the tool.currentArea
+     */
+    var updatePropertyEditor = function()
+    {
+
+    };
+
+    /**
+     * Set the opacity of tool.currentArea according to the opacity slider.
+     */
+    var setToolOpacity = function()
+    {
+
+    };
+
+    /**
+     * Set the color of tool.currentArea according to the colorwheel.
+     */
+    var setToolColor = function()
+    {
+
+    };
+
+    /**
+     * Send the view property values for the current area to the server.
+     */
+    var syncServerViewProps = function()
+    {
+
+    };
+
+    var createOpacitySlider = function()
+    {
+        var sliderDiv = $('<div id="area_opacity_slider" />');
+        opacitySlider  = new Slider(SLIDER_HORIZONTAL, true, 1, 100, 100,
+                0, setToolOpacity);
+
+        sliderDiv.append('Opacity').append('<br>');
+        sliderDiv.append(opacitySlider.getView());
+        sliderDiv.append(opacitySlider.getInputView());
+
+        return sliderDiv;
+    };
+
+    var createColorWheel = function()
+    {
+        var cwDiv = $('<div id="assembly_color_wheel"/>');
+        colorWheel = Raphael.colorwheel(cwDiv, 150);
+        return cwDiv;
+    };
+
+    var createPropertyEditor = function()
+    {
+        var opacitySliderDiv = createOpacitySlider();
+        var colorWheelDiv = createColorWheel();
+
+        var propertyEditorDiv = $('<div/>').append(opacitySliderDiv).append('<br>');
+        propertyEditorDiv.append(colorWheelDiv);
+
+        return propertyEditorDiv;
+    };
+
+    var addAssemblyPropertyEditor = function(container)
+    {
+        var ds = addSettingsContainer(container, "Properties");
+
+        var propertiesDiv = createPropertyEditor();
+
+        $(ds).append(propertiesDiv);
+    };
+
+    /*===== Assembly Manager =====*/
+
+    this.searchOptions = {'visible_only': false,
+        'in_view_only': false,
+        'regex': ''};
+
+    var updateSearchSettings = function()
     {
         AreaServerModel.retrieveAreas(tool.stack,
             self.updateAssemblySelect,
-            regex);
+            self.searchOptions);
     };
 
     var selectAssembly = function()
@@ -909,17 +1058,15 @@ AreaTraceWidget.prototype.init = function(space) {
         tool.setCurrentArea(area);
     };
 
-    this.setTool = function(inTool)
-    {
-        tool = inTool;
-        updateAssemblySettings();
-        /*AreaServerModel.retrieveAreas(tool.stack,
-        function(data)
-        {
-            self.updateAssemblySelect(data);
-        })*/
-    };
-
+    /**
+     * Update the assembly select element, $('#selectAssembly'). For use as an ajax callback.
+     * @param data an ajax callback Object, with the following properties:
+     *      assemblies - an array of Objects with properties:
+     *          name - area name
+     *          color - area color
+     *          opacity - area opacity
+     *          id - area id
+     */
     this.updateAssemblySelect = function(data)
     {
         if (assemblySelectElement != null)
@@ -929,7 +1076,7 @@ AreaTraceWidget.prototype.init = function(space) {
             var selectText = '';
             var idx;
             var n = assemblySelectElement[0].length;
-            
+
             for (idx = 0; idx < n; ++idx)
             {
                 assemblySelectElement[0].remove(0)
@@ -966,6 +1113,148 @@ AreaTraceWidget.prototype.init = function(space) {
         }
     };
 
+    var createAssemblyButtonClick = function()
+    {
+        var newAssemblyInput = $('<input name="new_assembly_input" />');
+        var newAssemblyType = $('<select name="new_assembly_select"/>').append(
+            '<option selected value="neuron">Neuron</option>'
+        ).append(
+            '<option value="synapse">Synapse</option>'
+        ).append(
+            '<option value="mitochondrion">Mitochondria</option>'
+        ).append(
+            '<option value="glia">Glia</option>'
+        );
+
+        var newAssemblyDiv = $('<div/>').append('Name:').append(newAssemblyInput);
+
+        var okButton = $('<button/>').text('OK').click(
+            function()
+            {
+                $.unblockUI();
+                AreaServerModel.createNewAssembly(tool.stack, newAssemblyInput.val(),
+                    newAssemblyType.val(), self.updateAssemblySelect);
+            }
+        );
+
+        var cancelButton = $('<button/>').text('Cancel').click(
+            function()
+            {
+                $.unblockUI();
+                newAssemblyDiv.remove();
+            }
+        );
+
+
+        newAssemblyDiv.append('Type:').append(newAssemblyType).append('<br>');
+        newAssemblyDiv.append(okButton).append(cancelButton);
+        newAssemblyDiv.css({width: '350px'});
+
+        $.blockUI({message: newAssemblyDiv});
+    };
+
+
+    /**
+     * Generate the Assembly Selector. This is the part of the widget that allows for searching and
+     * selecting different Areas/Assemblies.
+     */
+    var createAssemblySelector = function()
+    {
+        var selectElement = $('<select id="selectAssembly" name="selectAssembly" size="12">' +
+            '</select>');
+        var regexInput = $('<input name="assembly_regex" id="assemblyRegexInput"/>');
+
+        var searchButton = $('<button/>').text('Search').click(
+            function()
+            {
+                self.searchOptions['regex'] = regexInput.val();
+                updateSearchSettings();
+            }
+        );
+
+        var clearSearchButton = $('<button/>').text('Clear').click(
+          function()
+          {
+              regexInput.val('');
+              self.searchOptions['regex'] = '';
+              updateSearchSettings();
+          }
+        );
+
+        var createButton = $('<button/>').text('Create New').click(createAssemblyButtonClick);
+
+        selectElement.change(selectAssembly);
+
+        // <select> element, listing the available areas
+        var selector = $('<div/>').append(selectElement).append('<br>');
+
+        // Search input box, search and clear buttons.
+        selector.append(regexInput).append(searchButton).append(clearSearchButton).append('<br>');
+
+        // Create new button
+        selector.append(createButton);
+
+        return selector;
+    };
+
+    var createAssemblySearchOptions = function()
+    {
+        // In the following handler functions' scopes, this points to the
+        // checkbox element.
+        var visibleOnly = createCheckboxHelper('Visible Areas Only',
+            function()
+            {
+                self.searchOptions['visible_only'] = this.value == "on";
+                updateSearchSettings();
+            }
+        );
+
+        var inViewOnly = createCheckboxHelper('Areas in View Only',
+            function()
+            {
+                self.searchOptions['in_view_only'] = this.value == "on";
+                updateSearchSettings();
+            }
+        );
+
+        var options = $('<div/>').append(visibleOnly).append('<br>').append(inViewOnly);
+        return options;
+    };
+
+    var createAssemblyManager = function()
+    {
+        var assemblySelectDiv = createAssemblySelector();
+        var assemblySearchOptionDiv = createAssemblySearchOptions();
+
+        assemblySelectDiv.css({width: '350px', float: 'left'});
+        assemblySearchOptionDiv.css({width: '350px', float: 'left'});
+
+        var managerDiv = $('<div/>').append(assemblySelectDiv).append(assemblySearchOptionDiv);
+
+        return managerDiv;
+    };
+
+    /*
+     * Adds an Assembly selector
+     */
+    var addAssemblyManager = function (container) {
+        var ds = addSettingsContainer(container, "Assemblies");
+
+        var assemblyManagerDiv = createAssemblyManager();
+
+        //var assemblySelectDiv = createAssemblySelector(selectAssembly);
+        $(ds).append(assemblyManagerDiv);
+        assemblySelectElement = $('#selectAssembly');
+    };
+
+
+    this.setTool = function(inTool)
+    {
+        tool = inTool;
+        updateSearchSettings();
+    };
+
+
     /**
      * Helper function to create a collapsible settings container.
      */
@@ -999,82 +1288,6 @@ AreaTraceWidget.prototype.init = function(space) {
     };
 
     /**
-     * Helper function to create a checkbox with label.
-     */
-    var createCheckboxSetting = function (name, handler) {
-        var cb = $('<input/>').attr('type', 'checkbox');
-        if (handler) {
-            cb.change(handler);
-        }
-        var label = $('<div/>')
-            .addClass('setting')
-            .append($('<label/>').append(cb).append(name));
-
-        return label;
-    };
-
-    var createAssemblySelector = function(handler)
-    {
-        var selectElement = $('<select id="selectAssembly" name="selectAssembly" size="12">' +
-            '</select>');
-        var regexInput = $('<input name="assembly_regex" id="assemblyRegexInput"/>');
-
-        var searchButton = $('<button/>').text('Search').click(
-            function()
-            {
-                updateAssemblySettings(regexInput.val());
-            }
-        );
-
-        var createButton = $('<button/>').text('Create New').click(
-            function()
-            {
-                var newAssemblyInput = $('<input name="new_assembly_input" />');
-                var newAssemblyType = $('<select name="new_assembly_select"/>').append(
-                    '<option selected value="neuron">Neuron</option>'
-                ).append(
-                    '<option value="synapse">Synapse</option>'
-                ).append(
-                    '<option value="mitochondrion">Mitochondria</option>'
-                ).append(
-                    '<option value="glia">Glia</option>'
-                );
-
-                var okButton = $('<button/>').text('OK').click(
-                    function()
-                    {
-                        $.unblockUI();
-                        console.log(newAssemblyInput.val());
-                        console.log(newAssemblyType.value);
-                        AreaServerModel.createNewAssembly(tool.stack, newAssemblyInput.val(),
-                            newAssemblyType.val(), self.updateAssemblySelect);
-                    }
-                );
-
-                var cancelButton = $('<button/>').text('Cancel').click(
-                    function()
-                    {
-                        $.unblockUI();
-                    }
-                );
-
-                var newAssemblyDiv = $('<div/>').append('Name:').append(newAssemblyInput);
-                newAssemblyDiv.append('Type:').append(newAssemblyType).append('<br>');
-                newAssemblyDiv.append(okButton).append(cancelButton);
-                newAssemblyDiv.css({width: 500});
-
-                $.blockUI({message: newAssemblyDiv});
-            }
-        );
-
-        selectElement.change(selectAssembly);
-
-        var selector = $('<div/>').append(selectElement).append(regexInput).append(searchButton).append(createButton);
-
-        return selector;
-    };
-
-    /**
      * Helper function to create a text input field with label.
      */
     var createInputSetting = function (name, val, handler) {
@@ -1082,33 +1295,59 @@ AreaTraceWidget.prototype.init = function(space) {
         return createLabeledControl(name, input);
     };
 
-    var createAssemblyManager = function()
-    {
-        var assemblySelectDiv = createAssemblySelector();
+    // Add tools for the toolbox
+    this.addAction(new Action({
+        helpText: "Paint Brush",
+        buttonName: "paint_brush",
+        buttonID: "area_paint_brush",
+        run: function (e) {
+            self.setToolMode('paint');
+            return true;
+        }
+    }));
 
+    this.addAction(new Action({
+        helpText: "Eraser",
+        buttonName: "eraser",
+        buttonID: "area_eraser",
+        run: function (e) {
+            self.setToolMode('erase');
+            return true;
+        }
+    }));
 
-        assemblySelectDiv.css({width: '200px', float: 'left'});
+    this.addAction(new Action({
+        helpText: "Close Holes",
+        buttonName: "fill_holes",
+        buttonID: "area_fill_holes",
+        run: function (e) {
+            self.setToolMode('fill');
+            return true;
+        }
+    }));
 
-        var managerDiv = $('<div/>').append(assemblySelectDiv);
+    this.addAction(new Action({
+        helpText: "Select Areas",
+        buttonName: "selector",
+        buttonID: "area_selector",
+        run: function (e) {
+            self.setToolMode('select');
+            return true;
+        }
+    }));
 
-        return managerDiv;
-    };
+    this.addAction(new Action({
+        helpText: "Stamp!",
+        buttonName: "stamp",
+        buttonID: "area_stamp",
+        run: function (e) {
+            self.setToolMode('stamp');
+            return true;
+        }
+    }));
 
-    /*
-     * Adds an Assembly selector
-     */
-    var addAssemblyManager = function (container) {
-        var ds = addSettingsContainer(container, "Assemblies");
-
-        var assemblyManagerDiv = createAssemblyManager();
-
-        //var assemblySelectDiv = createAssemblySelector(selectAssembly);
-        $(ds).append(assemblyManagerDiv);
-        assemblySelectElement = $('#selectAssembly');
-    };
-
-
-
+    addAssemblyToolBox(space);
+    addAssemblyPropertyEditor(space);
     addAssemblyManager(space);
 
     // Add collapsing support to all settings containers
