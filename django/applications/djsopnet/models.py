@@ -3,7 +3,7 @@ from datetime import datetime
 
 from django.contrib.auth.models import User
 from catmaid.fields import IntegerArrayField, DoubleArrayField
-from catmaid.models import Stack, UserFocusedModel
+from catmaid.models import ClassInstance, Stack, UserFocusedModel
 
 ASSEMBLY_TYPES = (
     ('neuron', 'Neuron Slices'),
@@ -170,3 +170,21 @@ class BlockConflictRelation(models.Model):
 
     class Meta:
         unique_together = ('block', 'conflict')
+
+class Constraint(UserFocusedModel):
+
+    pass
+
+    # the skeleton that defined the constraint
+    # skeleton = models.ForeignKey(ClassInstance, null=True, default=None)
+
+    # TODO: remove this property
+    # associated_skeleton_nodes = IntegerArrayField(null=True, default=None)
+
+class BlockConstraintRelation(models.Model):
+    constraint = models.ForeignKey(Constraint)
+    block = models.ForeignKey(Block)
+
+class ConstraintSegmentRelation(models.Model):
+    constraint = models.ForeignKey(Constraint)
+    segment = models.ForeignKey(Segment)

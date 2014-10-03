@@ -560,6 +560,13 @@ var WindowMaker = new function()
     map.onclick = WA.toggle_usercolormap_dialog.bind(WA);
     buttons.appendChild(map);
 
+    // TOREMOVE: this serves as an entry point for debugging
+    var slices = document.createElement('input');
+    slices.setAttribute("type", "button");
+    slices.setAttribute("value", "Show slices");
+    slices.onclick = WA.showSlices.bind(WA);
+    buttons.appendChild(slices);
+
     var canvas = document.createElement('div');
     canvas.setAttribute("id", "viewer-3d-webgl-canvas" + WA.widgetID);
     // canvas.style.width = "800px";

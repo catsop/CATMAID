@@ -1496,6 +1496,37 @@ WebGLApplication.prototype.Space.prototype.updateSkeleton = function(skeletonmod
   return this.content.skeletons[skeletonmodel.id];
 };
 
+/** A volumetric representation of a neuron that may be associated with a skeleton
+ *  Two representational primities
+ *    (1) A set of slices which are 2D quads with the slice image as texture
+ *    (2) A mesh representation of the surface of the neuron
+ */
+WebGLApplication.prototype.Space.prototype.VolumeObject = function(space, model) {
+  this.space = space;
+
+  // representation of the neuron as sets of slices (2D bitmap masks) and segments
+  // that connect the slices
+  this.sliceset = {};
+  this.segmentset = {};
+};
+
+WebGLApplication.prototype.Space.prototype.VolumeObject.prototype.initialize_objects = function() {
+  // 2D quads with the slice as image texture
+  this.slicesetgeometry = {};
+  // lines with attached spheres as handlers
+  this.segmentsetgeometry = {};
+};
+
+WebGLApplication.prototype.Space.prototype.VolumeObject.prototype.destroy = function() {
+  this.removeActorFromScene();
+  // TODO: remove the models
+};
+
+WebGLApplication.prototype.Space.prototype.VolumeObject.prototype.removeActorFromScene = function() {
+  // TODO: iterate through the geometries and remove them
+};
+
+
 /** An object to represent a skeleton in the WebGL space.
  *  The skeleton consists of three geometries:
  *    (1) one for the edges between nodes, represented as a list of contiguous pairs of points; 
@@ -2697,4 +2728,60 @@ WebGLApplication.prototype.toggle_usercolormap_dialog = function() {
       $('#usercolormap-table > tbody:last').append( rowElement );
     }
   }
+};
+
+/**
+ * Initial entry point to test retrieval of broken_slices
+ *
+ * TODO: This is for initial testing only. Adding proper content objects later.
+ */
+WebGLApplication.prototype.showSlices = function() {
+  var skeleton_id = SkeletonAnnotations.getActiveSkeletonId();
+  if(null === skeleton_id) {
+    alert('Need active skeleton to show slices!')
+    return;
+  }
+
+  var space = this.space, stack = space.stack, t = stack.translation, r = stack.resolution;
+  // for a skeleton id, retrieve a slice set from the API
+  requestQueue.register(django_url + "sopnet/" + project.id + "/stack/" + space.stack.id + "/slices_for_skeleton/" + skeleton_id,
+    "POST",
+    {},
+    function (status, text, xml) {
+      if (200 !== status) return;
+      if (!text || text === " ") return;
+      var json = $.parseJSON(text);
+      if (json.error) return alert(json.error);
+      console.log('returned data', json);
+      var slices = Object.keys(json.slices);
+      if( 0 !== slices ) {
+        var slice;
+        slices.forEach(function(id) {
+          slice = json.slices[id];
+          var material = new THREE.MeshBasicMaterial({
+            // TODO: Color(1,0,0) does not work with current THREE.js version (replace)
+            color: new THREE.Color( slice.color ), 
+            map: THREE.ImageUtils.loadTexture( slice.url ),
+            transparent: true, alphaTest: 0.5, side: THREE.DoubleSide
+          });
+          // transparent PNG visualized on both sides
+          // http://stackoverflow.com/questions/11165345/three-js-webgl-transparent-planes-hiding-other-planes-behind-them
+
+          var minx = t.x + slice.min_x * r.x,
+              miny = t.y + slice.min_y * r.y,
+              width = t.x + slice.width * r.x,
+              height = t.y + slice.height * r.y,
+              zsection = t.z + slice.section * r.z,
+              c = space.toSpace( new THREE.Vector3(minx, miny, zsection));
+
+          var geometry = new THREE.PlaneGeometry( width, height );
+          var plane = new THREE.Mesh( geometry, material );
+          plane.position.set( c.x + width/2, c.y - height/2, c.z );
+          space.add( plane );
+
+        });
+      }
+      space.render();
+    });
+
 };
