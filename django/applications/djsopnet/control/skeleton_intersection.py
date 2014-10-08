@@ -249,29 +249,32 @@ def _generate_user_constraints( user_id = None, project_id = None, stack_id = No
 			for nodeInSection in section_node_dictionary[top_node['z']]:
 				topSectionSliceSet.extend(list(top_node['sliceset']))
 
-			string_top_node_sliceset = '('
-			for n in top_node['sliceset']:
-				string_top_node_sliceset = string_top_node_sliceset + str(n) + ','
-			string_top_node_sliceset = string_top_node_sliceset[:-1]
-			string_top_node_sliceset = string_top_node_sliceset + ')'
-			print 'Top node slice set: ' + string_top_node_sliceset
-
-			string_bottom_node_sliceset = '('
-			for n in bottom_node['sliceset']:
-				string_bottom_node_sliceset = string_bottom_node_sliceset + str(n) + ','
-			string_bottom_node_sliceset = string_bottom_node_sliceset[:-1]
-			string_bottom_node_sliceset = string_bottom_node_sliceset + ')'
-			print 'Bottom node slice set: ' + string_bottom_node_sliceset
-
-			query_string = 	'SELECT DISTINCT ss1.id FROM djsopnet_segmentslice ss1 ' + \
-					'JOIN djsopnet_segmentslice ss2 ' + \
-					'ON ss1.segment_id = ss2.segment_id ' + \
-					'WHERE ss1.slice_id IN ' + string_top_node_sliceset + ' ' +\
-					'AND ss2.slice_id IN ' + string_bottom_node_sliceset + ';'
-
 			segmentsContainingEdge_id = set()
-			for ss in SegmentSlice.objects.raw( query_string ):
-				segmentsContainingEdge_id.add(ss.segment.id)
+
+			if len(bottomSectionSliceSet) != 0 and len(topSectionSliceSet) != 0:
+
+				string_top_node_sliceset = '('
+				for n in top_node['sliceset']:
+					string_top_node_sliceset = string_top_node_sliceset + str(n) + ','
+				string_top_node_sliceset = string_top_node_sliceset[:-1]
+				string_top_node_sliceset = string_top_node_sliceset + ')'
+				print 'Top node slice set: ' + string_top_node_sliceset
+
+				string_bottom_node_sliceset = '('
+				for n in bottom_node['sliceset']:
+					string_bottom_node_sliceset = string_bottom_node_sliceset + str(n) + ','
+				string_bottom_node_sliceset = string_bottom_node_sliceset[:-1]
+				string_bottom_node_sliceset = string_bottom_node_sliceset + ')'
+				print 'Bottom node slice set: ' + string_bottom_node_sliceset
+
+				query_string = 	'SELECT DISTINCT ss1.id FROM djsopnet_segmentslice ss1 ' + \
+						'JOIN djsopnet_segmentslice ss2 ' + \
+						'ON ss1.segment_id = ss2.segment_id ' + \
+						'WHERE ss1.slice_id IN ' + string_top_node_sliceset + ' ' +\
+						'AND ss2.slice_id IN ' + string_bottom_node_sliceset + ';'
+
+				for ss in SegmentSlice.objects.raw( query_string ):
+					segmentsContainingEdge_id.add(ss.segment.id)
 
 			print 'SegmentsContainingEdge: ' + str(segmentsContainingEdge_id)
 
