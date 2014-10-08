@@ -384,6 +384,9 @@ function AreaTool()
     var nextId = 0;
     var assemblyTable = {};
 
+    // ui change callback
+    var uiChange = function(){};
+
     var proto_mouseCatcher = null;
 
     var isPainting = function()
@@ -888,6 +891,19 @@ function AreaTool()
         }
     };
 
+    /**
+     * Set a callback function for changes made to tool parameters by key+mouse events, for
+     * instance, when the user changes brush size by holding shift and rolling the mouse wheel.
+     *
+     * In particular, this function will not be called upon creation of a new trace.
+     *
+     * @param fun a callback function, to be called with no arguments.
+     */
+    this.onchange = function(fun)
+    {
+        uiChange = fun;
+    };
+
     var keyCodeToAction = getKeyCodeToActionMap(actions);
 
 }
@@ -922,16 +938,34 @@ AreaTraceWidget.prototype.init = function(space) {
     };
 
     /*===== Tool Selector =====*/
+
+    /*
+    Available tool modes:
+    'paint': additively paint Areas
+    'erase': subtractively paint Areas
+    'fill': fill holes in the given area
+    'select': select an area by clicking on it
+    'stamp': click to add a predefined polygon to the Area
+     */
+
     var toolActions = [];
+    var toolOptionDivs = {};
+    var toolboxOptionsDiv;
+    var maxBrushSize = 128;
 
     this.addAction = function(action)
     {
         toolActions.push(action);
     };
 
-    this.setToolMode = function(mode)
+    this.setToolMode = function(modeIn)
     {
-        console.log('Got set tool mode to ' + mode);
+        console.log('Got set tool mode to ' + modeIn);
+
+        toolboxOptionsDiv.html('');
+
+        toolboxOptionsDiv.append(toolOptionDivs[modeIn]);
+
     };
 
     var setAutoFill = function()
@@ -939,14 +973,86 @@ AreaTraceWidget.prototype.init = function(space) {
 
     };
 
+    var setBrushSize = function()
+    {
+
+    };
+
+    var setFillMode = function()
+    {
+
+    };
+
+    var createPaintOptions = function()
+    {
+        // options div.
+        var od = $('<div id="area_paint_options"/>');
+        var sliderDiv = $('<div id="area_paint_size_slider" />');
+
+        var brushSizeSlider  = new Slider(SLIDER_HORIZONTAL, true, 1, maxBrushSize, maxBrushSize,
+            16, setBrushSize);
+        var autoFillCheckbox = createCheckboxHelper('Automatically Fill Holes', setAutoFill);
+
+        sliderDiv.append('Brush Size').append('<br>');
+        sliderDiv.append(brushSizeSlider.getView());
+        sliderDiv.append(brushSizeSlider.getInputView());
+
+        od.append(sliderDiv).append('<br>').append(autoFillCheckbox);
+
+        return od;
+    };
+
+    var createEraseOptions = function()
+    {
+        // options div.
+        var od = $('<div id="area_erase_options"/>');
+        var sliderDiv = $('<div id="area_erase_size_slider" />');
+
+        var brushSizeSlider  = new Slider(SLIDER_HORIZONTAL, true, 1, maxBrushSize, maxBrushSize,
+            16, setBrushSize);
+
+        sliderDiv.append('Brush Size').append('<br>');
+        sliderDiv.append(brushSizeSlider.getView());
+        sliderDiv.append(brushSizeSlider.getInputView());
+
+        od.append(sliderDiv);
+
+        return od;
+    };
+
+    var createFillOptions = function()
+    {
+        // options div.
+        var od = $('<div id="area_fill_options"/>');
+        var one = $('<input type="radio" name="area_fill_radio" value="one">Fill One Hole</input>');
+        var all = $('<input type="radio" name="area_fill_radio" value="all">Fill All Holes</input>');
+
+        one.change(setFillMode);
+        all.change(setFillMode);
+
+        od.append(one).append('<br>').append(all);
+
+        return od;
+    };
+
+    var createStampOptions = function()
+    {
+        return $('<div/>');
+    };
+
     var createToolBoxDiv = function()
     {
-        var toolBox = createButtonsFromActions(toolActions, 'area_tool_box', 'area_tool_');
-        var autoFillCheckbox = createCheckboxHelper('Automatically Fill Holes', setAutoFill);
-        var toolBoxDiv = $('<div id="areas_toolbox" />').append(toolBox).append('<br>');
-        toolBoxDiv.append(autoFillCheckbox);
+        var toolbox = createButtonsFromActions(toolActions, 'area_tool_box', 'area_tool_');
+        toolOptionDivs['paint'] = createPaintOptions();
+        toolOptionDivs['erase'] = createEraseOptions();
+        toolOptionDivs['fill'] = createFillOptions();
+        toolOptionDivs['select'] = $('<div/>');
+        toolOptionDivs['stamp'] = createStampOptions();
+        
+        toolboxOptionsDiv = $('<div id="area_toolbox_options"/>');
 
-        return toolBoxDiv;
+        return $('<div id="area_toolbox" />').append(toolbox).append('<br>').
+            append(toolboxOptionsDiv);
     };
 
     var addAssemblyToolBox = function(container)
