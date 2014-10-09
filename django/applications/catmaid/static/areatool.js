@@ -383,6 +383,18 @@ function AreaTool()
     var areas = [];
     var nextId = 0;
     var assemblyTable = {};
+    var toolMode = '';
+
+    var toolModeNames = {
+        paint: 'Paint Brush',
+        erase: 'Eraser',
+        fill: 'Close Holes',
+        select: 'Select',
+        stamp: 'Stamp'
+    };
+
+    var enterModeFunctions = {};
+    var leaveModeFunctions = {};
 
     // ui change callback
     var uiChange = function(){};
@@ -392,6 +404,21 @@ function AreaTool()
     var isPainting = function()
     {
         return mouseState == 1;
+    };
+
+    var enterPaintingMode = function()
+    {
+        self.canvasLayer.canvas.isDrawingMode = true;
+    };
+
+    var leavePaintingMode = function()
+    {
+        self.canvasLayer.canvas.isDrawingMode = false;
+    };
+
+    var setSelectMode = function()
+    {
+
     };
 
     var areaById = function(id)
@@ -594,6 +621,11 @@ function AreaTool()
 
     };
 
+    var objectMouseDown = function(e)
+    {
+        console.log(e);
+    };
+
     this.getOrCreateArea = function(areaData)
     {
         if (self.hasAreaWithId(areaData.id))
@@ -619,11 +651,6 @@ function AreaTool()
 
     this.getActions = function () {
         return actions;
-    };
-
-    this.setWidget = function(widgetIn)
-    {
-        widget = widgetIn;
     };
 
     this.addAction( new Action({
@@ -657,12 +684,20 @@ function AreaTool()
     {
         // Do some drawing! But only if we have an active area to trace and we're using the left
         // mouse button.
-        if (currentArea != null && e.button == 0)
+        if (e.button == 0)
         {
-            // Now we're painting.
-            mouseState = 1;
-            self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
-            return true;
+            if (toolMode == 'paint' && currentArea != null)
+            {
+                // Now we're painting.
+                mouseState = 1;
+                self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
+                return true;
+            }
+            else
+            {
+                //self.canvasLayer.canvas._onMouseDown(e);
+                return true;
+            }
         }
         // Otherwise, pass the event through to the prototype navigator.
         else
@@ -720,6 +755,7 @@ function AreaTool()
 
         obj.setOriginX('center');
         obj.setOriginY('center');
+        obj.on('mouse:down', objectMouseDown);
 
         if (typeof scaleIn != 'undefined')
         {
@@ -765,6 +801,7 @@ function AreaTool()
         var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
             self.stack.screenPosition(), self.stack.z, nextId++);
 
+        obj.on('mouse:down', objectMouseDown);
         area.addObjectContainer(objectContainer);
 
         AreaServerModel.pushTrace(self.stack, self.width, currentArea.assemblyId,
@@ -849,12 +886,45 @@ function AreaTool()
         currentArea = area;
     };
 
-/*
-    this.getArea = function()
+    this.setMode = function(mode)
     {
-        return currentArea;
+        if (toolModeNames.hasOwnProperty(mode))
+        {
+            if (leaveModeFunctions.hasOwnProperty(toolMode))
+            {
+                leaveModeFunctions[toolMode]();
+            }
+
+            toolMode = mode;
+
+            if (enterModeFunctions.hasOwnProperty(mode))
+            {
+                enterModeFunctions[mode]();
+            }
+
+            uiChange();
+        }
     };
-*/
+
+    this.getMode = function()
+    {
+        return toolMode;
+    };
+
+    this.modeToString = function(inMode)
+    {
+        var mode;
+        if (typeof inMode == 'undefined')
+        {
+            mode = toolMode;
+        }
+        else
+        {
+            mode = inMode;
+        }
+
+        return toolModeNames[mode];
+    };
 
     this.hasAreaWithId = function(id)
     {
@@ -899,12 +969,17 @@ function AreaTool()
      *
      * @param fun a callback function, to be called with no arguments.
      */
-    this.onchange = function(fun)
+    this.change = function(fun)
     {
         uiChange = fun;
     };
 
     var keyCodeToAction = getKeyCodeToActionMap(actions);
+
+    enterModeFunctions['paint'] = enterPaintingMode;
+    leaveModeFunctions['paint'] = leavePaintingMode;
+
+    self.setMode('select');
 
 }
 
@@ -915,13 +990,16 @@ AreaTraceWidget.prototype = {};
 /**
  * Initializes the area tool widget in the given container.
  *
- * Most of the following code was cribbed from settings.js
+ * A lot of the following code was cribbed from settings.js
  */
 AreaTraceWidget.prototype.init = function(space) {
+    var self = this;
     var tool = null;
     var assemblySelectElement = null;
-    var self = this;
 
+    var toolModeLabel = $('<div id="area_toolmode_label"/>');
+
+    $(space).append(toolModeLabel);
 
     /**
      * Helper function to create a checkbox with label.
@@ -935,6 +1013,22 @@ AreaTraceWidget.prototype.init = function(space) {
             .append($('<label/>').append(cb).append(name));
 
         return label;
+    };
+
+    this.redraw = function()
+    {
+        toolModeLabel.html('');
+        var nameStr;
+
+        if (tool != null)
+        {
+            var area = tool.getArea();
+            nameStr = area == null ? '' : ': ' +  area.name;
+        }
+
+        toolModeLabel.append(tool.modeToString() + nameStr);
+
+        self.updateToolSelector();
     };
 
     /*===== Tool Selector =====*/
@@ -952,35 +1046,39 @@ AreaTraceWidget.prototype.init = function(space) {
     var toolOptionDivs = {};
     var toolboxOptionsDiv;
     var maxBrushSize = 128;
+    var toolModeNames = {
+        paint: 'Paint Brush',
+        erase: 'Eraser',
+        fill: 'Close Holes',
+        select: 'Select',
+        stamp: 'Stamp'
+    };
 
     this.addAction = function(action)
     {
         toolActions.push(action);
     };
 
-    this.setToolMode = function(modeIn)
+    this.updateToolSelector = function()
     {
-        console.log('Got set tool mode to ' + modeIn);
-
         toolboxOptionsDiv.html('');
 
-        toolboxOptionsDiv.append(toolOptionDivs[modeIn]);
-
+        toolboxOptionsDiv.append(toolOptionDivs[tool.getMode()]);
     };
 
     var setAutoFill = function()
     {
-
+        console.log(this.checked);
     };
 
     var setBrushSize = function()
     {
-
+        console.log(this.val);
     };
 
     var setFillMode = function()
     {
-
+        console.log(this.value);
     };
 
     var createPaintOptions = function()
@@ -1048,7 +1146,7 @@ AreaTraceWidget.prototype.init = function(space) {
         toolOptionDivs['fill'] = createFillOptions();
         toolOptionDivs['select'] = $('<div/>');
         toolOptionDivs['stamp'] = createStampOptions();
-        
+
         toolboxOptionsDiv = $('<div id="area_toolbox_options"/>');
 
         return $('<div id="area_toolbox" />').append(toolbox).append('<br>').
@@ -1162,6 +1260,7 @@ AreaTraceWidget.prototype.init = function(space) {
             color: this.getAttribute('area_color'),
             opacity: this.getAttribute('area_opacity')});
         tool.setCurrentArea(area);
+        self.redraw();
     };
 
     /**
@@ -1357,6 +1456,7 @@ AreaTraceWidget.prototype.init = function(space) {
     this.setTool = function(inTool)
     {
         tool = inTool;
+        tool.change(self.redraw);
         updateSearchSettings();
     };
 
@@ -1407,7 +1507,7 @@ AreaTraceWidget.prototype.init = function(space) {
         buttonName: "paint_brush",
         buttonID: "area_paint_brush",
         run: function (e) {
-            self.setToolMode('paint');
+            tool.setMode('paint');
             return true;
         }
     }));
@@ -1417,7 +1517,7 @@ AreaTraceWidget.prototype.init = function(space) {
         buttonName: "eraser",
         buttonID: "area_eraser",
         run: function (e) {
-            self.setToolMode('erase');
+            tool.setMode('erase');
             return true;
         }
     }));
@@ -1427,7 +1527,7 @@ AreaTraceWidget.prototype.init = function(space) {
         buttonName: "fill_holes",
         buttonID: "area_fill_holes",
         run: function (e) {
-            self.setToolMode('fill');
+            tool.setMode('fill');
             return true;
         }
     }));
@@ -1437,7 +1537,7 @@ AreaTraceWidget.prototype.init = function(space) {
         buttonName: "selector",
         buttonID: "area_selector",
         run: function (e) {
-            self.setToolMode('select');
+            tool.setMode('select');
             return true;
         }
     }));
@@ -1447,10 +1547,12 @@ AreaTraceWidget.prototype.init = function(space) {
         buttonName: "stamp",
         buttonID: "area_stamp",
         run: function (e) {
-            self.setToolMode('stamp');
+            tool.setMode('stamp');
             return true;
         }
     }));
+
+
 
     addAssemblyToolBox(space);
     addAssemblyPropertyEditor(space);
