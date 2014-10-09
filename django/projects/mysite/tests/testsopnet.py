@@ -66,7 +66,9 @@ class SopnetTest(object):
 	def __init__(self, project_id=None, raw_stack_id=None, membrane_stack_id=None,
 			block_width=None, block_height=None, block_depth=None,
 			core_width=None, core_height=None, core_depth=None,
-			catmaid_host=None, component_dir=None, loglevel=None):
+			catmaid_host=None, component_dir=None, loglevel=None,
+			postgresql_database=None, postgresql_host=None,
+			postgresql_user=None, postgresql_password=None):
 		self.project_id = self.param("SOPNET_PROJECT_ID", project_id)
 		self.membrane_stack_id = self.param("SOPNET_MEMBRANE_STACK_ID",
 				membrane_stack_id)
@@ -80,6 +82,10 @@ class SopnetTest(object):
 		self.catmaid_host = self.param("SOPNET_CATMAID_HOST", catmaid_host)
 		self.component_dir = self.param("SOPNET_COMPONENT_DIR", component_dir)
 		self.loglevel = self.param("SOPNET_LOGLEVEL", loglevel)
+		self.postgresql_database = self.param("SOPNET_POSTGRESQL_DATABASE", postgresql_database)
+		self.postgresql_host = self.param("SOPNET_POSTGRESQL_HOST", postgresql_host)
+		self.postgresql_user = self.param("SOPNET_POSTGRESQL_USER", postgresql_user)
+		self.postgresql_password = self.param("SOPNET_POSTGRESQL_PASSWORD", postgresql_password)
 
 	def log(self, msg):
 		print("[Test script] %s" % msg)
@@ -121,5 +127,9 @@ class SopnetTest(object):
 		conf.setBlockSize(ps.point3(self.block_width, self.block_height, self.block_depth))
 		conf.setVolumeSize(ps.point3(1024, 1024, 20))
 		conf.setCoreSize(ps.point3(self.core_width, self.core_height, self.core_depth))
+		conf.setPostgreSqlDatabase(self.postgresql_database)
+		conf.setPostgreSqlHost(self.postgresql_host)
+		conf.setPostgreSqlUser(self.postgresql_user)
+		conf.setPostgreSqlPassword(self.postgresql_password)
 
 		return conf
