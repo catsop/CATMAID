@@ -125,8 +125,6 @@ class Migration(SchemaMigration):
         },
         u'djsopnet.block': {
             'Meta': {'object_name': 'Block'},
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'max_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'max_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
@@ -134,22 +132,16 @@ class Migration(SchemaMigration):
             'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
             'segments_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'slices_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'solution_cost_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
-            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"})
         },
         u'djsopnet.blockconflictrelation': {
-            'Meta': {'object_name': 'BlockConflictRelation'},
+            'Meta': {'unique_together': "(('block', 'conflict'),)", 'object_name': 'BlockConflictRelation'},
             'block': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Block']"}),
             'conflict': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.SliceConflictSet']"}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'})
         },
         u'djsopnet.blockconstraintrelation': {
             'Meta': {'object_name': 'BlockConstraintRelation'},
@@ -164,16 +156,12 @@ class Migration(SchemaMigration):
             'bwidth': ('django.db.models.fields.IntegerField', [], {'default': '256'}),
             'cdepth': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
             'cheight': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             'cwidth': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'num_x': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
             'num_y': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
             'num_z': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"})
         },
         u'djsopnet.constraint': {
             'Meta': {'object_name': 'Constraint'},
@@ -191,8 +179,6 @@ class Migration(SchemaMigration):
         },
         u'djsopnet.core': {
             'Meta': {'object_name': 'Core'},
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'max_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'max_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
@@ -200,134 +186,89 @@ class Migration(SchemaMigration):
             'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
             'solution_set_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
-            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"})
+        },
+        u'djsopnet.featureinfo': {
+            'Meta': {'object_name': 'FeatureInfo'},
+            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'name_ids': ('catmaid.fields.IntegerArrayField', [], {}),
+            'size': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
+            'stack': ('django.db.models.fields.related.OneToOneField', [], {'to': u"orm['catmaid.Stack']", 'unique': 'True'}),
+            'weights': ('catmaid.fields.DoubleArrayField', [], {})
         },
         u'djsopnet.featurename': {
             'Meta': {'object_name': 'FeatureName'},
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'name': ('django.db.models.fields.CharField', [], {'max_length': '128'})
         },
-        u'djsopnet.featurenameinfo': {
-            'Meta': {'object_name': 'FeatureNameInfo'},
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'name_ids': ('catmaid.fields.IntegerArrayField', [], {}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'size': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
-            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
-        },
         u'djsopnet.segment': {
             'Meta': {'object_name': 'Segment'},
             'assembly': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Assembly']", 'null': 'True'}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             'ctr_x': ('django.db.models.fields.FloatField', [], {}),
             'ctr_y': ('django.db.models.fields.FloatField', [], {}),
-            'direction': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'hash_value': ('django.db.models.fields.CharField', [], {'max_length': '20', 'primary_key': 'True'}),
+            'id': ('django.db.models.fields.BigIntegerField', [], {'primary_key': 'True'}),
             'max_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'max_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
             'section_inf': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'slice_a_hash': ('django.db.models.fields.CharField', [], {'max_length': '20', 'null': 'True', 'db_index': 'True'}),
-            'slice_b_hash': ('django.db.models.fields.CharField', [], {'max_length': '20', 'null': 'True', 'db_index': 'True'}),
-            'slice_c_hash': ('django.db.models.fields.CharField', [], {'max_length': '20', 'null': 'True', 'db_index': 'True'}),
             'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
-            'type': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'type': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'})
         },
         u'djsopnet.segmentblockrelation': {
-            'Meta': {'object_name': 'SegmentBlockRelation'},
+            'Meta': {'unique_together': "(('block', 'segment'),)", 'object_name': 'SegmentBlockRelation'},
             'block': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Block']"}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'segment': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Segment']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
-        },
-        u'djsopnet.segmentcost': {
-            'Meta': {'object_name': 'SegmentCost'},
-            'cost': ('django.db.models.fields.FloatField', [], {}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'segment': ('django.db.models.fields.related.OneToOneField', [], {'to': u"orm['djsopnet.Segment']", 'unique': 'True'}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'segment': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Segment']"})
         },
         u'djsopnet.segmentfeatures': {
             'Meta': {'object_name': 'SegmentFeatures'},
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'features': ('catmaid.fields.FloatArrayField', [], {}),
+            'features': ('catmaid.fields.DoubleArrayField', [], {}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'segment': ('django.db.models.fields.related.OneToOneField', [], {'to': u"orm['djsopnet.Segment']", 'unique': 'True'}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'segment': ('django.db.models.fields.related.OneToOneField', [], {'to': u"orm['djsopnet.Segment']", 'unique': 'True'})
+        },
+        u'djsopnet.segmentslice': {
+            'Meta': {'unique_together': "(('slice', 'segment'),)", 'object_name': 'SegmentSlice'},
+            'direction': ('django.db.models.fields.BooleanField', [], {}),
+            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'segment': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Segment']"}),
+            'slice': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Slice']"})
         },
         u'djsopnet.segmentsolution': {
-            'Meta': {'object_name': 'SegmentSolution'},
+            'Meta': {'unique_together': "(('core', 'segment'),)", 'object_name': 'SegmentSolution'},
             'core': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Core']"}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'segment': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Segment']"}),
-            'solution': ('django.db.models.fields.BooleanField', [], {}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'segment': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Segment']"})
         },
         u'djsopnet.slice': {
             'Meta': {'object_name': 'Slice'},
             'assembly': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Assembly']", 'null': 'True'}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             'ctr_x': ('django.db.models.fields.FloatField', [], {}),
             'ctr_y': ('django.db.models.fields.FloatField', [], {}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'hash_value': ('django.db.models.fields.CharField', [], {'max_length': '20', 'primary_key': 'True'}),
+            'id': ('django.db.models.fields.BigIntegerField', [], {'primary_key': 'True'}),
             'max_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'max_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
             'section': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'shape_x': ('catmaid.fields.IntegerArrayField', [], {}),
-            'shape_y': ('catmaid.fields.IntegerArrayField', [], {}),
+            'shape_x': ('catmaid.fields.IntegerArrayField', [], {'null': 'True'}),
+            'shape_y': ('catmaid.fields.IntegerArrayField', [], {'null': 'True'}),
             'size': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"}),
             'value': ('django.db.models.fields.FloatField', [], {})
         },
         u'djsopnet.sliceblockrelation': {
-            'Meta': {'object_name': 'SliceBlockRelation'},
+            'Meta': {'unique_together': "(('block', 'slice'),)", 'object_name': 'SliceBlockRelation'},
             'block': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Block']"}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'slice': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Slice']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
-        },
-        u'djsopnet.sliceconflictrelation': {
-            'Meta': {'object_name': 'SliceConflictRelation'},
-            'conflict': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.SliceConflictSet']"}),
-            'creation_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            'edition_time': ('django.db.models.fields.DateTimeField', [], {'default': 'datetime.datetime.now'}),
-            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'project': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Project']"}),
-            'slice': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Slice']"}),
-            'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
+            'slice': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Slice']"})
         },
         u'djsopnet.sliceconflictset': {
-            'Meta': {'object_name': 'SliceConflictSet'},
-            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'})
+            'Meta': {'unique_together': "(('slice_a', 'slice_b'),)", 'object_name': 'SliceConflictSet'},
+            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'slice_a': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'conflicts_as_a'", 'to': u"orm['djsopnet.Slice']"}),
+            'slice_b': ('django.db.models.fields.related.ForeignKey', [], {'related_name': "'conflicts_as_b'", 'to': u"orm['djsopnet.Slice']"})
         }
     }
 
