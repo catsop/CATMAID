@@ -275,9 +275,13 @@ function Area(name, assemblyId, canvasIn, viewProps)
 
     this.addObjectContainer = function(objectContainer)
     {
+
         var key = objectContainer.id;
-        fabricObjects.push(objectContainer);
-        objectTable[key] = objectContainer;
+        if (!objectTable.hasOwnProperty(key))
+        {
+            fabricObjects.push(objectContainer);
+            objectTable[key] = objectContainer;
+        }
     };
 
     this.removeObject = function(key)
@@ -666,6 +670,11 @@ function AreaTool()
             return true;
         }
     }));
+
+    this.getAreas = function()
+    {
+        return areas;
+    };
 
     this.onmousemove = function(e)
     {
