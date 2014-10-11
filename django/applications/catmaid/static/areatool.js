@@ -27,10 +27,56 @@ var AreaServerModel = new function()
     var areaTools = [];
     var django_url = '/sopnet/';
 
+
     /**
-     Push a new trace (ie, fabricjs object) to the backend.
+     * Close a hole in a trace at a given location
+     * @param stack the current stack
+     * @param assemblyId the id of the assembly to which this trace will be added
+     * @param location the location of the hole to be closed, like
+     *  {x: 100, y: 205.5}
+     * @param all true to close all holes, false to close only the hole that was clicked on.
+     * @param callback a function to be called with the data returned by ajax.
      */
-    this.pushTrace = function(stack, brushWidth, assemblyId, objectContainer, callback)
+    this.closeHole = function(stack, assemblyId, location, all, callback)
+    {
+        var view_top = stack.screenPosition().top;
+        var view_left = stack.screenPosition().left;
+        var scale = stack.scale;
+        var x = location.x / scale + view_left;
+        var y = location.y / scale + view_top;
+
+        var url = django_url + project.id + '/stack/' + stack.id + '/close_hole';
+
+        var data = {'x': x,
+            'y': y,
+            'section': stack.z,
+            'assembly_id': assemblyId,
+            'all': all
+        };
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": django_url + project.id + '/stack/' + stack.id + url,
+            "data": data,
+            "success": callback
+        });
+    };
+
+
+    /**
+     *  Push a new trace (ie, fabricjs path object) to the backend.
+     * @param stack the current stack
+     * @param brushWidth the width, or diameter, of the brush
+     * @param assemblyId the id of the assembly to which this trace will be added
+     * @param objectContainer the container holding the fabric path object
+     * @param opts a set of options, with the following mandatory fields:
+     *      autoClose - set true to ignore holes
+     *      mode - 'paint' or 'erase'
+     * @param callback a function to be called with the data returned by ajax.
+     */
+    this.pushTrace = function(stack, brushWidth, assemblyId, objectContainer, opts, callback)
     {
         var x = [];
         var y = [];
@@ -45,10 +91,6 @@ var AreaServerModel = new function()
         var o_left = (bound_rect.left + (brushWidth / 2.0)) / scale + view_left;
         var o_top = (bound_rect.top + (brushWidth / 2.0)) / scale + view_top;
         var r = brushWidth / (2.0 * scale);
-
-        /*console.log('o_left: ' + o_left + ', o_top: ' + o_top);
-        console.log('o_left_c: ' + obj.left + ', o_top_c: ' + obj.top);*/
-
 
         for (var i = 0; i < obj.path.length; ++i)
         {
@@ -67,7 +109,9 @@ var AreaServerModel = new function()
             'top': o_top,
             'scale' : scale,
             'view_left': view_left,
-            'view_top' : view_top
+            'view_top' : view_top,
+            'auto_close': opts.autoClose,
+            'mode': opts.mode
         };
 
         $.ajax({
@@ -273,6 +317,19 @@ function Area(name, assemblyId, canvasIn, viewProps)
         AreaServerModel.pushProperties(self);
     };
 
+    this.containsPoint = function(pt)
+    {
+        for (var idx = 0; idx < fabricObjects.length; ++idx)
+        {
+            if (fabricObjects[idx].obj.containsPoint(pt))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
     this.addObjectContainer = function(objectContainer)
     {
 
@@ -343,7 +400,34 @@ function Area(name, assemblyId, canvasIn, viewProps)
             }
         }
         self.removeObjects(rmKeys);
-    }
+    };
+
+    this.containsPointBitmapTest = function(obj)
+    {
+        var rect = obj.getBoundingRect();
+        var pt = new fabric.Point(0, 0);
+        var str = '[';
+
+
+        for (var y = 0; y < rect.height; ++y)
+        {
+            for (var x = 0; x < rect.width; ++x) {
+                pt.setXY(x + rect.left, y + rect.top);
+                if (obj.containsPoint(pt)) {
+                    str += pt.x + ' ' + pt.y + ' 1; ';
+                }
+                else
+                {
+                    str += pt.x + ' ' + pt.y + ' 0; ';
+                }
+            }
+
+        }
+
+        str += '];';
+
+        console.log(str);
+    };
 }
 
 
@@ -389,6 +473,13 @@ function AreaTool()
     var assemblyTable = {};
     var toolMode = '';
 
+    // The following three objects hold per-mode delegate mouse event handlers
+    // For instance, handleMouseDown['paint'] is a function to handle mouse-down events in
+    // paint mode.
+    var handleMouseDown = {};
+    var handleMouseMove = {};
+    var handleMouseUp = {};
+
     var toolModeNames = {
         paint: 'Paint Brush',
         erase: 'Eraser',
@@ -412,10 +503,53 @@ function AreaTool()
 
     var enterPaintingMode = function()
     {
+        var canvas = self.canvasLayer.canvas;
+        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+        canvas.freeDrawingBrush.width = self.width;
         self.canvasLayer.canvas.isDrawingMode = true;
     };
 
     var leavePaintingMode = function()
+    {
+        self.canvasLayer.canvas.isDrawingMode = false;
+    };
+
+    var enterEraserMode = function()
+    {
+        var canvas = self.canvasLayer.canvas;
+
+        var brush = new fabric.PatternBrush(canvas);
+        brush.getPatternSrc = function() {
+
+            var patternCanvas = fabric.document.createElement('canvas');
+            patternCanvas.width = patternCanvas.height = 10;
+            var ctx = patternCanvas.getContext('2d');
+
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 5);
+            ctx.lineTo(10, 5);
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(5, 0);
+            ctx.lineTo(5, 10);
+            ctx.closePath();
+            ctx.stroke();
+
+            return patternCanvas;
+        };
+
+        brush.width = self.width;
+
+        canvas.freeDrawingBrush = brush;
+
+    };
+
+    var leaveEraserMode = function()
     {
         self.canvasLayer.canvas.isDrawingMode = false;
     };
@@ -503,18 +637,21 @@ function AreaTool()
             var obj = fabric.util.groupSVGElements(objects, options);
             var area = self.getArea(areaIn);
 
-            obj.setColor(area.color);
-            obj.setOpacity(area.opacity);
+            if (!area.hasObject(id))
+            {
+                obj.setColor(area.color);
+                obj.setOpacity(area.opacity);
 
-            self.registerDeserializedFabricObject(obj, area, id, section);
-            self.canvasLayer.canvas.add(obj);
+                self.registerDeserializedFabricObject(obj, area, id, section);
 
-            area.updatePosition(self.stack.screenPosition(), self.stack.scale);
+                self.canvasLayer.canvas.add(obj);
+
+                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
+            }
 
             if (replaceIds != undefined && replaceIds != null)
             {
-                for (var idx = 0; idx < replaceIds.length; ++idx)
-                {
+                for (var idx = 0; idx < replaceIds.length; ++idx) {
                     var rmObj = area.removeObject(replaceIds[idx]);
                     self.canvasLayer.canvas.remove(rmObj);
                 }
@@ -625,6 +762,87 @@ function AreaTool()
 
     };
 
+    var setupMouseHandlers = function()
+    {
+        handleMouseDown['paint'] = function(e)
+        {
+            if (currentArea != null)
+            {
+                mouseState = 1;
+                self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        };
+
+        handleMouseDown['erase'] = handleMouseDown['paint'];
+
+        handleMouseDown['select'] = function(e)
+        {
+            g_e = e;
+            var areas = self.areasAtScreenPoint(e);
+
+            if (areas.length == 1)
+            {
+                self.setCurrentArea(areas[0]);
+                uiChange();
+            }
+            else if (areas.length > 1)
+            {
+                var areaNameSelect = $('<select name="area_name_select" size="' + areas.length + '"/>');
+
+                for (var idx=0; idx < areas.length; ++idx)
+                {
+                    var area = areas[idx];
+                    areaNameSelect.append('<option value="' + area.assemblyId +
+                        '">' + area.name + '</option>');
+                }
+
+                var selectAreaDiv = $('<div/>').append(areaNameSelect);
+
+                areaNameSelect.change(function(){
+                    self.setArea(this.value);
+                    uiChange();
+                    $.unblockUI();
+                });
+
+                areaNameSelect.css({width: 300});
+
+                $.blockUI({message: selectAreaDiv, css: {width: 300, top: e.offsetY, left: e.offsetX}});
+            }
+        };
+
+        handleMouseDown['fill'] = function(e)
+        {
+
+        };
+
+        handleMouseDown['stamp'] = function(e)
+        {
+
+        };
+
+        handleMouseUp['paint'] = function(e)
+        {
+            if (isPainting())
+            {
+                self.canvasLayer.canvas._onMouseUpInDrawingMode(e);
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        };
+
+        handleMouseUp['erase'] = handleMouseUp['paint'];
+
+
+    };
+
     var objectMouseDown = function(e)
     {
         console.log(e);
@@ -667,6 +885,7 @@ function AreaTool()
             {
                 areaWindow.areaWidget.setTool(self);
             }
+            self.redraw();
             return true;
         }
     }));
@@ -695,17 +914,13 @@ function AreaTool()
         // mouse button.
         if (e.button == 0)
         {
-            if (toolMode == 'paint' && currentArea != null)
+            if (handleMouseDown.hasOwnProperty(toolMode))
             {
-                // Now we're painting.
-                mouseState = 1;
-                self.canvasLayer.canvas._onMouseDownInDrawingMode(e);
-                return true;
+                return handleMouseDown[toolMode](e);
             }
             else
             {
-                //self.canvasLayer.canvas._onMouseDown(e);
-                return true;
+                return false;
             }
         }
         // Otherwise, pass the event through to the prototype navigator.
@@ -718,10 +933,16 @@ function AreaTool()
 
     this.onmouseup = function(e)
     {
-        if (e.button == 0 && isPainting())
+        if (e.button == 0)
         {
-            self.canvasLayer.canvas._onMouseUpInDrawingMode(e);
-            return true;
+            if (handleMouseUp.hasOwnProperty(toolMode))
+            {
+                return handleMouseUp[toolMode](e);
+            }
+            else
+            {
+                return false;
+            }
         }
         else
         {
@@ -754,6 +975,23 @@ function AreaTool()
         }
     };
 
+    this.areasAtScreenPoint = function(e)
+    {
+        var fabricPoint = new fabric.Point(e.offsetX, e.offsetY);
+        var ptAreas = [];
+
+        for (var idx = 0; idx < areas.length; ++idx)
+        {
+            var area = areas[idx];
+            if (area.containsPoint(fabricPoint))
+            {
+                ptAreas.push(area);
+            }
+        }
+
+        return ptAreas;
+    };
+
     this.registerDeserializedFabricObject = function(obj, areaIn, id, zIn, scaleIn,
                                                      screenRelativePositionIn)
     {
@@ -764,6 +1002,8 @@ function AreaTool()
 
         obj.setOriginX('center');
         obj.setOriginY('center');
+
+        // For whatever reason, this doesn't want to work.
         obj.on('mouse:down', objectMouseDown);
 
         if (typeof scaleIn != 'undefined')
@@ -814,7 +1054,7 @@ function AreaTool()
         area.addObjectContainer(objectContainer);
 
         AreaServerModel.pushTrace(self.stack, self.width, currentArea.assemblyId,
-            objectContainer, pushTraceCallback);
+            objectContainer, {autoClose: false, mode: toolMode}, pushTraceCallback);
     };
 
 
@@ -833,6 +1073,7 @@ function AreaTool()
 
             self.prototype.register(parentStack, "edit_button_area");
 
+            setupMouseHandlers();
             setupSubTools();
             createCanvasLayer();
             setupProtoControls();
@@ -869,7 +1110,7 @@ function AreaTool()
 
         if (self.lastPos)
         {
-            if (self.lastZ != self.stack.z)
+            if (self.lastZ != currentZ())
             {
                 self.fetchAreas();
                 trimTraces();
@@ -877,7 +1118,7 @@ function AreaTool()
 
             self.cacheScreenParameters();
 
-            for (i = 0; i < areas.length; ++i)
+            for (var i = 0; i < areas.length; ++i)
             {
                 areas[i].updatePosition(self.stack.screenPosition(), self.stack.scale);
             }
@@ -892,7 +1133,7 @@ function AreaTool()
 
     this.setArea = function(area)
     {
-        currentArea = area;
+        currentArea = self.getArea(area);
     };
 
     this.setMode = function(mode)
@@ -987,6 +1228,8 @@ function AreaTool()
 
     enterModeFunctions['paint'] = enterPaintingMode;
     leaveModeFunctions['paint'] = leavePaintingMode;
+    enterModeFunctions['erase'] = enterEraserMode;
+    leaveModeFunctions['erase'] = leaveEraserMode;
 
     self.setMode('select');
 
@@ -1055,13 +1298,6 @@ AreaTraceWidget.prototype.init = function(space) {
     var toolOptionDivs = {};
     var toolboxOptionsDiv;
     var maxBrushSize = 128;
-    var toolModeNames = {
-        paint: 'Paint Brush',
-        erase: 'Eraser',
-        fill: 'Close Holes',
-        select: 'Select',
-        stamp: 'Stamp'
-    };
 
     this.addAction = function(action)
     {
@@ -1210,8 +1446,8 @@ AreaTraceWidget.prototype.init = function(space) {
     var createOpacitySlider = function()
     {
         var sliderDiv = $('<div id="area_opacity_slider" />');
-        opacitySlider  = new Slider(SLIDER_HORIZONTAL, true, 1, 100, 100,
-                0, setToolOpacity);
+        opacitySlider  = new Slider(SLIDER_HORIZONTAL, true, 0, 100, 101,
+            50, setToolOpacity);
 
         sliderDiv.append('Opacity').append('<br>');
         sliderDiv.append(opacitySlider.getView());
@@ -1467,6 +1703,7 @@ AreaTraceWidget.prototype.init = function(space) {
         tool = inTool;
         tool.change(self.redraw);
         updateSearchSettings();
+        self.redraw();
     };
 
 
