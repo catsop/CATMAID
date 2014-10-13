@@ -2816,6 +2816,8 @@ var WindowMaker = new function()
     addListener(win, container);
     addLogic(win);
 
+    CW.init(container);
+
     return win;
   };
 
