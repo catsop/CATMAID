@@ -178,7 +178,7 @@ def generate_features_response(features):
 def error_response():
     sio = StringIO()
     traceback.print_exc(file = sio)
-    res = HttpResponse(json.dumps({'ok' : False, 'djerror' : sio.getvalue()}))
+    res = HttpResponse(json.dumps({'ok': False, 'error' : sio.getvalue()}))
     sio.close()
     return res
 
