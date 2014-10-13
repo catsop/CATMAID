@@ -478,10 +478,10 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
         block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
 
         conflict_slices_ids = SliceConflictSet.objects \
-		.filter(conflict__blockconflictrelation__block__in=block_ids) \
+		.filter(blockconflictrelation__block__in=block_ids) \
 		.values_list('slice_a_id', 'slice_b_id')
         # Flatten the nested list of slice IDs
-        conflict_slices_ids = [slice_id for row in conflict_slices_ids for slide_id in row]
+        conflict_slices_ids = [slice_id for row in conflict_slices_ids for slice_id in row]
         conflict_slices = Slice.objects.filter(id__in=conflict_slices_ids)
 
         return generate_slices_response(conflict_slices)
