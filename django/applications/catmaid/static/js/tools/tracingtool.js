@@ -701,6 +701,17 @@ function TracingTool()
   }) );
 
   this.addAction( new Action({
+      helpText: "View CATSOP results",
+      keyShortcuts: {
+          'F6': [ 117 ]
+      },
+      run: function (e) {
+          WindowMaker.create('catsop');
+          return true;
+      }
+  }) );
+
+  this.addAction( new Action({
     helpText: "Open the neuron/annotation search widget",
     keyShortcuts: { '/': [ 191 ] },
     run: function (e) {

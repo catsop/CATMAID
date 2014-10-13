@@ -2804,6 +2804,21 @@ var WindowMaker = new function()
     return win;
   };
 
+  var createCatsopWindow = function()
+  {
+    var CW = new CatsopWidget();
+    var win = new CMWWindow("CATSOP Results");
+    var content = win.getFrame();
+    var container = createContainer('catsop-results' + CW.widgetID);
+
+    content.appendChild(container);
+
+    addListener(win, container);
+    addLogic(win);
+
+    return win;
+  };
+
   var createSettingsWindow = function()
   {
     var win = new CMWWindow("Settings");
@@ -2855,6 +2870,7 @@ var WindowMaker = new function()
     "venn-diagram": createVennDiagramWindow,
     "neuron-annotations": createNeuronAnnotationsWindow,
     "neuron-navigator": createNeuronNavigatorWindow,
+    "catsop": createCatsopWindow,
     "settings": createSettingsWindow,
     "analyze-arbor": createAnalyzeArbor,
     "neuron-dendrogram": createNeuronDendrogram,
