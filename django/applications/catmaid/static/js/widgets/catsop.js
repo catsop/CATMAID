@@ -120,7 +120,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
   this.activeSliceIndex = rowIndex;
   this.moveToSlice(rowIndex);
   this.layers.forEach((function (layer) {
-    layer.addSlice(this.sliceRows[rowIndex]);
+    layer.addSlice(this.sliceRows[rowIndex], 'active');
   }).bind(this));
 };
 

@@ -1,0 +1,14 @@
+.catsop-layer {
+	position: absolute;
+	top: 0;
+	left: 0;
+}
+
+.catsop-layer .slice-mask {
+	position: absolute;
+	background-blend-mode: multiply;
+}
+
+.catsop-layer .slice-mask.active {
+	background-color: #0F0;
+}

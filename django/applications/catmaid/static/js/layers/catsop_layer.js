@@ -1,13 +1,11 @@
 function CatsopResultsLayer (stack) {
   this.stack = stack;
-  this.opacity = 1;
+  this.opacity = 0.5;
   this.radius = 3;
 
   // Create container, aligned to the upper left
   this.view = document.createElement("div");
-  this.view.style.position = "absolute";
-  this.view.style.left = 0;
-  this.view.style.top = 0;
+  this.view.className = "catsop-layer";
 
   this.slices = {};
 
@@ -65,10 +63,11 @@ CatsopResultsLayer.prototype.clearSlices = function () {
   this.slices = {};
 };
 
-CatsopResultsLayer.prototype.addSlice = function (slice) {
-  var $sliceImg = $('<img src="' + slice.mask + '" />')
+CatsopResultsLayer.prototype.addSlice = function (slice, status) {
+  var $sliceImg = $('<img class="slice-mask" />')
       .hide()
-      .css('position', 'absolute')
+      .css('background-image', 'url("' + slice.mask + '")')
+      .addClass(status)
       .appendTo($(this.view));
   this.slices[slice.hash] = {
     x: slice.box[0],
