@@ -53,7 +53,7 @@ def id_to_hash(id_int64):
       >>> id_to_hash("-9223372036854775808")
       9223372036854775808
     """
-    return uint64(int64(id_int64)).item()
+    return str(uint64(int64(id_int64)))
 
 # --- JSON conversion ---
 def slice_dict(slice):
