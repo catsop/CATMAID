@@ -164,7 +164,7 @@ def generate_conflict_response(conflicts, stack):
     conflict_dicts = []
     for conflict in conflicts:
         rel = SliceConflictSet.objects.get(id = conflict)
-        conflict_dicts.append({'conflict_hashes' : map(id_to_hash, [rel.slice_a_id, rel_slice_b_id])})
+        conflict_dicts.append({'conflict_hashes' : map(id_to_hash, [rel.slice_a_id, rel.slice_b_id])})
     return HttpResponse(json.dumps({'ok' : True, 'conflict' : conflict_dicts}))
 
 def generate_features_response(features):
@@ -534,7 +534,7 @@ def retrieve_conflict_sets(request, project_id = None, stack_id = None):
 
         conflict_relations = SliceConflictSet.objects.filter(slice_a__in = slice_ids) | \
                              SliceConflictSet.objects.filter(slice_b__in = slice_ids)
-        conflicts = {cr.conflict for cr in conflict_relations}
+        conflicts = {cr.id for cr in conflict_relations}
 
         return generate_conflict_response(conflicts, s)
     except:
