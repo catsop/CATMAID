@@ -89,4 +89,23 @@ CatsopWidget.prototype.refreshUI = function () {
   }, this);
 
   $table.dataTable({bDestroy: true});
+
+  var self = this;
+  $table.children('tbody').on('dblclick', 'tr', function () {
+    var index = $table.dataTable().fnGetPosition(this);
+    self.moveToSlice(index);
+  });
+};
+
+CatsopWidget.prototype.moveToSlice = function (rowIndex) {
+  var slice = this.sliceRows[rowIndex];
+  var stack = this.getStack();
+  var z = slice.section,
+      y = slice.ctr[1],
+      x = slice.ctr[0];
+  // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
+  z = stack.stackToProjectZ(z, y, x);
+  y = stack.stackToProjectY(z, y, x);
+  x = stack.stackToProjectX(z, y, x);
+  project.moveTo(z, y, x);
 };
