@@ -1,6 +1,6 @@
 function CatsopResultsLayer (stack) {
   this.stack = stack;
-  this.opacity = 0.5;
+  this.opacity = 0.75;
   this.radius = 3;
 
   // Create container, aligned to the upper left

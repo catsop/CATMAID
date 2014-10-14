@@ -119,9 +119,32 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
   });
   this.activeSliceIndex = rowIndex;
   this.moveToSlice(rowIndex);
-  this.layers.forEach((function (layer) {
-    layer.addSlice(this.sliceRows[rowIndex], 'active');
-  }).bind(this));
+  var slice = this.sliceRows[rowIndex];
+  this.layers.forEach(function (layer) {
+    layer.addSlice(slice, 'active');
+  });
+
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.getStack().getId() +
+          '/conflict_sets_by_slice',
+      'POST',
+      {hash: slice.hash},
+      jsonResponseHandler((function (json) {
+        var self = this;
+        json.conflict.forEach(function (conflict_set) {
+          conflict_set.conflict_hashes.forEach(function (conflict_hash) {
+            if (conflict_hash !== slice.hash) {
+              var conflictSlice = self.getSliceRowByHash(conflict_hash);
+              self.layers.forEach(function (layer) {
+                layer.addSlice(conflictSlice, 'conflict');
+              });
+            }
+          });
+        });
+      }).bind(this)));
+};
+
+CatsopWidget.prototype.getSliceRowByHash = function (hash) {
+  return this.sliceRows.filter(function (slice) { return slice.hash === hash; })[0];
 };
 
 CatsopWidget.prototype.moveToSlice = function (rowIndex) {

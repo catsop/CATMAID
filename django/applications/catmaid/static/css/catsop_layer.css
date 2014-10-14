@@ -6,9 +6,17 @@
 
 .catsop-layer .slice-mask {
 	position: absolute;
+	/* Slices must have opacity separate from layer opacity to handle conflict slice overlap. */
+	opacity: 0.75;
 	background-blend-mode: multiply;
 }
 
 .catsop-layer .slice-mask.active {
 	background-color: #0F0;
+	z-index: 5;
+}
+
+.catsop-layer .slice-mask.conflict {
+	background-color: #F00;
+	z-index: 4;
 }
