@@ -2813,7 +2813,7 @@ var WindowMaker = new function()
 
     content.appendChild(container);
 
-    addListener(win, container);
+    addListener(win, container, undefined, CW.destroy.bind(CW));
     addLogic(win);
 
     CW.init(container);

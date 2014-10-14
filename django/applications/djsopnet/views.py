@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.db import connection
 from django.db import IntegrityError
 from django.conf import settings
+from django.templatetags.static import static
 
 from catmaid.models import *
 from catmaid.control.stack import get_stack_info
@@ -62,8 +63,7 @@ def slice_dict(slice):
           'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
           'ctr' : [slice.ctr_x, slice.ctr_y],
           'value' : slice.value,
-          'x' : slice.shape_x,
-          'y' : slice.shape_y}
+          'mask' : static(str(slice.id) + '.png')}
     return sd
 
 def segment_dict(segment):
