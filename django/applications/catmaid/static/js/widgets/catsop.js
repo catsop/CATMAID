@@ -5,9 +5,23 @@ var CatsopWidget = function () {
   this.block = {};
   this.sliceRows = [];
   this.sliceColumns = {
-    'hash': 'Hash',
-    'section': 'Section',
-    'value': 'Value'
+    'Hash': (function (s) {return s.hash;}),
+    'Section': (function (s) {return s.section;}),
+    'Value': (function (s) {return s.value;}),
+    'Conflicts': (function (s) {
+      return s.conflicts.split(',').reduce(function ($csList, csHash) {
+        $('<li>' + csHash + '</li>')
+            .hover(
+              function () {
+                $('.slice-hash-' + csHash).addClass('highlight');
+              },
+              function () {
+                $('.slice-hash-' + csHash).removeClass('highlight');
+              })
+            .appendTo($csList);
+        return $csList;
+      }, $('<ul />'));
+    })
   };
   this.segmentRows = [];
   this.containers = {};
@@ -94,13 +108,13 @@ CatsopWidget.prototype.refreshUI = function () {
   var $tbody = $('<tbody />').appendTo($table);
 
   for (var colKey in this.sliceColumns) {
-    $thead.append('<th>' + this.sliceColumns[colKey] + '</th>');
+    $thead.append('<th>' + colKey + '</th>');
   }
 
   this.sliceRows.forEach(function (slice) {
     var $tr = $('<tr />').appendTo($tbody);
     for (var colKey in this.sliceColumns) {
-      $tr.append('<td>' + slice[colKey] + '</td>');
+      $('<td />').append(this.sliceColumns[colKey](slice)).appendTo($tr);
     }
   }, this);
 

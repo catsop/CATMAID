@@ -64,7 +64,7 @@ CatsopResultsLayer.prototype.clearSlices = function () {
 };
 
 CatsopResultsLayer.prototype.addSlice = function (slice, status) {
-  var $sliceImg = $('<img class="slice-mask" />')
+  var $sliceImg = $('<img class="slice-mask slice-hash-' + slice.hash + '" />')
       .hide()
       .css('background-image', 'url("' + slice.mask + '")')
       .addClass(status)
