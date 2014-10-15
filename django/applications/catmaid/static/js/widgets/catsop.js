@@ -21,7 +21,8 @@ var CatsopWidget = function () {
             .appendTo($csList);
         return $csList;
       }, $('<ul />'));
-    })
+    }),
+    'In Solution': (function (s) {return s.in_solution ? 'Y' : '';})
   };
   this.segmentRows = [];
   this.containers = {};

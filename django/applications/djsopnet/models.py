@@ -46,6 +46,14 @@ class Slice(models.Model):
 
     size = models.IntegerField(db_index=True)
 
+    def in_solution(self):
+        return 0 < len(list(SegmentSolution.objects.raw('''
+            SELECT ssol.id AS id, ssol.core_id AS core_id, ssol.segment_id AS segment_id
+            FROM djsopnet_segmentsolution ssol
+            JOIN djsopnet_segmentslice ss ON (ss.segment_id = ssol.segment_id)
+            WHERE ss.slice_id = %s
+            ''', [self.id])))
+
 class Segment(models.Model):
     id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)

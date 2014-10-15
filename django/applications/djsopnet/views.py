@@ -56,7 +56,7 @@ def id_to_hash(id_int64):
     return str(uint64(int64(id_int64)))
 
 # --- JSON conversion ---
-def slice_dict(slice, with_conflicts=False):
+def slice_dict(slice, with_conflicts=False, with_solution=False):
     sd = {'assembly' : slice.assembly,
           'hash' : id_to_hash(slice.id),
           'section' : slice.section,
@@ -68,6 +68,10 @@ def slice_dict(slice, with_conflicts=False):
     if with_conflicts:
         sd['conflicts'] = ','.join(map(id_to_hash, list(slice.conflicts_as_a.values_list('slice_b_id', flat=True)) +
                                                    list(slice.conflicts_as_b.values_list('slice_a_id', flat=True))))
+
+    if with_solution:
+        sd['in_solution'] = slice.in_solution()
+
     return sd
 
 def segment_dict(segment):
@@ -123,8 +127,8 @@ def generate_segment_response(segment):
         return HttpResponse(json.dumps({'id' : None}), content_type = 'text/json')
 
 
-def generate_slices_response(slices, withConflicts=False):
-    slice_list = [slice_dict(slice, withConflicts, withSolutions) for slice in slices]
+def generate_slices_response(slices, with_conflicts=False, with_solutions=False):
+    slice_list = [slice_dict(slice, with_conflicts, with_solutions) for slice in slices]
     return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type = 'text/json')
 
 def generate_segments_response(segments):
@@ -489,7 +493,8 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
         conflict_slices = Slice.objects.filter(id__in=conflict_slices_ids)
         conflict_slices.prefetch_related('conflicts_as_a', 'conflicts_as_b')
 
-        return generate_slices_response(slices=conflict_slices, withConflicts=True)
+        return generate_slices_response(slices=conflict_slices,
+                with_conflicts=True, with_solutions=True)
     except:
         return error_response()
 
