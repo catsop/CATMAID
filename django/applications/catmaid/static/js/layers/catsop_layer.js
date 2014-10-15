@@ -69,6 +69,7 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
       .css('background-image', 'url("' + slice.mask + '")')
       .addClass(status)
       .appendTo($(this.view));
+  if (slice.in_solution) $sliceImg.addClass('in-solution');
   this.slices[slice.hash] = {
     x: slice.box[0],
     y: slice.box[1],

@@ -14,7 +14,7 @@
 }
 
 .catsop-layer .slice-mask.active {
-	background-color: #0F0;
+	background-color: #FF0;
 	z-index: 5;
 }
 
@@ -23,8 +23,16 @@
 	z-index: 4;
 }
 
+.catsop-layer .slice-mask.in-solution {
+	background-color: #0F0;
+}
+
 .catsop-layer .slice-mask.highlight {
 	background-color: #00F;
 	border: 1px solid #00F;
 	z-index: 6;
+}
+
+.catsop-layer .slice-mask.highlight.in-solution {
+	background-color: #0FF;
 }
