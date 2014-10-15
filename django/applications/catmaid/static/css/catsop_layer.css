@@ -8,6 +8,8 @@
 	position: absolute;
 	/* Slices must have opacity separate from layer opacity to handle conflict slice overlap. */
 	opacity: 0.75;
+	background-size: 100%;
+	background-repeat: no-repeat;
 	background-blend-mode: multiply;
 }
 
