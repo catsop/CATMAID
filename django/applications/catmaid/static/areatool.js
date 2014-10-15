@@ -27,6 +27,8 @@ var AreaServerModel = new function()
     var areaTools = [];
     var django_url = '/sopnet/';
 
+    this.defaultColor = '#0000ff';
+    this.defaultOpacity = 0.5;
 
     /**
      * Close a hole in a trace at a given location
@@ -266,7 +268,7 @@ function Area(name, assemblyId, canvasIn, viewProps)
 
     this.transform = function(t)
     {
-        for (var idx = 0; idx < fabricObjects.length; ++i)
+        for (var idx = 0; idx < fabricObjects.length; ++idx)
         {
             fabricObjects[idx].obj.transformMatrix(t);
         }
@@ -275,11 +277,12 @@ function Area(name, assemblyId, canvasIn, viewProps)
     this.setOpacity = function(op)
     {
         self.opacity = op;
-        for (var idx = 0; idx < fabricObjects.length; ++i)
+        for (var idx = 0; idx < fabricObjects.length; ++idx)
         {
             fabricObjects[idx].obj.opacity = op;
         }
-        AreaServerModel.pushProperties(self);
+        canvas.renderAll();
+        //AreaServerModel.pushProperties(self);
     };
 
     this.getOpacity = function()
@@ -293,7 +296,8 @@ function Area(name, assemblyId, canvasIn, viewProps)
         {
             fabricObjects[idx].obj.setColor(c);
         }
-        AreaServerModel.pushProperties(self);
+        canvas.renderAll();
+        //AreaServerModel.pushProperties(self);
     };
 
     this.getColor = function()
@@ -472,6 +476,11 @@ function AreaTool()
     var nextId = 0;
     var assemblyTable = {};
     var toolMode = '';
+    var toolOptions = {
+        paint: {close: false,
+            closeAll: false},
+        fill: {closeAll: false}
+    };
 
     // The following three objects hold per-mode delegate mouse event handlers
     // For instance, handleMouseDown['paint'] is a function to handle mouse-down events in
@@ -1136,6 +1145,22 @@ function AreaTool()
         currentArea = self.getArea(area);
     };
 
+    this.setColor = function(color)
+    {
+        if (currentArea != null)
+        {
+            currentArea.setColor(color);
+        }
+    };
+
+    this.setOpacity = function(opacity)
+    {
+        if (currentArea != null)
+        {
+            currentArea.setOpacity(opacity);
+        }
+    };
+
     this.setMode = function(mode)
     {
         if (toolModeNames.hasOwnProperty(mode))
@@ -1278,9 +1303,10 @@ AreaTraceWidget.prototype.init = function(space) {
             nameStr = area == null ? '' : ': ' +  area.name;
         }
 
-        toolModeLabel.append(tool.modeToString() + nameStr);
+        toolModeLabel.append('<h2>' + tool.modeToString() + nameStr + '</h2>');
 
         self.updateToolSelector();
+        self.updatePropertyEditor();
     };
 
     /*===== Tool Selector =====*/
@@ -1309,10 +1335,20 @@ AreaTraceWidget.prototype.init = function(space) {
         toolboxOptionsDiv.html('');
 
         toolboxOptionsDiv.append(toolOptionDivs[tool.getMode()]);
+
     };
 
-    var setAutoFill = function()
+    var setAutoClose = function()
     {
+        if (this.checked)
+        {
+            $('#paint_close_option').css('display', 'block');
+        }
+        else
+        {
+            $('#paint_close_option').css('display', 'none');
+        }
+
         console.log(this.checked);
     };
 
@@ -1326,6 +1362,11 @@ AreaTraceWidget.prototype.init = function(space) {
         console.log(this.value);
     };
 
+    var setPaintFillMode = function()
+    {
+        console.log(this.value);
+    };
+
     var createPaintOptions = function()
     {
         // options div.
@@ -1334,13 +1375,30 @@ AreaTraceWidget.prototype.init = function(space) {
 
         var brushSizeSlider  = new Slider(SLIDER_HORIZONTAL, true, 1, maxBrushSize, maxBrushSize,
             16, setBrushSize);
-        var autoFillCheckbox = createCheckboxHelper('Automatically Fill Holes', setAutoFill);
+        var autoFillCheckbox = createCheckboxHelper('Automatically Close Holes', setAutoClose);
+
+        var closeDiv = $('<div id="paint_close_option"</div>');
+
+        var one = $('<input type="radio" name="area_paint_radio" id="area_paint_close_one"' +
+            ' value="one">Close New Holes</input>');
+        var all = $('<input type="radio" name="area_paint_radio" id="area_paint_close_all"' +
+            ' value="all">Close All Holes</input>');
+
+        one.change(setPaintFillMode);
+        all.change(setPaintFillMode);
+        one.prop('checked', true);
+
+        closeDiv.css('display', 'none');
+        closeDiv.append(one).append('<br>').append(all);
 
         sliderDiv.append('Brush Size').append('<br>');
         sliderDiv.append(brushSizeSlider.getView());
         sliderDiv.append(brushSizeSlider.getInputView());
 
         od.append(sliderDiv).append('<br>').append(autoFillCheckbox);
+        od.append('<br>').append(closeDiv);
+
+
 
         return od;
     };
@@ -1367,11 +1425,14 @@ AreaTraceWidget.prototype.init = function(space) {
     {
         // options div.
         var od = $('<div id="area_fill_options"/>');
-        var one = $('<input type="radio" name="area_fill_radio" value="one">Fill One Hole</input>');
-        var all = $('<input type="radio" name="area_fill_radio" value="all">Fill All Holes</input>');
+        var one = $('<input type="radio" name="area_close_radio" id="area_close_one"' +
+            ' value="one">Close One Hole</input>');
+        var all = $('<input type="radio" name="area_close_radio" id="area_close_all"' +
+            ' value="all">Close All Holes</input>');
 
         one.change(setFillMode);
         all.change(setFillMode);
+        one.prop('checked', true);
 
         od.append(one).append('<br>').append(all);
 
@@ -1414,9 +1475,23 @@ AreaTraceWidget.prototype.init = function(space) {
     /**
      * Update the color wheel and opacity slider values to the tool.currentArea
      */
-    var updatePropertyEditor = function()
-    {
-
+    this.updatePropertyEditor = function() {
+        if (tool.getArea() == null)
+        {
+            $('#area_opacity_slider').css('display', 'none');
+            $('#assembly_color_wheel').css('display', 'none');
+            $('#area_setting_message').css('display', 'block');
+            colorWheel.color(AreaServerModel.defaultColor);
+            opacitySlider.setByValue(AreaServerModel.defaultOpacity * 100, true);
+        }
+        else
+        {
+            $('#area_opacity_slider').css('display', 'block');
+            $('#assembly_color_wheel').css('display', 'block');
+            $('#area_setting_message').css('display', 'none');
+            colorWheel.color(tool.getArea().getColor());
+            opacitySlider.setByValue(tool.getArea().getOpacity() * 100, true);
+        }
     };
 
     /**
@@ -1424,7 +1499,10 @@ AreaTraceWidget.prototype.init = function(space) {
      */
     var setToolOpacity = function()
     {
-
+        if (tool != null)
+        {
+            tool.setOpacity(opacitySlider.val / 100.0);
+        }
     };
 
     /**
@@ -1432,15 +1510,23 @@ AreaTraceWidget.prototype.init = function(space) {
      */
     var setToolColor = function()
     {
-
+        if (tool != null)
+        {
+            tool.setColor(colorWheel.color().hex);
+        }
     };
 
     /**
-     * Send the view property values for the current area to the server.
+     * Set the color of the current area according to the colorwheel and push the change to the
+     * server.
      */
-    var syncServerViewProps = function()
+    var setToolColorAndSync = function()
     {
-
+        if (tool != null)
+        {
+            setToolColor();
+            AreaServerModel.pushProperties(tool.getArea());
+        }
     };
 
     var createOpacitySlider = function()
@@ -1460,6 +1546,8 @@ AreaTraceWidget.prototype.init = function(space) {
     {
         var cwDiv = $('<div id="assembly_color_wheel"/>');
         colorWheel = Raphael.colorwheel(cwDiv, 150);
+        colorWheel.onchange(setToolColor);
+        colorWheel.ondrag(function(){}, setToolColorAndSync());
         return cwDiv;
     };
 
@@ -1467,9 +1555,12 @@ AreaTraceWidget.prototype.init = function(space) {
     {
         var opacitySliderDiv = createOpacitySlider();
         var colorWheelDiv = createColorWheel();
+        var selectMessageDiv = $('<div id="area_setting_message"/>').append('Please Select an Object');
+        selectMessageDiv.css('display', 'none');
 
-        var propertyEditorDiv = $('<div/>').append(opacitySliderDiv).append('<br>');
-        propertyEditorDiv.append(colorWheelDiv);
+        var propertyEditorDiv = $('<div/>').append(opacitySliderDiv);
+        propertyEditorDiv.append('<br>').append(colorWheelDiv);
+        propertyEditorDiv.append('<br>').append(selectMessageDiv);
 
         return propertyEditorDiv;
     };
