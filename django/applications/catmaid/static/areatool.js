@@ -539,14 +539,8 @@ function AreaTool()
     var uiChange = function(){};
 
     var proto_mouseCatcher = null;
-    var paintBrush = new fabric.Circle();
-    var eraserBrush = new fabric.Circle();
 
-
-    paintBrush.setOriginX('center');
-    paintBrush.setOriginY('center');
-    eraserBrush.setOriginX('center');
-    eraserBrush.setOriginY('center');
+    var brush;
 
     var isPainting = function()
     {
@@ -555,55 +549,28 @@ function AreaTool()
 
     var enterPaintingMode = function()
     {
-        var canvas = self.canvasLayer.canvas;
-        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-        canvas.freeDrawingBrush.width = paintWidth;
-        canvas.isDrawingMode = true;
-        if (currentArea)
-        {
-            canvas.freeDrawingBrush.color = currentArea.color;
-        }
-
-        updatePaintBrush();
-
+        updateBrush();
     };
 
     var leavePaintingMode = function()
     {
         self.canvasLayer.canvas.isDrawingMode = false;
         proto_mouseCatcher.style.cursor = 'default';
-
-        paintBrush.opacity = 0;
+        brush.opacity = 0;
+        self.canvasLayer.canvas.renderAll();
     };
 
     var enterEraserMode = function()
     {
-        var canvas = self.canvasLayer.canvas;
-
-        var brush = new fabric.PatternBrush(canvas);
-        var texture = new Image();
-        texture.src = django_url + 'static/widgets/themes/kde/hatch.png';
-
-        brush.source = texture;
-        brush.width = paintWidth;
-
-        canvas.freeDrawingBrush = brush;
-
-        proto_mouseCatcher.style.cursor = 'none';
-
-        eraserBrush.setRadius(eraseWidth / 2.0);
-        eraserBrush.fill = '';
-        eraserBrush.stroke = 'rgb(255,0,0)';
-        eraserBrush.strokeWidth = 2;
-        eraserBrush.bringToFront();
+        updateBrush();
     };
 
     var leaveEraserMode = function()
     {
         self.canvasLayer.canvas.isDrawingMode = false;
         proto_mouseCatcher.style.cursor = 'default';
-
-        eraserBrush.opacity = 0;
+        brush.opacity = 0;
+        self.canvasLayer.canvas.renderAll();
     };
 
     var setSelectMode = function()
@@ -648,9 +615,19 @@ function AreaTool()
         self.canvasLayer = new AreaLayer( self.stack, self);
         var canvas = self.canvasLayer.canvas;
 
+        brush = new fabric.Circle({top: 200,
+            left: 200,
+            radius: paintWidth / 2.0,
+            fill: 'rgb(0,0,255)',
+            opacity: 0});
+
+        brush.setOriginX('center');
+        brush.setOriginY('center');
+
         canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
         canvas.freeDrawingBrush.width = paintWidth;
         canvas.isDrawingMode = true;
+        canvas.add(brush);
 
         canvas.on('path:created', function(e){
             if (currentArea != null)
@@ -665,8 +642,7 @@ function AreaTool()
         self.canvasLayer.view.onmousedown = self.onmousedown;
         self.canvasLayer.view.onmouseup = self.onmouseup;
 
-        self.canvasLayer.canvas.add(paintBrush);
-        self.canvasLayer.canvas.add(eraserBrush);
+        canvas.renderAll();
     };
 
     var currentZ = function()
@@ -682,7 +658,7 @@ function AreaTool()
         }
     };
 
-    var readSVGAreaFromURL = function(id, areaIn, section, replaceIds)
+    var readSVGAreaFromURL = function(id, areaIn, section)
     {
         var sliceUrl = '/sopnet/' + self.stack.getProject().id + '/stack/' + self.stack.id +
             '/polygon_slice/' + id + '.svg';
@@ -703,17 +679,52 @@ function AreaTool()
 
                 area.updatePosition(self.stack.screenPosition(), self.stack.scale);
             }
-
-            if (replaceIds != undefined && replaceIds != null)
-            {
-                for (var idx = 0; idx < replaceIds.length; ++idx) {
-                    var rmObj = area.removeObject(replaceIds[idx]);
-                    self.canvasLayer.canvas.remove(rmObj);
-                }
-            }
         };
 
         fabric.loadSVGFromURL(sliceUrl, svgCall);
+    };
+
+    var removeTrace = function(traceId, areaId)
+    {
+        var area = self.getArea(areaId);
+        var obj = area.removeObject(traceId);
+        if (obj)
+        {
+            self.canvasLayer.canvas.remove(obj);
+        }
+    };
+
+    var traceCallback = function(data)
+    {
+        if (data.hasOwnProperty('djerror'))
+        {
+            console.log(data.djerror);
+            growlAlert('Error', 'Problem retrieving trace. See console');
+        }
+        else
+        {
+            var tracesIn = data.slices;
+            var tracesOut = data.replace_slices;
+            var areasIn = data.assemblies;
+            var idx;
+
+            for (idx = 0; idx < areasIn.length; ++idx)
+            {
+                self.getOrCreateArea(areasIn[idx]);
+            }
+
+            for (idx = 0; idx < tracesIn.length; ++idx)
+            {
+                readSVGAreaFromURL(tracesIn[idx].id,
+                    tracesIn[idx].assembly_id, tracesIn[idx].section);
+            }
+
+            for (idx = 0; idx < tracesOut.length; ++idx)
+            {
+                removeTrace(tracesOut[idx].id, tracesOut[idx].assembly_id);
+            }
+
+        }
     };
 
     var pushTraceCallback = function(data)
@@ -833,27 +844,56 @@ function AreaTool()
 
     };
 
-    var updatePaintBrush = function()
+    var updateBrush = function()
     {
+        var canvas = self.canvasLayer.canvas;
+
         if (currentArea == null)
         {
             proto_mouseCatcher.style.cursor = 'default';
-            paintBrush.opacity = 0;
+            brush.opacity = 0;
         }
-        else
+        else if(toolMode == 'paint')
         {
             proto_mouseCatcher.style.cursor = 'none';
-            paintBrush.setRadius(paintWidth / 2.0);
-            paintBrush.fill = currentArea.color;
-            paintBrush.opacity = currentArea.opacity;
-            paintBrush.bringToFront();
 
-            if (toolMode == 'paint')
-            {
-                self.canvasLayer.canvas.freeDrawingBrush.color = currentArea.color;
-                self.canvasLayer.canvas.freeDrawingBrush.opacity = currentArea.opacity;
-            }
+            canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+            canvas.freeDrawingBrush.width = paintWidth;
+            canvas.isDrawingMode = true;
+            canvas.freeDrawingBrush.color = currentArea.color;
+
+            brush.setRadius(paintWidth / 2.0);
+            brush.fill = currentArea.color;
+            brush.opacity = currentArea.opacity;
+            brush.stroke = '';
+            brush.bringToFront();
+
+            self.canvasLayer.canvas.freeDrawingBrush.color = currentArea.color;
+            self.canvasLayer.canvas.freeDrawingBrush.opacity = currentArea.opacity;
         }
+        else if (toolMode == 'erase')
+        {
+            proto_mouseCatcher.style.cursor = 'none';
+
+            var freeBrush = new fabric.PatternBrush(canvas);
+            var texture = new Image();
+            texture.src = django_url + 'static/widgets/themes/kde/hatch.png';
+
+            freeBrush.source = texture;
+            freeBrush.width = eraseWidth;
+
+            canvas.isDrawingMode = true;
+            canvas.freeDrawingBrush = freeBrush;
+
+            brush.setRadius(eraseWidth / 2.0);
+            brush.fill = '';
+            brush.stroke = 'rgb(255,0,0)';
+            brush.strokeWidth = 2;
+            brush.opacity = 1.0;
+            brush.bringToFront();
+        }
+
+        canvas.renderAll();
     };
 
 
@@ -963,7 +1003,7 @@ function AreaTool()
 
     this.fetchAreas = function()
     {
-        AreaServerModel.tracesInView(self.stack, slicesCallback);
+        AreaServerModel.tracesInView(self.stack, traceCallback);
     };
 
     this.addAction = function ( action ) {
@@ -992,9 +1032,10 @@ function AreaTool()
     this.setPaintWidth = function(w)
     {
         paintWidth = w;
-        paintBrush.setRadius(w / 2.0);
+
         if (toolMode == 'paint')
         {
+            updateBrush();
             self.canvasLayer.canvas.renderAll();
             self.canvasLayer.canvas.freeDrawingBrush.width = w;
         }
@@ -1008,9 +1049,10 @@ function AreaTool()
     this.setEraseWidth = function(w)
     {
         eraseWidth = w;
-        eraserBrush.setRadius(w / 2.0);
+
         if (toolMode == 'erase')
         {
+            updateBrush();
             self.canvasLayer.canvas.renderAll();
             self.canvasLayer.canvas.freeDrawingBrush.width = w;
         }
@@ -1027,12 +1069,10 @@ function AreaTool()
         // I'm not sure why.
         var magicOffset = 4;
 
-        paintBrush.left = e.offsetX - magicOffset;
-        paintBrush.top = e.offsetY - magicOffset;
-        eraserBrush.left = e.offsetX - magicOffset;
-        eraserBrush.top = e.offsetY - magicOffset;
+        brush.left = e.offsetX - magicOffset;
+        brush.top = e.offsetY - magicOffset;
 
-        if (toolMode == 'erase' || toolMode == 'paint')
+        if (brush.opacity > 0)
         {
             self.canvasLayer.canvas.renderAll();
         }
@@ -1206,7 +1246,7 @@ function AreaTool()
         area.addObjectContainer(objectContainer);
 
         AreaServerModel.pushTrace(self.stack, paintWidth, area.assemblyId,
-            objectContainer, toolOptions['paint'], pushTraceCallback);
+            objectContainer, toolOptions['paint'], traceCallback);
     };
 
     this.eraseByPath = function(obj, areaIn)
@@ -1214,9 +1254,10 @@ function AreaTool()
         var area = self.getArea(areaIn);
         var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
             self.stack.screenPosition(), self.stack.z, nextId++);
+        area.addObjectContainer(objectContainer);
 
         AreaServerModel.erase(self.stack, eraseWidth, area.assemblyId, objectContainer,
-            slicesCallback);
+            traceCallback);
     };
 
 
@@ -1306,7 +1347,7 @@ function AreaTool()
             if (toolMode == 'paint')
             {
                 self.canvasLayer.canvas.freeDrawingBrush.color = color;
-                updatePaintBrush();
+                updateBrush();
             }
         }
     };
@@ -1316,7 +1357,7 @@ function AreaTool()
         if (currentArea != null)
         {
             currentArea.setOpacity(opacity);
-            updatePaintBrush();
+            updateBrush();
         }
     };
 
@@ -1402,7 +1443,7 @@ function AreaTool()
 
         currentArea = area;
 
-        updatePaintBrush();
+        updateBrush();
     };
 
     this.addArea = function(area)

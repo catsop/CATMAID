@@ -968,7 +968,17 @@ def geometry_bound(area_geometry):
 
 
 def slice_erase_geometry(slices, slices_geometry, erase_geometry):
+    """
+    Erases a given geometry from a list of slices, as in using a (perfectly effective) pencil eraser.
 
+    slices - a list of Slice's from which the erase_geometry will be subtracted
+    slices_geometry - the geometry corresponding index-wise to slices
+    erase_geometry - the geometry to subtract from the slices
+
+    Returns the new Slice's and geometries resulting from the erase operation
+
+    Does not delete the overlapping slices.
+    """
     out_slices = []
     out_geometry = []
 
@@ -988,23 +998,18 @@ def slice_erase_geometry(slices, slices_geometry, erase_geometry):
             # Case 2 from above. Insert the single polygon into the db.
             diff_slice = create_slice(diff_geom,
                                       slice.assembly, slice.stack, slice.project, slice.section)
-            slice.delete()
             diff_slice.save()
 
             out_slices.append(diff_slice)
             out_geometry.append(diff_geom)
         else:
             npoly = len(diff_geom.geoms)
-            if npoly == 0:
-                # Case 1 from above. Simply erase the existing polygon
-                slice.delete()
-            else:
+            if npoly > 0:
                 # Case 3 from above.
                 assembly = slice.assembly
                 stack = slice.stack
                 project = slice.project
                 section = slice.section
-                slice.delete()
 
                 for geom in diff_geom.geoms:
                     diff_slice = create_slice(geom, assembly, stack, project, section)
@@ -1030,8 +1035,8 @@ def slice_merge_geometry(slices, slices_geometry, merge_geometry):
     merge_slice = create_slice(
         union_geometry, slices[0].assembly, slices[0].stack, slices[0].project, slices[0].section)
 
-    for slice in slices:
-        delete_slice(slice)
+    #for slice in slices:
+    #    delete_slice(slice)
 
     return merge_slice, union_geometry
 
@@ -1136,7 +1141,6 @@ def slice_client_dict(slice, area_geometry, replace_hashes=None, **kwargs):
                                                    'opacity': view_props.opacity},
                                     'section': slice.section}
 
-
 def geometry_assembly_hash(area_geometry, assembly):
     """
     Generate the hash value used in the postgres Slice representation.
@@ -1217,6 +1221,60 @@ def assemblies_to_dict(assemblies):
 
     return assembly_dicts
 
+def slice_frontend_response(slice, **kwargs):
+    if slice is not None:
+        return slices_frontend_response([slice], **kwargs)
+    else:
+        return slices_frontend_response([], **kwargs)
+
+def slices_frontend_response(slices, **kwargs):
+    """
+    Generates an HttpResponse containing json appropriate for the Catmaid js frontend.
+
+    Static args:
+    slices - a list of Slice's for which a response is to be generated
+
+    KW args:
+    replace_slices - a list of Slice's to be deleted, and that should be removed from the display. This function will
+                     delete these slices, unless do_not_delete is set True
+    do_not_delete - include and set True to avoid deletion of replace_slices
+    original_id - the client-side id corresponding to a temporary trace, which should be deleted when the callback
+                  returns. original_assembly_id must be included as well.
+    original_assembly_id - id's the assembly corresponding to the original_id.
+    """
+    #view_prop_set = ViewProperties.objects.filter(assembly__in={slice.assembly for slice in slices})
+    #view_prop_dict = {vp.assembly.id : vp for vp in view_prop_set}
+
+    assembly_dicts = assemblies_to_dict({slice.assembly for slice in slices})
+
+    # Slices
+    slice_dicts =\
+        [{'id': slice.hash_value,
+          'assembly_id': slice.assembly.id,
+          'section': slice.section}
+         for slice in slices]
+    replace_dicts = []
+
+    # Replacement slices
+    if 'replace_slices' in kwargs:
+        for slice in kwargs['replace_slices']:
+            replace_dicts.append({'id' : slice.hash_value, 'assembly_id': slice.assembly.id})
+
+        if not 'do_not_delete' in kwargs or not kwargs['do_not_delete']:
+            for slice in kwargs['replace_slices']:
+                slice.delete()
+
+    # Temporary Client-side 'Slice'
+    if 'original_id' in kwargs:
+        if not 'original_assembly_id' in kwargs:
+            raise ValueError('original_id passed without original_assembly_id')
+
+        replace_dicts.append({'id': kwargs['original_id'], 'assembly_id': kwargs['original_assembly_id']})
+
+    return HttpResponse(json.dumps({'slices': slice_dicts,
+                                    'replace_slices': replace_dicts,
+                                    'assemblies': assembly_dicts}), mimetype='text/json')
+
 @requires_user_role([UserRole.Browse])
 def user_list_assemblies(request, project_id=None, stack_id=None):
     """
@@ -1259,7 +1317,7 @@ def user_insert_slice(request, project_id=None, stack_id=None):
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.POST)
         ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
-        ovlp_hashes = [ovlp_slice.hash_value for ovlp_slice in ovlp_slices]
+        #ovlp_hashes = [ovlp_slice.hash_value for ovlp_slice in ovlp_slices]
 
         rClose = request.POST.get('close')
         rCloseAll = request.POST.get('closeAll')
@@ -1282,13 +1340,10 @@ def user_insert_slice(request, project_id=None, stack_id=None):
         else:
             slice = create_slice(area_geometry, assembly, s, p, section)
 
-        return HttpResponse(json.dumps(
-            slice_client_dict(slice,
-                              area_geometry,
-                              ovlp_hashes,
-                              id=request.POST.get('id'),
-                              assembly_id=assembly_id)),
-                            mimetype='text/json')
+        return slice_frontend_response(slice,
+                                       replace_slices=ovlp_slices,
+                                       original_id=request.POST.get('id'),
+                                       original_assembly_id=assembly_id)
     except:
         print 'assembly_id', request.POST.get('assembly_id')
         return error_response()
@@ -1299,33 +1354,28 @@ def user_erase(request, project_id=None, stack_id=None):
     p = get_object_or_404(Project, pk=project_id)
     try:
         section = int(request.POST.get('section'))
+        eraser_id = int(request.POST.get('id'))
         assembly_id = int(request.POST.get('assembly_id'))
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.POST)
         ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
-        ovlp_hashes = [ovlp_slice.hash_value for ovlp_slice in ovlp_slices]
 
         if len(ovlp_slices) > 0:
             slices, slices_geometry = slice_erase_geometry(ovlp_slices, ovlp_geometry, area_geometry)
-            slices_dict = [slice_client_dict(slice, geom, assembly_id=assembly_id)
-                           for slice in slices
-                           for geom in slices_geometry]
-            ovlp_hashes.append(request.POST.get('id'))
-
-            return HttpResponse(json.dumps({'slices': slices_dict,
-                                            'assemblies': assemblies_to_dict([assembly]),
-                                            'section': section,
-                                            'replace_ids': ovlp_hashes}))
+            return slices_frontend_response(slices,
+                                            replace_slices=ovlp_slices,
+                                            original_id=eraser_id,
+                                            original_assembly_id=assembly_id)
         else:
-            return HttpResponse(json.dumps({'slices': [],
-                                            'assemblies': assemblies_to_dict([assembly]),
-                                            'section': section,
-                                            'replace_ids': [request.POST.get('id')]}))
+            return slice_frontend_response(None,
+                                           original_id=eraser_id,
+                                           original_assembly_id=assembly_id)
     except:
         return error_response()
 
 @requires_user_role([UserRole.Browse])
 def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None):
+    # It would be great if we could get the browser to cache this.
     #stack = get_object_or_404(Stack, pk=stack_id)
     #project = get_object_or_404(Project, pk=project_id)
     slice = get_object_or_404(Slice, pk=slice_id)
@@ -1344,13 +1394,9 @@ def user_slices_assemblies_in_bound(request, project_id=None, stack_id=None):
         y_max = float(request.POST.get('y_max'))
         section = int(request.POST.get('section'))
         slices = slices_by_bounding_box([x_min, y_min, x_max, y_max], section, stack)
-        hashes = [slice.hash_value for slice in slices]
-        assembly_ids = [slice.assembly.id for slice in slices]
-        assemblies = {slice.assembly for slice in slices}
-        slices_dict = {'ids': hashes, 'assembly_ids': assembly_ids}
-        assembly_dicts = assemblies_to_dict(assemblies)
 
-        return HttpResponse(json.dumps({'slices': slices_dict, 'assemblies': assembly_dicts, 'section': section}))
+        return slices_frontend_response(slices)
+        #return HttpResponse(json.dumps({'slices': slices_dict, 'assemblies': assembly_dicts, 'section': section}))
     except:
         return error_response()
 
