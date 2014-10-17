@@ -962,6 +962,11 @@ def parse_area_geometry(req_object):
         return polygon
 
 def delete_slice(slice):
+    hole_relations = SliceHoleRelation.objects.filter(external=slice)
+
+    for hole_relation in hole_relations:
+        hole_relation.internal.delete()
+
     slice.delete()
 
 def geometry_bound(area_geometry):
@@ -1051,17 +1056,17 @@ def slice_merge_geometry(slices, slices_geometry, merge_geometry, close):
 
     return merge_slice, union_geometry
 
-def slices_by_bounding_box(bbox, section, stack):
+def slices_by_bounding_box(bbox, section, model=Slice, **kwargs):
     """
     Find all slices that are at least partially inside the bounding box.
     bbox should be like [x_min, y_min, x_max, y_max]
     """
-    slices = Slice.objects.filter(section=section,
-                                  stack=stack,
+    slices = model.objects.filter(section=section,
                                   min_x__lte=bbox[2],
                                   min_y__lte=bbox[3],
                                   max_x__gte=bbox[0],
-                                  max_y__gte=bbox[1])
+                                  max_y__gte=bbox[1],
+                                  **kwargs)
     return slices
 
 
@@ -1099,7 +1104,7 @@ def slice_field_from_geometry(shapely_ring):
 
     return list(x), list(y)
 
-def geometry_from_slice(slice):
+def geometry_from_slice(slice, ignore_holes=False):
     """
     Returns a the geometry representation corresponding to a given Slice.
     At present, this function creates a shapely Polygon
@@ -1114,14 +1119,15 @@ def geometry_from_slice(slice):
     ext_xy = zip(x, y)
     int_xys = []
 
-    holes = [shr.internal for shr in SliceHoleRelation.objects.filter(external=slice)]
+    if not ignore_holes:
+        holes = [shr.internal for shr in SliceHoleRelation.objects.filter(external=slice)]
 
-    for hole in holes:
-        int_xy = zip(map(float, hole.shape_x), map(float, hole.shape_y))
-        # ensure that int_xy is cw, representing a negative space
-        if LinearRing(int_xy).is_ccw:
-            int_xy.reverse()
-        int_xys.append(int_xy)
+        for hole in holes:
+            int_xy = zip(map(float, hole.shape_x), map(float, hole.shape_y))
+            # ensure that int_xy is cw, representing a negative space
+            if LinearRing(int_xy).is_ccw:
+                int_xy.reverse()
+            int_xys.append(int_xy)
 
     return Polygon(ext_xy, int_xys)
 
@@ -1200,7 +1206,8 @@ def create_slice(area_geometry, assembly, stack, project, section):
 
     for interior in area_geometry.interiors:
         x, y = slice_field_from_geometry(interior)
-        hole = SliceHole(shape_x=x, shape_y=y)
+        hole = SliceHole(shape_x=x, shape_y=y, min_x=min(x), min_y=min(y),
+                         max_x=max(x), max_y=max(y), section=section, assembly=assembly)
         hole.save()
 
         hole_relation = SliceHoleRelation(external=slice, internal=hole)
@@ -1273,7 +1280,7 @@ def slices_frontend_response(slices, **kwargs):
 
         if not 'do_not_delete' in kwargs or not kwargs['do_not_delete']:
             for slice in kwargs['replace_slices']:
-                slice.delete()
+                delete_slice(slice)
 
     # Temporary Client-side 'Slice'
     if 'original_id' in kwargs:
@@ -1303,8 +1310,75 @@ def user_list_assemblies(request, project_id=None, stack_id=None):
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
+def user_close_hole(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    p = get_object_or_404(Project, pk=project_id)
+    try:
+        x = int(request.POST.get('x'))
+        y = int(request.POST.get('y'))
+        section = int(request.POST.get('section'))
+
+        assembly_id = int(request.POST.get('assembly_id'))
+        assembly = Assembly.objects.get(pk=assembly_id)
+
+        point = Point([x, y])
+
+        if (request.POST.get('all') == 'true'):
+            # Find all of the holes for the given clicked-in trace and close them
+
+            # A bit hacky at first glance
+            candidate_slices = slices_by_bounding_box([x, y, x, y], section, stack=s, assembly=assembly)
+
+            for slice in candidate_slices:
+                geom = geometry_from_slice(slice, True)
+                if geom.contains(point):
+                    no_hole_slice = create_slice(geom, assembly, s, p, section)
+                    return slice_frontend_response(no_hole_slice, replace_slices=[slice])
+        else:
+            # Find the one hole that was clicked in and close it
+            candidate_holes = slices_by_bounding_box([x, y, x, y], section, SliceHole,
+                                                     assembly=assembly)
+            for hole in candidate_holes:
+                x = map(float, hole.shape_x)
+                y = map(float, hole.shape_y)
+                xy = zip(x, y)
+                polygon = Polygon(xy)
+                if polygon.contains(point):
+                    # Get the Slice that contains this hole
+                    shr = SliceHoleRelation.objects.get(internal=hole)
+                    slice = shr.external
+                    shr.delete()
+
+                    # Get the other holes in the Slice
+                    all_shr = SliceHoleRelation.objects.filter(external=slice)
+                    all_holes = [a_shr.internal for a_shr in all_shr if a_shr]
+
+
+                    # Create the correct slice geometry
+                    ext_xy = zip(map(float, slice.shape_x), map(float, slice.shape_y))
+                    int_xys = []
+
+                    for a_hole in all_holes:
+                        int_xy = zip(map(float, a_hole.shape_x), map(float, a_hole.shape_y))
+                        if LinearRing(int_xy).is_ccw:
+                            int_xy.reverse()
+                        int_xys.append(int_xy)
+
+                    geom = Polygon(ext_xy, int_xys)
+
+                    closed_slice = create_slice(geom, assembly, s, p, section)
+
+                    return slice_frontend_response(closed_slice, replace_slices=[slice])
+
+        # If we're here, then we didn't find a slice to close holes in
+        return slice_frontend_response(None)
+    except:
+        return error_response()
+
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def user_create_assembly(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
+
     u = User.objects.get(pk=1)
     name = request.POST.get('name')
     type = request.POST.get('type')
@@ -1316,6 +1390,39 @@ def user_create_assembly(request, project_id=None, stack_id=None):
     assembly_dicts = assemblies_to_dict(assemblies)
 
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
+
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
+def user_set_view_properties(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    p = get_object_or_404(Project, pk=project_id)
+    try:
+        assembly_id = int(request.POST.get('assembly_id'))
+        color = request.POST.get('color')
+        opacity = float(request.POST.get('opacity'))
+        name = request.POST.get('name')
+
+        if name is None or color is None:
+            raise ValueError('Invalid View Property Request')
+
+        assembly = Assembly.objects.get(pk=assembly_id)
+
+        if assembly.name != name:
+            assembly.name = name
+            assembly.save()
+
+        try:
+            vp = ViewProperties.objects.get(assembly=assembly)
+        except ViewProperties.DoesNotExist:
+            vp = ViewProperties(assembly=assembly)
+
+        vp.color = color
+        vp.opacity = opacity
+
+        vp.save()
+
+        return HttpResponse(json.dumps({'ok': True}))
+    except:
+        return error_response()
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def user_insert_slice(request, project_id=None, stack_id=None):
@@ -1407,7 +1514,7 @@ def user_slices_assemblies_in_bound(request, project_id=None, stack_id=None):
         x_max = float(request.POST.get('x_max'))
         y_max = float(request.POST.get('y_max'))
         section = int(request.POST.get('section'))
-        slices = slices_by_bounding_box([x_min, y_min, x_max, y_max], section, stack)
+        slices = slices_by_bounding_box([x_min, y_min, x_max, y_max], section, stack=stack)
 
         return slices_frontend_response(slices)
         #return HttpResponse(json.dumps({'slices': slices_dict, 'assemblies': assembly_dicts, 'section': section}))
@@ -1530,7 +1637,7 @@ def clear_djsopnet(request, project_id = None, stack_id = None):
         all_blocks.delete()
 
         for slice in all_slices:
-            slice.delete()
+            delete_slice(slice)
 
         all_segments.delete()
 

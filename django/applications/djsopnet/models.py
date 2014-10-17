@@ -47,8 +47,17 @@ class Slice(UserFocusedModel):
     size = models.IntegerField(db_index=True)
 
 class SliceHole(models.Model):
+    # bounding box
+    min_x = models.FloatField(db_index=True)
+    min_y = models.FloatField(db_index=True)
+    max_x = models.FloatField(db_index=True)
+    max_y = models.FloatField(db_index=True)
+
     shape_x = FloatArrayField()
     shape_y = FloatArrayField()
+
+    section = models.IntegerField(db_index=True)
+    assembly = models.ForeignKey(Assembly)
 
 class SliceHoleRelation(models.Model):
     external = models.ForeignKey(Slice)

@@ -62,7 +62,7 @@ var AreaServerModel = new function()
             "dataType": 'json',
             "type": 'POST',
             "cache": false,
-            "url": self.sopnet_url + project.id + '/stack/' + stack.id + url,
+            "url": url,
             "data": data,
             "success": callback
         });
@@ -276,9 +276,40 @@ var AreaServerModel = new function()
     /**
      Sync display properties.
      */
-    this.pushProperties = function(area)
+    this.pushProperties = function(stack, area)
     {
+        var project = stack.getProject();
+        var url = self.sopnet_url + project.id + '/stack/' + stack.id + '/set_view_properties';
+        var data =
+        {
+            assembly_id: area.assemblyId,
+            color: area.color,
+            opacity: area.opacity,
+            name: area.name
+        };
 
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": url,
+            "data": data,
+            "success": function(data)
+            {
+                if (!data.hasOwnProperty('ok') || !data.ok)
+                {
+                    growlAlert('Error', 'Problem setting properties. See console.');
+                    if (data.hasOwnProperty('djerror'))
+                    {
+                        console.log(data.djerror);
+                    }
+                    else
+                    {
+                        console.log(data);
+                    }
+                }
+            }
+        })
     };
 
     this.registerTool = function(tool)
@@ -355,6 +386,9 @@ function Area(name, assemblyId, canvasIn, viewProps)
         {
             fabricObjects[idx].obj.setColor(c);
         }
+
+        self.color = c;
+
         canvas.renderAll();
         //AreaServerModel.pushProperties(self);
     };
@@ -372,12 +406,6 @@ function Area(name, assemblyId, canvasIn, viewProps)
             objects.push(fabricObjects[idx].obj)
         }
         return objects;
-    };
-
-    this.setName = function(name)
-    {
-        self.name = name;
-        AreaServerModel.pushProperties(self);
     };
 
     this.containsPoint = function(pt)
@@ -743,7 +771,7 @@ function AreaTool()
             canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
             canvas.freeDrawingBrush.width = paintWidth;
             canvas.isDrawingMode = true;
-            canvas.freeDrawingBrush.color = currentArea.color;
+            canvas.freeDrawingBrush.fill = currentArea.color;
 
             brush.setRadius(paintWidth / 2.0);
             brush.fill = currentArea.color;
@@ -838,7 +866,7 @@ function AreaTool()
         {
             var loc = {x: e.offsetX, y: e.offsetY};
 
-            self.closeHole(self.stack, currentArea.assembly_id, loc,
+            AreaServerModel.closeHole(self.stack, currentArea.assemblyId, loc,
                 toolOptions['fill']['closeAll'], traceCallback);
         };
 
@@ -1227,11 +1255,7 @@ function AreaTool()
         if (currentArea != null)
         {
             currentArea.setColor(color);
-            if (toolMode == 'paint')
-            {
-                self.canvasLayer.canvas.freeDrawingBrush.color = color;
-                updateBrush();
-            }
+            updateBrush();
         }
     };
 
@@ -1626,6 +1650,7 @@ AreaTraceWidget.prototype.init = function(space) {
         if (tool != null)
         {
             tool.setOpacity(opacitySlider.val / 100.0);
+            AreaServerModel.pushProperties(tool.getArea(), tool.stack);
         }
     };
 
@@ -1649,7 +1674,7 @@ AreaTraceWidget.prototype.init = function(space) {
         if (tool != null)
         {
             setToolColor();
-            AreaServerModel.pushProperties(tool.getArea());
+            AreaServerModel.pushProperties(tool.getArea(), tool.stack);
         }
     };
 
@@ -1670,7 +1695,7 @@ AreaTraceWidget.prototype.init = function(space) {
     {
         var cwDiv = $('<div id="assembly_color_wheel"/>');
         colorWheel = Raphael.colorwheel(cwDiv, 150);
-        colorWheel.onchange(setToolColor);
+        colorWheel.onchange(setToolColorAndSync());
         colorWheel.ondrag(function(){}, setToolColorAndSync());
         return cwDiv;
     };
