@@ -945,6 +945,8 @@ def parse_area_geometry(req_object):
     x = map(lambda v: float(v) + o_left, req_object.getlist('x[]'))
     y = map(lambda v: float(v) + o_top, req_object.getlist('y[]'))
     r = float(req_object.get('r'))
+    close = req_object.get('close')
+
     if r is None:
         raise ValueError("No r provided")
 
@@ -954,7 +956,10 @@ def parse_area_geometry(req_object):
     else:
         polygon = Point(x[0], y[0]).buffer(r)
 
-    return polygon
+    if close is not None and close == 'true':
+        return Polygon(polygon.exterior)
+    else:
+        return polygon
 
 def delete_slice(slice):
     slice.delete()
@@ -1019,13 +1024,19 @@ def slice_erase_geometry(slices, slices_geometry, erase_geometry):
 
     return out_slices, out_geometry
 
-def slice_merge_geometry(slices, slices_geometry, merge_geometry):
+def slice_merge_geometry(slices, slices_geometry, merge_geometry, close):
     """
     Merges the merge_geometry to the geometries stored in overlapping slices.
     """
+
     all_geometry = list(slices_geometry)
     all_geometry.append(merge_geometry)
-    union_geometry = cascaded_union(all_geometry)
+    calc_union_geometry = cascaded_union(all_geometry)
+
+    if close:
+        union_geometry = Polygon(calc_union_geometry.exterior)
+    else:
+        union_geometry = calc_union_geometry
 
     # check polygon validity
     if not union_geometry.is_valid:
@@ -1323,20 +1334,23 @@ def user_insert_slice(request, project_id=None, stack_id=None):
         rCloseAll = request.POST.get('closeAll')
 
         if rClose is not None:
-            close = rClose == 'true'
-        else:
-            close = False
+            if rClose == 'true':
+                if rCloseAll is not None and rCloseAll == 'true':
+                    # close old and new holes
+                    closeMode = 2
+                else:
+                    # close new holes, but not old ones
+                    closeMode = 1
+            else:
+                # close no holes
+                closeMode = 0
 
-        if rCloseAll is not None:
-            closeAll = rCloseAll == 'true'
-        else:
-            closeAll = False
-
-        print 'Got close:', rClose
-
+        print '\nClose mode:', closeMode, '\n'
+        print 'close: ', rClose
+        print 'closeAll: ', rCloseAll, '\n'
 
         if len(ovlp_slices) > 0:
-            slice, area_geometry = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
+            slice, area_geometry = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry, closeMode == 2)
         else:
             slice = create_slice(area_geometry, assembly, s, p, section)
 

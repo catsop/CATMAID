@@ -727,123 +727,6 @@ function AreaTool()
         }
     };
 
-    var pushTraceCallback = function(data)
-    {
-        if (data.hasOwnProperty('djerror'))
-        {
-            console.log(data.djerror);
-            growlAlert('Error', 'Problem retrieving trace. See console');
-        }
-        else
-        {
-            var svgCall = function(objects, options)
-            {
-                var obj = fabric.util.groupSVGElements(objects, options);
-                var area = self.getArea(data.assembly_id);
-
-                obj.setColor(data.view_props.color);
-                obj.setOpacity(data.view_props.color);
-
-                self.registerDeserializedFabricObject(obj, area, data.id, data.section);
-                self.canvasLayer.canvas.add(obj);
-
-                area.updatePosition(self.stack.screenPosition(), self.stack.scale);
-
-                if (data.hasOwnProperty('replace_ids') && data.replace_ids != null)
-                {
-                    for (var idx = 0; idx < data.replace_ids.length; ++idx)
-                    {
-                        var rmObj = area.removeObject(data.replace_ids[idx]);
-                        self.canvasLayer.canvas.remove(rmObj);
-                    }
-                }
-            };
-
-            readSVGAreaFromURL(data.id, data.assembly_id, data.section, data.replace_ids);
-        }
-
-    };
-
-    var checkAreaAndTrace = function(areaIn, id)
-    {
-        var area = self.getArea(areaIn);
-        if (area == null)
-        {
-            return false;
-        }
-        else
-        {
-            return area.hasObject(id);
-        }
-    };
-
-    var retrieveTracesCallback = function(data)
-    {
-        if (data.hasOwnProperty('djerror'))
-        {
-            console.log(data.djerror);
-            growlAlert('Error', 'Problem fetching traces. See console');
-        }
-        else
-        {
-            for (var idx = 0; idx < data.areas.length; ++idx)
-            {
-                pushTraceCallback(data.areas[idx]);
-            }
-
-            trimTraces();
-        }
-    };
-
-    var slicesCallback = function(data)
-    {
-        if (data.hasOwnProperty('djerror'))
-        {
-            console.log(data.djerror);
-            growlAlert('Error', 'Problem retrieving trace ids. See console');
-        }
-        else
-        {
-            var areaData = data.assemblies;
-            var traceData = data.slices;
-            var replaceIds = data.replace_ids;
-            var idx;
-            var section = data.section;
-
-            for (idx = 0; idx < areaData.length; ++idx)
-            {
-                self.getOrCreateArea(areaData[idx]);
-            }
-
-            for (idx = 0; idx < traceData.ids.length; ++idx)
-            {
-                if (!checkAreaAndTrace(traceData.assembly_ids[idx], traceData.ids[idx]))
-                {
-                    readSVGAreaFromURL(traceData.ids[idx], traceData.assembly_ids[idx], section);
-                }
-            }
-
-            if (replaceIds)
-            {
-
-                // TODO: be smarter than this.
-                for (var idx2 = 0; idx2 < areaData.length; ++idx2)
-                {
-                    for (idx = 0; idx < replaceIds.length; ++idx)
-                    {
-                        var rmObj = self.getArea(areaData[idx2]).removeObject(replaceIds[idx]);
-
-                        if (rmObj)
-                        {
-                            self.canvasLayer.canvas.remove(rmObj);
-                        }
-                    }
-                }
-            }
-        }
-
-    };
-
     var updateBrush = function()
     {
         var canvas = self.canvasLayer.canvas;
@@ -956,7 +839,7 @@ function AreaTool()
             var loc = {x: e.offsetX, y: e.offsetY};
 
             self.closeHole(self.stack, currentArea.assembly_id, loc,
-                toolOptions['fill']['closeAll'], pushTraceCallback);
+                toolOptions['fill']['closeAll'], traceCallback);
         };
 
         handleMouseDown['stamp'] = function(e)
@@ -1508,6 +1391,8 @@ AreaTraceWidget.prototype.init = function(space) {
 
     $(space).append(toolModeLabel);
 
+    g_AreaWidget = this;
+
     /**
      * Helper function to create a checkbox with label.
      */
@@ -1554,18 +1439,11 @@ AreaTraceWidget.prototype.init = function(space) {
     var toolOptionDivs = {};
     var toolboxOptionsDiv;
     var maxBrushSize = 128;
+    var autoFillCheckbox;
 
     this.addAction = function(action)
     {
         toolActions.push(action);
-    };
-
-    this.updateToolSelector = function()
-    {
-        toolboxOptionsDiv.html('');
-
-        toolboxOptionsDiv.append(toolOptionDivs[tool.getMode()]);
-
     };
 
     var setAutoClose = function()
@@ -1579,7 +1457,17 @@ AreaTraceWidget.prototype.init = function(space) {
             $('#paint_close_option').css('display', 'none');
         }
 
+        tool.setToolOption('paint', 'close', this.checked);
+
         console.log(this.checked);
+    };
+
+    this.updateToolSelector = function()
+    {
+        toolboxOptionsDiv.html('');
+
+        toolboxOptionsDiv.append(toolOptionDivs[tool.getMode()]);
+
     };
 
     var setPaintBrushSize = function()
@@ -1590,7 +1478,7 @@ AreaTraceWidget.prototype.init = function(space) {
     var setEraserSize = function()
     {
         tool.setEraseWidth(this.val);
-    }
+    };
 
     var setFillMode = function()
     {
@@ -1599,6 +1487,7 @@ AreaTraceWidget.prototype.init = function(space) {
 
     var setPaintFillMode = function()
     {
+        tool.setToolOption('paint', 'closeAll', this.value=='all');
         console.log(this.value);
     };
 
@@ -1610,7 +1499,7 @@ AreaTraceWidget.prototype.init = function(space) {
 
         var brushSizeSlider  = new Slider(SLIDER_HORIZONTAL, true, 1, maxBrushSize, maxBrushSize,
             16, setPaintBrushSize);
-        var autoFillCheckbox = createCheckboxHelper('Automatically Close Holes', setAutoClose);
+        autoFillCheckbox = createCheckboxHelper('Automatically Close Holes', setAutoClose);
 
         var closeDiv = $('<div id="paint_close_option"</div>');
 
