@@ -479,21 +479,23 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     return generate_slices_response(slices)
 
 
-# Retrieve Slices associated to any ConflictSet that is associated to the Blocks with the given ids.
+# Retrieve Slices associated to the Blocks with the given ids or to any
+# ConflictSet that is associated with those Blocks.
 def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
         block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
 
         conflict_slices_ids = SliceConflictSet.objects \
-		.filter(blockconflictrelation__block__in=block_ids) \
-		.values_list('slice_a_id', 'slice_b_id')
+		      .filter(blockconflictrelation__block__in=block_ids) \
+		      .values_list('slice_a_id', 'slice_b_id')
         # Flatten the nested list of slice IDs
         conflict_slices_ids = [slice_id for row in conflict_slices_ids for slice_id in row]
-        conflict_slices = Slice.objects.filter(id__in=conflict_slices_ids)
-        conflict_slices.prefetch_related('conflicts_as_a', 'conflicts_as_b')
+        slices = Slice.objects.filter(sliceblockrelation__block__in=block_ids) |\
+                 Slice.objects.filter(id__in=conflict_slices_ids)
+        slices.prefetch_related('conflicts_as_a', 'conflicts_as_b')
 
-        return generate_slices_response(slices=conflict_slices,
+        return generate_slices_response(slices=slices,
                 with_conflicts=True, with_solutions=True)
     except:
         return error_response()
