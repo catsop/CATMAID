@@ -8,6 +8,7 @@ from django.db import IntegrityError
 from django.conf import settings
 
 from catmaid.models import *
+from catmaid.control.authentication import *
 from catmaid.control.stack import get_stack_info
 from models import *
 
@@ -965,6 +966,54 @@ def geometry_bound(area_geometry):
     """
     return (area_geometry.bounds[0], area_geometry.bounds[1]), (area_geometry.bounds[2], area_geometry.bounds[3])
 
+
+def slice_erase_geometry(slices, slices_geometry, erase_geometry):
+
+    out_slices = []
+    out_geometry = []
+
+    for slice, geom in zip(slices, slices_geometry):
+        diff_geom = geom.difference(erase_geometry)
+        '''
+        3 Cases, sort of.
+        Case 1: erase_geometry totally encloses geom. diff_geom is a GeometryCollection and
+                diff_geom.geoms is an empty array
+        Case 2: geom/erase_geometry results in a single polygon. diff_geom is a Polygon, which has no
+                geoms field.
+        Case 3: geom/erase_geometry results in multiple polygons. diff_geom is a MultiPolygon and
+                diff_geom.geoms contains a nonempty array of Polygons.
+        '''
+        if diff_geom.geom_type == 'Polygon':
+
+            # Case 2 from above. Insert the single polygon into the db.
+            diff_slice = create_slice(diff_geom,
+                                      slice.assembly, slice.stack, slice.project, slice.section)
+            slice.delete()
+            diff_slice.save()
+
+            out_slices.append(diff_slice)
+            out_geometry.append(diff_geom)
+        else:
+            npoly = len(diff_geom.geoms)
+            if npoly == 0:
+                # Case 1 from above. Simply erase the existing polygon
+                slice.delete()
+            else:
+                # Case 3 from above.
+                assembly = slice.assembly
+                stack = slice.stack
+                project = slice.project
+                section = slice.section
+                slice.delete()
+
+                for geom in diff_geom.geoms:
+                    diff_slice = create_slice(geom, assembly, stack, project, section)
+                    diff_slice.save()
+                    out_slices.append(diff_slice)
+                    out_geometry.append(geom)
+
+    return out_slices, out_geometry
+
 def slice_merge_geometry(slices, slices_geometry, merge_geometry):
     """
     Merges the merge_geometry to the geometries stored in overlapping slices.
@@ -1112,7 +1161,7 @@ def create_slice(area_geometry, assembly, stack, project, section):
     x, y = slice_field_from_geometry(area_geometry.exterior)
 
     if assembly is None:
-        user = models.User.objects.get(pk=1)
+        user = User.objects.get(pk=1)
     else:
         user = assembly.user
 
@@ -1168,6 +1217,7 @@ def assemblies_to_dict(assemblies):
 
     return assembly_dicts
 
+@requires_user_role([UserRole.Browse])
 def user_list_assemblies(request, project_id=None, stack_id=None):
     """
     List Assemblies for the given stack, including id, name, type, color and opacity.
@@ -1183,6 +1233,7 @@ def user_list_assemblies(request, project_id=None, stack_id=None):
 
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def user_create_assembly(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     u = User.objects.get(pk=1)
@@ -1197,16 +1248,34 @@ def user_create_assembly(request, project_id=None, stack_id=None):
 
     return HttpResponse(json.dumps({'assemblies': assembly_dicts}), mimetype='text/json')
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def user_insert_slice(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     p = get_object_or_404(Project, pk=project_id)
     try:
         section = int(request.POST.get('section'))
         assembly_id = int(request.POST.get('assembly_id'))
+
         assembly = Assembly.objects.get(pk=assembly_id)
         area_geometry = parse_area_geometry(request.POST)
         ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
         ovlp_hashes = [ovlp_slice.hash_value for ovlp_slice in ovlp_slices]
+
+        rClose = request.POST.get('close')
+        rCloseAll = request.POST.get('closeAll')
+
+        if rClose is not None:
+            close = rClose == 'true'
+        else:
+            close = False
+
+        if rCloseAll is not None:
+            closeAll = rCloseAll == 'true'
+        else:
+            closeAll = False
+
+        print 'Got close:', rClose
+
 
         if len(ovlp_slices) > 0:
             slice, area_geometry = slice_merge_geometry(ovlp_slices, ovlp_geometry, area_geometry)
@@ -1224,6 +1293,38 @@ def user_insert_slice(request, project_id=None, stack_id=None):
         print 'assembly_id', request.POST.get('assembly_id')
         return error_response()
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
+def user_erase(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    p = get_object_or_404(Project, pk=project_id)
+    try:
+        section = int(request.POST.get('section'))
+        assembly_id = int(request.POST.get('assembly_id'))
+        assembly = Assembly.objects.get(pk=assembly_id)
+        area_geometry = parse_area_geometry(request.POST)
+        ovlp_slices, ovlp_geometry = slices_by_overlap_and_assembly(area_geometry, assembly, section, s)
+        ovlp_hashes = [ovlp_slice.hash_value for ovlp_slice in ovlp_slices]
+
+        if len(ovlp_slices) > 0:
+            slices, slices_geometry = slice_erase_geometry(ovlp_slices, ovlp_geometry, area_geometry)
+            slices_dict = [slice_client_dict(slice, geom, assembly_id=assembly_id)
+                           for slice in slices
+                           for geom in slices_geometry]
+            ovlp_hashes.append(request.POST.get('id'))
+
+            return HttpResponse(json.dumps({'slices': slices_dict,
+                                            'assemblies': assemblies_to_dict([assembly]),
+                                            'section': section,
+                                            'replace_ids': ovlp_hashes}))
+        else:
+            return HttpResponse(json.dumps({'slices': [],
+                                            'assemblies': assemblies_to_dict([assembly]),
+                                            'section': section,
+                                            'replace_ids': [request.POST.get('id')]}))
+    except:
+        return error_response()
+
+@requires_user_role([UserRole.Browse])
 def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None):
     #stack = get_object_or_404(Stack, pk=stack_id)
     #project = get_object_or_404(Project, pk=project_id)
@@ -1232,6 +1333,7 @@ def polygon_slice_by_hash(request, project_id=None, stack_id=None, slice_id=None
     svg = shapely_polygon_to_svg(area_geometry)
     return HttpResponse(svg, mimetype='image/svg+xml')
 
+@requires_user_role([UserRole.Browse])
 def user_slices_assemblies_in_bound(request, project_id=None, stack_id=None):
     stack = get_object_or_404(Stack, pk=stack_id)
     #p = get_object_or_404(Project, pk=project_id)
@@ -1248,10 +1350,11 @@ def user_slices_assemblies_in_bound(request, project_id=None, stack_id=None):
         slices_dict = {'ids': hashes, 'assembly_ids': assembly_ids}
         assembly_dicts = assemblies_to_dict(assemblies)
 
-        return HttpResponse(json.dumps({'slices': slices_dict, 'assemblies': assembly_dicts, 'section' : section}))
+        return HttpResponse(json.dumps({'slices': slices_dict, 'assemblies': assembly_dicts, 'section': section}))
     except:
         return error_response()
 
+@requires_user_role([UserRole.Browse])
 def user_slice_geometry_by_hash(request, project_id=None, stack_id=None):
     stack = get_object_or_404(Stack, pk=stack_id)
     try:

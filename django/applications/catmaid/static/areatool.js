@@ -25,7 +25,9 @@ Slice: This is the Sopnet name for what we call a Trace, and therefore also the 
 var AreaServerModel = new function()
 {
     var areaTools = [];
-    var django_url = '/sopnet/';
+    var self = this;
+
+    this.sopnet_url = django_url + 'sopnet/';
 
     this.defaultColor = '#0000ff';
     this.defaultOpacity = 0.5;
@@ -34,7 +36,7 @@ var AreaServerModel = new function()
      * Close a hole in a trace at a given location
      * @param stack the current stack
      * @param assemblyId the id of the assembly to which this trace will be added
-     * @param location the location of the hole to be closed, like
+     * @param location the location of the hole to be closed, in screen coordinates, like
      *  {x: 100, y: 205.5}
      * @param all true to close all holes, false to close only the hole that was clicked on.
      * @param callback a function to be called with the data returned by ajax.
@@ -47,7 +49,7 @@ var AreaServerModel = new function()
         var x = location.x / scale + view_left;
         var y = location.y / scale + view_top;
 
-        var url = django_url + project.id + '/stack/' + stack.id + '/close_hole';
+        var url = self.sopnet_url + project.id + '/stack/' + stack.id + '/close_hole';
 
         var data = {'x': x,
             'y': y,
@@ -60,7 +62,7 @@ var AreaServerModel = new function()
             "dataType": 'json',
             "type": 'POST',
             "cache": false,
-            "url": django_url + project.id + '/stack/' + stack.id + url,
+            "url": self.sopnet_url + project.id + '/stack/' + stack.id + url,
             "data": data,
             "success": callback
         });
@@ -73,9 +75,11 @@ var AreaServerModel = new function()
      * @param brushWidth the width, or diameter, of the brush
      * @param assemblyId the id of the assembly to which this trace will be added
      * @param objectContainer the container holding the fabric path object
-     * @param opts a set of options, with the following mandatory fields:
-     *      autoClose - set true to ignore holes
-     *      mode - 'paint' or 'erase'
+     * @param mode - 'paint' or 'erase'
+     * @param opts a set of options, with the following optional fields:
+     *      close - set true to ignore holes
+     *      closeAll - set true to remove holes from the resulting merge, as well.
+     *      opts is ignored for erase mode.
      * @param callback a function to be called with the data returned by ajax.
      */
     this.pushTrace = function(stack, brushWidth, assemblyId, objectContainer, opts, callback)
@@ -111,16 +115,71 @@ var AreaServerModel = new function()
             'top': o_top,
             'scale' : scale,
             'view_left': view_left,
-            'view_top' : view_top,
-            'auto_close': opts.autoClose,
-            'mode': opts.mode
+            'view_top' : view_top
+        };
+
+        if (opts)
+        {
+            data.close = opts.close;
+            data.closeAll = opts.closeAll;
+        }
+        else
+        {
+            data.close = false;
+            data.closeAll = false;
+        }
+
+        $.ajax({
+            "dataType": 'json',
+            "type": 'POST',
+            "cache": false,
+            "url": self.sopnet_url + project.id + '/stack/' + stack.id + url,
+            "data": data,
+            "success": callback
+        });
+    };
+
+    this.erase = function(stack, brushWidth, assemblyId, objectContainer, callback)
+    {
+        var x = [];
+        var y = [];
+        var pts = [];
+        var obj = objectContainer.obj;
+        var project = stack.getProject();
+        var view_top = stack.screenPosition().top;
+        var view_left = stack.screenPosition().left;
+        var scale = stack.scale;
+        var url = '/erase';
+        var bound_rect = obj.getBoundingRect();
+        var o_left = (bound_rect.left + (brushWidth / 2.0)) / scale + view_left;
+        var o_top = (bound_rect.top + (brushWidth / 2.0)) / scale + view_top;
+        var r = brushWidth / (2.0 * scale);
+
+        for (var i = 0; i < obj.path.length; ++i)
+        {
+            x.push(obj.path[i][1] / scale);
+            y.push(obj.path[i][2] / scale);
+            pts.push({x: obj.path[i][1], y: obj.path[i][2]});
+        }
+
+        var data = {'r' : r, //r, x, y in stack coordinates
+            'x' : x,
+            'y' : y,
+            'section' : stack.z,
+            'id' : objectContainer.id,
+            'assembly_id' : assemblyId,
+            'left': o_left,
+            'top': o_top,
+            'scale' : scale,
+            'view_left': view_left,
+            'view_top' : view_top
         };
 
         $.ajax({
             "dataType": 'json',
             "type": 'POST',
             "cache": false,
-            "url": django_url + project.id + '/stack/' + stack.id + url,
+            "url": self.sopnet_url + project.id + '/stack/' + stack.id + url,
             "data": data,
             "success": callback
         });
@@ -135,7 +194,7 @@ var AreaServerModel = new function()
         var yMax = yMin + stack.viewHeight / stack.scale;
         var section = stack.z;
 
-        var url = django_url + project.id + '/stack/' + stack.id + '/slices_in_view';
+        var url = self.sopnet_url + project.id + '/stack/' + stack.id + '/slices_in_view';
 
         var data = {'x_min' : xMin,
             'y_min' : yMin,
@@ -156,7 +215,7 @@ var AreaServerModel = new function()
     this.retrieveTraces = function(ids, stack, callback)
     {
         var project = stack.getProject();
-        var url = django_url + project.id + '/stack/' + stack.id + '/polygon_slices';
+        var url = self.sopnet_url + project.id + '/stack/' + stack.id + '/polygon_slices';
 
         var data = {'id' : ids};
 
@@ -173,7 +232,7 @@ var AreaServerModel = new function()
     this.createNewAssembly = function(stack, name, type, callback)
     {
         var project = stack.getProject();
-        var url = django_url + project.id + '/stack/' + stack.id + '/create_new_assembly';
+        var url = self.sopnet_url + project.id + '/stack/' + stack.id + '/create_new_assembly';
 
         var data = {'name' : name,
             'type': type};
@@ -191,7 +250,7 @@ var AreaServerModel = new function()
     this.retrieveAreas = function(stack, callback, dataIn)
     {
         var project = stack.getProject();
-        var url = django_url + project.id + '/stack/' + stack.id + '/list_assemblies';
+        var url = self.sopnet_url + project.id + '/stack/' + stack.id + '/list_assemblies';
         var data;
 
         if (dataIn)
@@ -405,33 +464,6 @@ function Area(name, assemblyId, canvasIn, viewProps)
         }
         self.removeObjects(rmKeys);
     };
-
-    this.containsPointBitmapTest = function(obj)
-    {
-        var rect = obj.getBoundingRect();
-        var pt = new fabric.Point(0, 0);
-        var str = '[';
-
-
-        for (var y = 0; y < rect.height; ++y)
-        {
-            for (var x = 0; x < rect.width; ++x) {
-                pt.setXY(x + rect.left, y + rect.top);
-                if (obj.containsPoint(pt)) {
-                    str += pt.x + ' ' + pt.y + ' 1; ';
-                }
-                else
-                {
-                    str += pt.x + ' ' + pt.y + ' 0; ';
-                }
-            }
-
-        }
-
-        str += '];';
-
-        console.log(str);
-    };
 }
 
 
@@ -460,7 +492,7 @@ function AreaTool()
 {
     this.prototype = new Navigator();
     this.toolname = "Area Tracing Tool";
-    this.width = 10;
+
     // Replaced when register() is called
     this.stack = null;
     this.lastPos = null;
@@ -481,6 +513,9 @@ function AreaTool()
             closeAll: false},
         fill: {closeAll: false}
     };
+
+    var paintWidth = 10;
+    var eraseWidth = 10;
 
     // The following three objects hold per-mode delegate mouse event handlers
     // For instance, handleMouseDown['paint'] is a function to handle mouse-down events in
@@ -504,6 +539,14 @@ function AreaTool()
     var uiChange = function(){};
 
     var proto_mouseCatcher = null;
+    var paintBrush = new fabric.Circle();
+    var eraserBrush = new fabric.Circle();
+
+
+    paintBrush.setOriginX('center');
+    paintBrush.setOriginY('center');
+    eraserBrush.setOriginX('center');
+    eraserBrush.setOriginY('center');
 
     var isPainting = function()
     {
@@ -514,13 +557,23 @@ function AreaTool()
     {
         var canvas = self.canvasLayer.canvas;
         canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-        canvas.freeDrawingBrush.width = self.width;
-        self.canvasLayer.canvas.isDrawingMode = true;
+        canvas.freeDrawingBrush.width = paintWidth;
+        canvas.isDrawingMode = true;
+        if (currentArea)
+        {
+            canvas.freeDrawingBrush.color = currentArea.color;
+        }
+
+        updatePaintBrush();
+
     };
 
     var leavePaintingMode = function()
     {
         self.canvasLayer.canvas.isDrawingMode = false;
+        proto_mouseCatcher.style.cursor = 'default';
+
+        paintBrush.opacity = 0;
     };
 
     var enterEraserMode = function()
@@ -528,39 +581,29 @@ function AreaTool()
         var canvas = self.canvasLayer.canvas;
 
         var brush = new fabric.PatternBrush(canvas);
-        brush.getPatternSrc = function() {
+        var texture = new Image();
+        texture.src = django_url + 'static/widgets/themes/kde/hatch.png';
 
-            var patternCanvas = fabric.document.createElement('canvas');
-            patternCanvas.width = patternCanvas.height = 10;
-            var ctx = patternCanvas.getContext('2d');
-
-            ctx.strokeStyle = this.color;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, 5);
-            ctx.lineTo(10, 5);
-            ctx.closePath();
-            ctx.stroke();
-
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(5, 0);
-            ctx.lineTo(5, 10);
-            ctx.closePath();
-            ctx.stroke();
-
-            return patternCanvas;
-        };
-
-        brush.width = self.width;
+        brush.source = texture;
+        brush.width = paintWidth;
 
         canvas.freeDrawingBrush = brush;
 
+        proto_mouseCatcher.style.cursor = 'none';
+
+        eraserBrush.setRadius(eraseWidth / 2.0);
+        eraserBrush.fill = '';
+        eraserBrush.stroke = 'rgb(255,0,0)';
+        eraserBrush.strokeWidth = 2;
+        eraserBrush.bringToFront();
     };
 
     var leaveEraserMode = function()
     {
         self.canvasLayer.canvas.isDrawingMode = false;
+        proto_mouseCatcher.style.cursor = 'default';
+
+        eraserBrush.opacity = 0;
     };
 
     var setSelectMode = function()
@@ -606,13 +649,13 @@ function AreaTool()
         var canvas = self.canvasLayer.canvas;
 
         canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
-        canvas.freeDrawingBrush.width = self.width;
+        canvas.freeDrawingBrush.width = paintWidth;
         canvas.isDrawingMode = true;
 
         canvas.on('path:created', function(e){
             if (currentArea != null)
             {
-                self.registerFreshFabricObject(e.path);
+                self.handleCreatePath(e.path);
             }
         });
 
@@ -621,6 +664,9 @@ function AreaTool()
 
         self.canvasLayer.view.onmousedown = self.onmousedown;
         self.canvasLayer.view.onmouseup = self.onmouseup;
+
+        self.canvasLayer.canvas.add(paintBrush);
+        self.canvasLayer.canvas.add(eraserBrush);
     };
 
     var currentZ = function()
@@ -749,6 +795,7 @@ function AreaTool()
         {
             var areaData = data.assemblies;
             var traceData = data.slices;
+            var replaceIds = data.replace_ids;
             var idx;
             var section = data.section;
 
@@ -759,17 +806,57 @@ function AreaTool()
 
             for (idx = 0; idx < traceData.ids.length; ++idx)
             {
-
-
-
                 if (!checkAreaAndTrace(traceData.assembly_ids[idx], traceData.ids[idx]))
                 {
                     readSVGAreaFromURL(traceData.ids[idx], traceData.assembly_ids[idx], section);
                 }
             }
+
+            if (replaceIds)
+            {
+
+                // TODO: be smarter than this.
+                for (var idx2 = 0; idx2 < areaData.length; ++idx2)
+                {
+                    for (idx = 0; idx < replaceIds.length; ++idx)
+                    {
+                        var rmObj = self.getArea(areaData[idx2]).removeObject(replaceIds[idx]);
+
+                        if (rmObj)
+                        {
+                            self.canvasLayer.canvas.remove(rmObj);
+                        }
+                    }
+                }
+            }
         }
 
     };
+
+    var updatePaintBrush = function()
+    {
+        if (currentArea == null)
+        {
+            proto_mouseCatcher.style.cursor = 'default';
+            paintBrush.opacity = 0;
+        }
+        else
+        {
+            proto_mouseCatcher.style.cursor = 'none';
+            paintBrush.setRadius(paintWidth / 2.0);
+            paintBrush.fill = currentArea.color;
+            paintBrush.opacity = currentArea.opacity;
+            paintBrush.bringToFront();
+
+            if (toolMode == 'paint')
+            {
+                self.canvasLayer.canvas.freeDrawingBrush.color = currentArea.color;
+                self.canvasLayer.canvas.freeDrawingBrush.opacity = currentArea.opacity;
+            }
+        }
+    };
+
+
 
     var setupMouseHandlers = function()
     {
@@ -791,7 +878,6 @@ function AreaTool()
 
         handleMouseDown['select'] = function(e)
         {
-            g_e = e;
             var areas = self.areasAtScreenPoint(e);
 
             if (areas.length == 1)
@@ -820,13 +906,17 @@ function AreaTool()
 
                 areaNameSelect.css({width: 300});
 
-                $.blockUI({message: selectAreaDiv, css: {width: 300, top: e.offsetY, left: e.offsetX}});
+                $.blockUI({message: selectAreaDiv, css: {width: 300, top: e.offsetY,
+                    left: e.offsetX}});
             }
         };
 
         handleMouseDown['fill'] = function(e)
         {
+            var loc = {x: e.offsetX, y: e.offsetY};
 
+            self.closeHole(self.stack, currentArea.assembly_id, loc,
+                toolOptions['fill']['closeAll'], pushTraceCallback);
         };
 
         handleMouseDown['stamp'] = function(e)
@@ -899,6 +989,33 @@ function AreaTool()
         }
     }));
 
+    this.setPaintWidth = function(w)
+    {
+        paintWidth = w;
+        paintBrush.setRadius(w / 2.0);
+        if (toolMode == 'paint')
+        {
+            self.canvasLayer.canvas.renderAll();
+            self.canvasLayer.canvas.freeDrawingBrush.width = w;
+        }
+    };
+
+    this.getPaintWidth = function()
+    {
+        return paintWidth;
+    };
+
+    this.setEraseWidth = function(w)
+    {
+        eraseWidth = w;
+        eraserBrush.setRadius(w / 2.0);
+        if (toolMode == 'erase')
+        {
+            self.canvasLayer.canvas.renderAll();
+            self.canvasLayer.canvas.freeDrawingBrush.width = w;
+        }
+    };
+
     this.getAreas = function()
     {
         return areas;
@@ -906,6 +1023,20 @@ function AreaTool()
 
     this.onmousemove = function(e)
     {
+        // If this isn't here, then the Circle brush doesn't line up with the freedraw stroke.
+        // I'm not sure why.
+        var magicOffset = 4;
+
+        paintBrush.left = e.offsetX - magicOffset;
+        paintBrush.top = e.offsetY - magicOffset;
+        eraserBrush.left = e.offsetX - magicOffset;
+        eraserBrush.top = e.offsetY - magicOffset;
+
+        if (toolMode == 'erase' || toolMode == 'paint')
+        {
+            self.canvasLayer.canvas.renderAll();
+        }
+
         if (e.button == 0 && isPainting())
         {
             self.canvasLayer.canvas._onMouseMoveInDrawingMode(e);
@@ -1044,6 +1175,18 @@ function AreaTool()
         return objectContainer;
     };
 
+    this.handleCreatePath = function(obj)
+    {
+        if (toolMode == 'paint')
+        {
+            self.registerFreshFabricObject(obj);
+        }
+        else
+        {
+            self.eraseByPath(obj);
+        }
+    };
+
     /**
      * Register a fabric.js Object to an Area
      *
@@ -1062,8 +1205,18 @@ function AreaTool()
         obj.on('mouse:down', objectMouseDown);
         area.addObjectContainer(objectContainer);
 
-        AreaServerModel.pushTrace(self.stack, self.width, currentArea.assemblyId,
-            objectContainer, {autoClose: false, mode: toolMode}, pushTraceCallback);
+        AreaServerModel.pushTrace(self.stack, paintWidth, area.assemblyId,
+            objectContainer, toolOptions['paint'], pushTraceCallback);
+    };
+
+    this.eraseByPath = function(obj, areaIn)
+    {
+        var area = self.getArea(areaIn);
+        var objectContainer = new FabricObjectContainer(obj, self.stack.scale,
+            self.stack.screenPosition(), self.stack.z, nextId++);
+
+        AreaServerModel.erase(self.stack, eraseWidth, area.assemblyId, objectContainer,
+            slicesCallback);
     };
 
 
@@ -1150,6 +1303,11 @@ function AreaTool()
         if (currentArea != null)
         {
             currentArea.setColor(color);
+            if (toolMode == 'paint')
+            {
+                self.canvasLayer.canvas.freeDrawingBrush.color = color;
+                updatePaintBrush();
+            }
         }
     };
 
@@ -1158,6 +1316,7 @@ function AreaTool()
         if (currentArea != null)
         {
             currentArea.setOpacity(opacity);
+            updatePaintBrush();
         }
     };
 
@@ -1201,6 +1360,34 @@ function AreaTool()
         return toolModeNames[mode];
     };
 
+    /**
+     * Set tool-specific options. These are defined by the toolOptions variable.
+     *
+     * @param mode - the tool mode for which to set the option. Currently only 'paint' and 'fill'
+     *               are accepted.
+     * @param option - the option to set, these may be:
+     *   paint: close - set true to ignore holes in new traces.
+     *          closeAll - set true to also remove holes in any resulting merges with existing
+     *                     traces.
+     *   fill: closeAll - set true to remove all holes from a clicked trace, false to remove only
+     *                    a clicked hole.
+     * @param value - true or false
+     */
+    this.setToolOption = function(mode, option, value)
+    {
+        if (toolOptions.hasOwnProperty(mode))
+        {
+            var opts = toolOptions[mode];
+            if (opts.hasOwnProperty(option))
+            {
+                opts[option] = value;
+                return;
+            }
+        }
+
+        console.log('Could not find option for ' + mode + ', ' + option);
+    };
+
     this.hasAreaWithId = function(id)
     {
         return assemblyTable.hasOwnProperty(id);
@@ -1214,6 +1401,8 @@ function AreaTool()
         }
 
         currentArea = area;
+
+        updatePaintBrush();
     };
 
     this.addArea = function(area)
@@ -1352,10 +1541,15 @@ AreaTraceWidget.prototype.init = function(space) {
         console.log(this.checked);
     };
 
-    var setBrushSize = function()
+    var setPaintBrushSize = function()
     {
-        console.log(this.val);
+        tool.setPaintWidth(this.val);
     };
+
+    var setEraserSize = function()
+    {
+        tool.setEraseWidth(this.val);
+    }
 
     var setFillMode = function()
     {
@@ -1374,7 +1568,7 @@ AreaTraceWidget.prototype.init = function(space) {
         var sliderDiv = $('<div id="area_paint_size_slider" />');
 
         var brushSizeSlider  = new Slider(SLIDER_HORIZONTAL, true, 1, maxBrushSize, maxBrushSize,
-            16, setBrushSize);
+            16, setPaintBrushSize);
         var autoFillCheckbox = createCheckboxHelper('Automatically Close Holes', setAutoClose);
 
         var closeDiv = $('<div id="paint_close_option"</div>');
@@ -1410,7 +1604,7 @@ AreaTraceWidget.prototype.init = function(space) {
         var sliderDiv = $('<div id="area_erase_size_slider" />');
 
         var brushSizeSlider  = new Slider(SLIDER_HORIZONTAL, true, 1, maxBrushSize, maxBrushSize,
-            16, setBrushSize);
+            16, setEraserSize);
 
         sliderDiv.append('Brush Size').append('<br>');
         sliderDiv.append(brushSizeSlider.getView());
