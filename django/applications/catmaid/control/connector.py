@@ -6,7 +6,6 @@ from django.db.models import Count
 from django.shortcuts import get_object_or_404
 
 from catmaid.models import *
-from catmaid.fields import Double3D
 from catmaid.control.authentication import *
 from catmaid.control.common import *
 
@@ -21,19 +20,19 @@ def graphedge_list(request, project_id=None):
     edge = {}
     connectordata = {}
 
-    qs_tc = TreenodeConnector.objects.filter( 
-        project=p, 
+    qs_tc = TreenodeConnector.objects.filter(
+        project=p,
         skeleton__in=skeletonlist ).select_related('relation__relation_name', 'connector__user', 'connector')
 
     for q in qs_tc:
         if not q.connector_id in edge:
             # has to be a list, not a set, because we need matching treenode id
             edge[ q.connector_id ] = {'pre': [], 'post': [], 'pretreenode': [], 'posttreenode': []}
-            connectordata[ q.connector_id ] = { 
+            connectordata[ q.connector_id ] = {
                 'connector_id': q.connector_id,
-                'x': q.connector.location.x,
-                'y': q.connector.location.y,
-                'z': q.connector.location.z,
+                'x': q.connector.location_x,
+                'y': q.connector.location_y,
+                'z': q.connector.location_z,
                 'user': q.connector.user.username }
 
         if q.relation.relation_name == 'presynaptic_to':
@@ -42,7 +41,7 @@ def graphedge_list(request, project_id=None):
         elif q.relation.relation_name == 'postsynaptic_to':
             edge[ q.connector_id ]['post'].append( q.skeleton_id )
             edge[ q.connector_id ]['posttreenode'].append( q.treenode_id )
-    
+
     result = []
     for k,v in edge.items():
      if skeletonlist[0] in v['pre'] and skeletonlist[1] in v['post']:
@@ -55,8 +54,14 @@ def graphedge_list(request, project_id=None):
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def one_to_many_synapses(request, project_id=None):
     """ Return the list of synapses of a specific kind between one skeleton and a list of other skeletons. """
+    if 'skid' not in request.POST:
+        raise ValueError("No skeleton ID for 'one' provided")
     skid = int(request.POST.get('skid'));
+
     skids = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('skids['))
+    if not skids:
+        raise ValueError("No skeleton IDs for 'many' provided")
+
     relation_name = request.POST.get('relation') # expecting presynaptic_to or postsynaptic_to
     if 'postsynaptic_to' == relation_name or 'presynaptic_to' == relation_name:
         pass
@@ -64,9 +69,11 @@ def one_to_many_synapses(request, project_id=None):
         raise Exception("Cannot accept a relation named '%s'" % relation_name)
     cursor = connection.cursor();
     cursor.execute('''
-    SELECT tc1.connector_id, c.location,
-           tc1.treenode_id, tc1.skeleton_id, tc1.confidence, u1.username, t1.location,
-           tc2.treenode_id, tc2.skeleton_id, tc2.confidence, u2.username, t2.location
+    SELECT tc1.connector_id, c.location_x, c.location_y, c.location_y,
+           tc1.treenode_id, tc1.skeleton_id, tc1.confidence, u1.username,
+           t1.location_x, t1.location_y, t1.location_z,
+           tc2.treenode_id, tc2.skeleton_id, tc2.confidence, u2.username,
+           t2.location_x, t2.location_y, t2.location_z
     FROM treenode_connector tc1,
          treenode_connector tc2,
          treenode t1,
@@ -86,14 +93,16 @@ def one_to_many_synapses(request, project_id=None):
       AND tc2.treenode_id = t2.id
       AND tc1.user_id = u1.id
       AND tc2.user_id = u2.id
-    ''' % (skid, ','.join(str(d) for d in skids), relation_name))
+    ''' % (skid, ','.join(map(str, skids)), relation_name))
 
     def parse(loc):
         return tuple(imap(float, loc[1:-1].split(',')))
 
-    rows = tuple((row[0], parse(row[1]),
-                  row[2], row[3], row[4], row[5], parse(row[6]),
-                  row[7], row[8], row[9], row[10], parse(row[11])) for row in cursor.fetchall())
+    rows = tuple((row[0], (row[1], row[2], row[3]),
+                  row[4], row[5], row[6], row[7],
+                  (row[8], row[9], row[10]),
+                  row[11], row[12], row[13], row[14],
+                  (row[15], row[16], row[17])) for row in cursor.fetchall())
 
     return HttpResponse(json.dumps(rows))
 
@@ -143,17 +152,17 @@ def list_connector(request, project_id=None):
             connector.id AS connector_id,
             tn_other.user_id AS connector_user_id,
             treenode_user.username AS connector_username,
-            (connector.location).x AS connector_x,
-            (connector.location).y AS connector_y,
-            (connector.location).z AS connector_z,
+            connector.location_x AS connector_x,
+            connector.location_y AS connector_y,
+            connector.location_z AS connector_z,
             tn_other.id AS other_treenode_id,
-            (tn_other.location).x AS other_treenode_x,
-            (tn_other.location).y AS other_treenode_y,
-            (tn_other.location).z AS other_treenode_z,
+            tn_other.location_x AS other_treenode_x,
+            tn_other.location_y AS other_treenode_y,
+            tn_other.location_z AS other_treenode_z,
             tn_other.skeleton_id AS other_skeleton_id,
-            (tn_this.location).x AS this_treenode_x,
-            (tn_this.location).y AS this_treenode_y,
-            (tn_this.location).z AS this_treenode_z,
+            tn_this.location_x AS this_treenode_x,
+            tn_this.location_y AS this_treenode_y,
+            tn_this.location_z AS this_treenode_z,
             tn_this.id AS this_treenode_id,
             tc_this.relation_id AS this_to_connector_relation_id,
             tc_other.relation_id AS connector_to_other_relation_id,
@@ -202,9 +211,9 @@ def list_connector(request, project_id=None):
             connector.id AS connector_id,
             connector.user_id AS connector_user_id,
             connector_user.username AS connector_username,
-            (connector.location).x AS connector_x,
-            (connector.location).y AS connector_y,
-            (connector.location).z AS connector_z,
+            connector.location_x AS connector_x,
+            connector.location_y AS connector_y,
+            connector.location_z AS connector_z,
             tn_this.id AS this_treenode_id,
             tc_this.relation_id AS this_to_connector_relation_id,
             to_char(connector.edition_time, 'DD-MM-YYYY HH24:MI') AS last_modified
@@ -338,7 +347,7 @@ def _connector_skeletons(connector_ids, project_id):
     SELECT connector_id, relation_id, skeleton_id
     FROM treenode_connector
     WHERE connector_id IN (%s)
-    ''' % ",".join(str(cid) for cid in connector_ids))
+    ''' % ",".join(map(str, connector_ids)))
 
     cs = {}
     for row in cursor.fetchall():
@@ -384,7 +393,7 @@ def _connector_associated_edgetimes(connector_ids, project_id):
     SELECT connector_id, relation_id, skeleton_id, treenode_id, creation_time
     FROM treenode_connector
     WHERE connector_id IN (%s)
-    ''' % ",".join(str(cid) for cid in connector_ids))
+    ''' % ",".join(map(str, connector_ids)))
 
     cs = {}
     for row in cursor.fetchall():
@@ -431,12 +440,13 @@ def create_connector(request, project_id=None):
     if parsed_confidence < 1 or parsed_confidence > 5:
         return HttpResponse(json.dumps({'error': 'Confidence not in range 1-5 inclusive.'}))
 
-    location = Double3D(x=float(query_parameters['x']), y=float(query_parameters['y']), z=float(query_parameters['z']))
     new_connector = Connector(
         user=request.user,
         editor=request.user,
         project=Project.objects.get(id=project_id),
-        location=location,
+        location_x=float(query_parameters['x']),
+        location_y=float(query_parameters['y']),
+        location_z=float(query_parameters['z']),
         confidence=parsed_confidence)
     new_connector.save()
 

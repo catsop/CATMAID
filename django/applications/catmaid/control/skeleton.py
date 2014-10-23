@@ -49,7 +49,7 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
 
     # Select all nodes and their tags
     cursor.execute('''
-    SELECT t.id, t.parent_id, t.location, ci.name
+    SELECT t.id, t.parent_id, t.location_x, t.location_y, t.location_z, ci.name
     FROM treenode t LEFT OUTER JOIN (treenode_class_instance tci INNER JOIN class_instance ci ON tci.class_instance_id = ci.id AND tci.relation_id = %s) ON t.id = tci.treenode_id
     WHERE t.skeleton_id = %s
     ''' % (labeled_as, int(skeleton_id)))
@@ -64,14 +64,14 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
             tree.add_edge(row[1], nodeID)
         else:
             tree.add_node(nodeID)
-        tree.node[nodeID]['loc'] = row[2]
-        if row[3]:
+        tree.node[nodeID]['loc'] = (row[2], row[3], row[4])
+        if row[5]:
             props = tree.node[nodeID]
             tags = props.get('tags')
             if tags:
-                tags.append(row[3])
+                tags.append(row[5])
             else:
-                props['tags'] = [row[3]]
+                props['tags'] = [row[5]]
 
     if tnid not in tree:
         raise Exception("Could not find %s in skeleton %s" % (tnid, int(skeleton_id)))
@@ -362,7 +362,9 @@ def split_skeleton(request, project_id=None):
     _annotate_entities(project_id, [new_neuron.id], downstream_annotation_map)
 
     # Log the location of the node at which the split was done
-    insert_into_log( project_id, request.user.id, "split_skeleton", treenode.location, "Split skeleton with ID {0} (neuron: {1})".format( skeleton_id, neuron.name ) )
+    location = (treenode.location_x, treenode.location_y, treenode.location_z)
+    insert_into_log(project_id, request.user.id, "split_skeleton", location,
+                    "Split skeleton with ID {0} (neuron: {1})".format( skeleton_id, neuron.name ) )
 
     return HttpResponse(json.dumps({}), mimetype='text/json')
 
@@ -374,9 +376,9 @@ def root_for_skeleton(request, project_id=None, skeleton_id=None):
         skeleton_id=skeleton_id)
     return HttpResponse(json.dumps({
         'root_id': tn.id,
-        'x': tn.location.x,
-        'y': tn.location.y,
-        'z': tn.location.z}),
+        'x': tn.location_x,
+        'y': tn.location_y,
+        'z': tn.location_z}),
         mimetype='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -471,7 +473,7 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
       AND t1.relation_id = %s
       AND t1.connector_id = t2.connector_id
       AND t2.relation_id = %s
-    ''' % (','.join(str(skid) for skid in skeleton_ids), int(relation_id_1), int(relation_id_2)))
+    ''' % (','.join(map(str, skeleton_ids)), int(relation_id_1), int(relation_id_2)))
 
     # Sum the number of synapses
     for srcID, partnerID in cursor.fetchall():
@@ -492,7 +494,7 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
         return partners
 
     # Obtain a string with unique skeletons
-    skids_string = ','.join(str(x) for x in partners.iterkeys())
+    skids_string = ','.join(map(str, partners.iterkeys()))
 
     # Count nodes of each partner skeleton
     cursor.execute('''
@@ -660,8 +662,9 @@ def reroot_skeleton(request, project_id=None):
     try:
         if treenode:
             response_on_error = 'Failed to log reroot.'
+            location = (treenode.location_x, treenode.location_y, treenode.location_z)
             insert_into_log(project_id, request.user.id, 'reroot_skeleton',
-                            treenode.location, 'Rerooted skeleton for '
+                            location, 'Rerooted skeleton for '
                             'treenode with ID %s' % treenode.id)
             return HttpResponse(json.dumps({'newroot': treenode.id}))
         # Else, already root
@@ -865,8 +868,10 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
         _update_neuron_annotations(project_id, user, from_neuron['neuronid'],
                 annotation_map)
 
+        from_location = (from_treenode.location_x, from_treenode.location_y,
+                         from_treenode.location_z)
         insert_into_log(project_id, user.id, 'join_skeleton',
-                from_treenode.location, 'Joined skeleton with ID %s (neuron: ' \
+                from_location, 'Joined skeleton with ID %s (neuron: ' \
                 '%s) into skeleton with ID %s (neuron: %s, annotations: %s)' % \
                 (to_skid, to_neuron['neuronname'], from_skid,
                         from_neuron['neuronname'], ', '.join(annotation_map.keys())))
@@ -947,7 +952,7 @@ def fetch_treenodes(request, project_id=None, skeleton_id=None, with_reviewers=N
     return HttpResponse(json.dumps(treenode_data))
 
 
-@requires_user_role(UserRole.Annotate)
+@requires_user_role(UserRole.Browse)
 def annotation_list(request, project_id=None):
     """ Returns a JSON serialized object that contains information about the
     given skeletons.
@@ -958,31 +963,47 @@ def annotation_list(request, project_id=None):
     metaannotations = bool(int(request.POST.get("metaannotations", 0)))
     neuronnames = bool(int(request.POST.get("neuronnames", 0)))
 
+    if not skeleton_ids:
+        raise ValueError("No skeleton IDs provided")
+
     classes = dict(Class.objects.filter(project_id=project_id).values_list('class_name', 'id'))
     relations = dict(Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id'))
 
-    annotation_query = ClassInstance.objects.filter(project_id=project_id,
-            class_column__id=classes['annotation'])
+    cursor = connection.cursor()
 
-    # Query for annotations of the given skeletons
-    annotation_query = annotation_query.filter(
-            cici_via_b__relation_id = relations['annotated_with'],
-            cici_via_b__class_instance_a__cici_via_b__relation_id = relations['model_of'],
-            cici_via_b__class_instance_a__cici_via_b__class_instance_a__id__in = skeleton_ids)
+    # Create a map of skeleton IDs to neuron IDs
+    cursor.execute("""
+        SELECT cici.class_instance_a, cici.class_instance_b
+        FROM class_instance_class_instance cici
+        WHERE cici.project_id = %s AND
+              cici.relation_id = %s AND
+              cici.class_instance_a IN (%s)
+    """ % (project_id, relations['model_of'],
+           ','.join(map(str, skeleton_ids))))
+    n_to_sk_ids = {n:s for s,n in cursor.fetchall()}
+    neuron_ids = n_to_sk_ids.keys()
 
-    # Request only skeleton ID, annotation ID, annotation Name
-    annotation_query = annotation_query.values_list(
-        'cici_via_b__class_instance_a__cici_via_b__class_instance_a',
-        'cici_via_b__user__id',
-        'id',
-        'name')
+    # Query for annotations of the given skeletons, specifically
+    # neuron_id, auid, aid and aname.
+    cursor.execute("""
+        SELECT cici.class_instance_a AS neuron_id, cici.user_id AS auid,
+               cici.class_instance_b AS aid, ci.name AS aname
+        FROM class_instance_class_instance cici INNER JOIN
+             class_instance ci ON cici.class_instance_b = ci.id
+        WHERE cici.relation_id = %s AND
+              cici.class_instance_a IN (%s) AND
+              ci.class_id = %s
+    """ % (relations['annotated_with'],
+           ','.join(map(str, neuron_ids)),
+           classes['annotation']))
 
     # Build result dictionaries: one that maps annotation IDs to annotation
     # names and another one that lists annotation IDs and annotator IDs for
     # each skeleton ID.
     annotations = {}
     skeletons = {}
-    for skid, auid, aid, aname in annotation_query:
+    for row in cursor.fetchall():
+        skid, auid, aid, aname = n_to_sk_ids[row[0]], row[1], row[2], row[3]
         if aid not in annotations:
             annotations[aid] = aname
         skeleton = skeletons.get(skid)
@@ -1002,34 +1023,34 @@ def annotation_list(request, project_id=None):
 
     # If wanted, get the neuron name of each skeleton
     if neuronnames:
-        neuronnames_query = ClassInstanceClassInstance.objects.filter(
-                relation=relations['model_of'],
-                project=project_id,
-                class_instance_a__in=skeleton_ids) \
-                        .select_related("class_instance_b") \
-                        .values_list("class_instance_a", "class_instance_b__name")
-        response['neuronnames'] = dict(neuronnames_query)
+        cursor.execute("""
+            SELECT ci.id, ci.name
+            FROM class_instance ci
+            WHERE ci.id IN (%s)
+        """ % (','.join(map(str, neuron_ids))))
+        response['neuronnames'] = {n_to_sk_ids[n]:name for n,name in cursor.fetchall()}
 
     # If wanted, get the meta annotations for each annotation
     if metaannotations:
-        # Get only annotations of the given project
-        metaannotation_query = ClassInstance.objects.filter(project_id=project_id,
-                class_column__id=classes['annotation'])
-
-        # Query for meta annotations on the given annotations
-        metaannotation_query = metaannotation_query.filter(
-                cici_via_b__relation_id=relations['annotated_with'],
-                cici_via_b__class_instance_a__in=annotations.keys())
-
-        # Request only ID of annotated annotation, annotator ID, meta
+        # Request only ID of annotated annotations, annotator ID, meta
         # annotation ID, meta annotation Name
-        metaannotation_query = metaannotation_query.values_list(
-            'cici_via_b__class_instance_a', 'cici_via_b__user__id',
-            'id', 'name')
+        cursor.execute("""
+            SELECT cici.class_instance_a AS aid, cici.user_id AS auid,
+                   cici.class_instance_b AS maid, ci.name AS maname
+            FROM class_instance_class_instance cici INNER JOIN
+                 class_instance ci ON cici.class_instance_b = ci.id
+            WHERE cici.project_id = %s AND
+                  cici.relation_id = %s AND
+                  cici.class_instance_a IN (%s) AND
+                  ci.class_id = %s
+        """ % (project_id, relations['annotated_with'],
+               ','.join(map(str, annotations.keys())),
+               classes['annotation']))
 
         # Add this to the response
         metaannotations = {}
-        for aaid, auid, maid, maname in metaannotation_query:
+        for row in cursor.fetchall():
+            aaid, auid, maid, maname = row[0], row[1], row[2], row[3]
             if maid not in annotations:
                 annotations[maid] = maname
             annotation = metaannotations.get(aaid)

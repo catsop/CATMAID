@@ -1,3 +1,6 @@
+/* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
+/* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+
 "use strict";
 
 var InstanceRegistry = function() {
@@ -389,9 +392,9 @@ AnnotationCache.prototype.push = function(annotationList) {
       // Nothing to do, if the annotation is already known.
     } else {
       // If only the ID or the name is known, something is odd.
-      throw "Annotation already known with different id/name"
+      throw "Annotation already known with different id/name";
     }
-  }, this)
+  }, this);
 };
 
 var annotations = new AnnotationCache();
@@ -522,7 +525,7 @@ var fetchSkeletons = function(skeleton_ids, fnMakeURL, fnPost, fnLoadedOne, fnFa
             });
       };
   if (skeleton_ids.length > 1) {
-    $.blockUI({message: '<img src="' + STATIC_URL_JS + 'widgets/busy.gif" /> <h2>Loading skeletons <div id="counting-loaded-skeletons">0 / ' + skeleton_ids.length + '</div></h2>'});
+    $.blockUI({message: '<img src="' + STATIC_URL_JS + 'images/busy.gif" /> <h2>Loading skeletons <div id="counting-loaded-skeletons">0 / ' + skeleton_ids.length + '</div></h2>'});
   }
   if (skeleton_ids.length > 0) {
     loadOne(skeleton_ids[0]);
@@ -583,7 +586,7 @@ ArborParser.prototype.tree = function(rows) {
     if (paren) arbor.edges[node] = paren;
     else arbor.root = node;
     positions[node] = new THREE.Vector3(row[3], row[4], row[5]);
-  };
+  }
 
   this.arbor = arbor;
   this.positions = positions;
@@ -703,4 +706,460 @@ ArborParser.prototype.collapseArtifactualBranches = function(tags) {
             if (n_outputs > 0) this.outputs[node] = n_outputs;
         }
     }
+};
+
+
+var SVGUtil = {};
+
+/** Insert a pie chart into the div.
+ * title (optional): the text to place on top.
+ * entries: an array of key/value maps. Order matters. Like:
+ * [{name: "Apples", value: 10},
+ *  {name: "Pears", value: 15},
+ *  {name: "Oranges", value: 3}].
+ */
+SVGUtil.insertPieChart = function(divID, radius, entries, title) {
+	var extra = title ? 30 : 0;
+  var arc = d3.svg.arc()
+    .outerRadius(radius - 10)
+    .innerRadius(0);
+  var pie = d3.layout.pie()
+    .sort(null)
+    .value(function(d) { return d.value; });
+  var svg = d3.select(divID).append("svg")
+    .attr("width", radius * 2)
+    .attr("height", radius * 2 + extra)
+    .append("g")
+    .attr("transform", "translate(" + radius + "," + (radius + extra) + ")");
+  svg.selectAll(".arc")
+    .data(pie(entries))
+    .enter()
+    .append("g")
+    .attr("class", "arc")
+    .append("path")
+    .attr("d", arc)
+    .style("fill", function(d) { return d.data.color; });
+  // Prevent arcs from clipping text labels by creating new 'g' elements for each label
+  svg.selectAll(".arc-label")
+    .data(pie(entries))
+    .enter()
+    .append("g")
+    .attr("class", "arc-label")
+    .append("text")
+    .attr("transform", function(d) { return "translate(" + arc.centroid(d) + ")"; })
+    .attr("dy", ".35em")
+    .style("text-anchor", "middle")
+    .text(function(d) { return d.data.name; });
+	if (title) {
+		svg.append("text")
+			.attr("x", 0)
+			.attr("y", -radius)
+			.style("text-anchor", "middle")
+			.style("font-size", "16px") 
+			.style("text-decoration", "underline")
+			.text(title);
+	}
+
+  return svg;
+};
+
+/** names: an array of names.
+ *  data: an array of arrays of {series: <name>, count: <number>}.
+ *  colors: an array of hex strings. */
+SVGUtil.insertMultipleBarChart = function(
+		container, id,
+		cwidth, cheight,
+		x_label, y_label,
+		names, data,
+		colors, x_axis_labels) {
+	// The SVG element representing the plot
+	var margin = {top: 20, right: 20, bottom: 30, left: 40},
+			width = cwidth - margin.left - margin.right,
+			height = cheight - margin.top - margin.bottom;
+
+	var svg = d3.select(container).append("svg")
+			.attr("id", id) // already has widgetID in it
+			.attr("width", width + margin.left + margin.right)
+			.attr("height", height + margin.top + margin.bottom)
+			.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+	// Define the data domains/axes
+	var x0 = d3.scale.ordinal().rangeRoundBands([0, width], .1);
+	var x1 = d3.scale.ordinal();
+	var y = d3.scale.linear().range([height, 0]);
+	var xAxis = d3.svg.axis().scale(x0)
+													 .orient("bottom");
+	// "d" means integer, see
+	// https://github.com/mbostock/d3/wiki/Formatting#wiki-d3_format
+	var yAxis = d3.svg.axis().scale(y)
+													 .orient("left")
+													 .tickFormat(d3.format("d"));
+
+	// Define the ranges of the axes
+	// x0: For the counts
+	x0.domain(x_axis_labels);
+	// x1: For the indices of the series within count bin
+	x1.domain(names).rangeRoundBands([0, x0.rangeBand()]);
+	// y: up to the maximum bin count
+	var max_count = data.reduce(function(c, block) {
+		return block.reduce(function(c, d) {
+			return Math.max(c, d.count);
+		}, c);
+	}, 0);
+	y.domain([0, max_count]);
+
+	// Color for the bar chart bars
+	var color = d3.scale.ordinal().range(colors);
+
+	// Insert the data
+	var state = svg.selectAll(".state")
+			.data(data)
+		.enter().append('g')
+			.attr('class', 'g')
+			// x0(i+1) has d +1 because the array is 0-based
+			.attr('transform', function(d, i) { return "translate(" + x0(i+1) + ", 0)"; });
+
+	// Define how each bar of the bar chart is drawn
+	state.selectAll("rect")
+			.data(function(block) { return block; })
+		.enter().append("rect")
+			.attr("width", x1.rangeBand())
+			.attr("x", function(d) { return x1(d.series); })
+			.attr("y", function(d) { return y(d.count); })
+			.attr("height", function(d) { return height - y(d.count); })
+			.style("fill", function(d, i) { return colors[i]; /*color(d.series);*/ });
+
+	// Insert the graphics for the axes (after the data, so that they draw on top)
+	svg.append("g")
+			.attr("class", "x axis")
+			.attr("transform", "translate(0," + height + ")")
+			.call(xAxis)
+		.append("text")
+			.attr("x", width)
+			.attr("y", -6)
+			.style("text-anchor", "end")
+			.text(x_label);
+
+	svg.append("g")
+			.attr("class", "y axis")
+			.call(yAxis)
+		.append("text")
+			.attr("transform", "rotate(-90)")
+			.attr("y", 6)
+			.attr("dy", ".71em")
+			.style("text-anchor", "end")
+			.text(y_label);
+
+	// The legend: which series is which
+	var legend = svg.selectAll(".legend")
+			.data(names)
+		.enter().append("g")
+			.attr("class", "legend")
+			.attr("transform", function(d, i) { return "translate(0," + i * 20 + ")"; });
+
+	legend.append("rect")
+			.attr("x", width - 18)
+			.attr("width", 18)
+			.attr("height", 18)
+			.style("fill", color);
+
+	legend.append("text")
+			.attr("x", width - 24)
+			.attr("y", 9)
+			.attr("dy", ".35em")
+			.style("text-anchor", "end")
+			.text(function(d) { return d; });
+};
+
+/** Fix export formatting issues by explicitly defining SVG properties. */
+SVGUtil.setAxisProperties = function(c) {
+	c.selectAll("path")
+		.attr("fill", "none")
+		.attr("stroke", "black")
+		.attr("stroke-width", "1");
+	c.selectAll("line")
+		.attr("fill", "none")
+		.attr("stroke", "black")
+		.attr("stroke-width", "1");
+};
+
+/** As many names|colors|x_axis_labels as data. */
+SVGUtil.insertMultipleBarChart2 = function(
+    container, id,
+    cwidth, cheight,
+    x_label, y_label,
+    data,
+    names, colors,
+    x_axis_labels, rotate_x_axis_labels,
+    show_legend) {
+
+  var n = data.length,
+      layers = data.map(function(series, i) {
+        return Object.keys(series).map(function(key, k) {
+          return {x: k, y: series[key]};
+        });
+      }),
+      m = layers[0].length,
+      yGroupMax = d3.max(layers, function(layer) { return d3.max(layer, function(d) { return d.y; }); });
+
+  var margin = {top: 20, right: 20, bottom: 50, left: 40},
+      width = cwidth - margin.left - margin.right,
+      height = cheight - margin.top - margin.bottom;
+
+  var x = d3.scale.ordinal()
+    .domain(d3.range(m))
+    .rangeRoundBands([0, width], .08);
+
+  var y = d3.scale.linear()
+    .domain([0, yGroupMax])
+    .range([height, 0]);
+
+  var xAxis = d3.svg.axis()
+    .scale(x)
+    .tickFormat(function(d, i) { return x_axis_labels[i]; })
+    .orient("bottom");
+
+  var yAxis = d3.svg.axis()
+    .scale(y)
+    .orient("left")
+    .tickFormat(d3.format("d"));
+
+  var svg = d3.select(container).append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+      .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+  var layer = svg.selectAll(".layer")
+      .data(layers)
+    .enter().append("g")
+      .attr("class", "layer")
+      .style("fill", function(d, i) { return colors[i]; });
+
+  var rect = layer.selectAll("rect")
+      .data(function(series) { return series; })
+    .enter().append("rect")
+      .attr("x", function(d, i, j) { return x(d.x) + x.rangeBand() / n * j; })
+      .attr("width", x.rangeBand() / n)
+      .attr("y", function(d) { return y(d.y); })
+      .attr("height", function(d) { return height - y(d.y); });
+
+  // Insert the graphics for the axes (after the data, so that they draw on top)
+  var callx = svg.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height + ")")
+      .call(xAxis);
+
+  if (rotate_x_axis_labels) {
+    callx.selectAll("text")
+        .style("text-anchor", "end")
+        .attr("dx", "-.8em")
+        .attr("dy", ".15em")
+        .attr("transform", function(d) { return "rotate(-65)" });
+  }
+
+	SVGUtil.setAxisProperties(callx);
+
+  // Append after having transformed the tick labels
+  callx.append("text")
+      .attr("x", width)
+      .attr("y", -6)
+      .style("text-anchor", "end")
+      .text(x_label);
+
+  var cally = svg.append("g")
+      .attr("class", "y axis")
+      .call(yAxis);
+
+	SVGUtil.setAxisProperties(cally);
+
+  cally.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 6)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .text(y_label);
+
+  // The legend: which series is which
+	if (show_legend) {
+		var legend = svg.selectAll(".legend")
+				.data(names)
+			.enter().append("g")
+				.attr("class", "legend")
+				.attr("transform", function(d, i) { return "translate(0," + i * 20 + ")"; });
+
+		legend.append("rect")
+				.attr("x", width - 18)
+				.attr("width", 18)
+				.attr("height", 18)
+				.style("fill", function(d, i) { return colors[i]; });
+
+		legend.append("text")
+				.attr("x", width - 24)
+				.attr("y", 9)
+				.attr("dy", ".35em")
+				.style("text-anchor", "end")
+				.text(function(d) { return d; });
+	}
+};
+
+/** entries: array of {x: 10, y: 20, color: "#123456", name: "aha"} where "name" is optional--signal so by making with_names true.
+ * onclick: a function that gets a single entry as argument, called when a circle is clicked.
+ * series: an array of {name: "neuron name", color: "#123456"} to show as legend. */
+SVGUtil.insertXYScatterPlot = function(
+    container, id,
+    width, height,
+    xTitle, yTitle,
+    entries,
+    onclick,
+    series,
+    with_names, with_tooltip_text) {
+
+  var margin = {top: 20, right: 100, bottom: 50, left: 50},
+      width = width - margin.left - margin.right,
+      height = height - margin.top - margin.bottom;
+
+  var extract = function(key) {
+    return function(e) { return e[key]; };
+  };
+  var xR = d3.scale.linear()
+    .domain(d3.extent(entries.map(extract('x'))))
+    .nice()
+    .range([0, width]);
+  var yR = d3.scale.linear()
+    .domain(d3.extent(entries.map(extract('y'))))
+    .nice()
+    .range([height, 0]);
+  var xAxis = d3.svg.axis()
+    .scale(xR)
+    .orient("bottom")
+    .ticks(10);
+  var yAxis = d3.svg.axis()
+    .scale(yR)
+    .orient("left")
+    .ticks(10);
+
+  var svg = d3.select(container).append("svg")
+      .attr("id", id)
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+      .attr("transform", "translate(" + margin.left + ", " + margin.top + ")");
+
+  // Add an invisible layer to enable triggering zoom from anywhere, and panning
+  svg.append("rect")
+    .attr("width", width)
+    .attr("height", height)
+    .style("opacity", "0");
+
+  // Function that maps from data domain to plot coordinates
+  var transform = function(d) {
+    return "translate(" + xR(d.x) + "," + yR(d.y) + ")";
+  };
+
+  var elems = svg.selectAll(".state")
+    .data(entries).enter()
+    .append('g')
+    .attr('transform', transform);
+
+  var zoomed = function() {
+    // Prevent panning beyond limits
+    var translate = zoom.translate(),
+        scale = zoom.scale(),
+        tx = Math.min(0, Math.max(width * (1 - scale), translate[0])),
+        ty = Math.min(0, Math.max(height * (1 - scale), translate[1]));
+
+    zoom.translate([tx, ty]);
+
+    // Scale as well the axes
+    svg.select(".x.axis").call(xAxis);
+    svg.select(".y.axis").call(yAxis);
+
+    elems.attr('transform', transform);
+  };
+
+  var zoom = d3.behavior.zoom().x(xR).y(yR).scaleExtent([1, 100]).on("zoom", zoomed);
+  // Assign the zooming behavior to the encapsulating root group
+  svg.call(zoom);
+
+  elems.append('circle')
+    .attr('class', 'dot')
+    .attr('r', '3')
+    .style('fill', function(d) { return d.color; })
+    .style('stroke', 'grey');
+
+  if (onclick) elems.on('click', function(d) { if (onclick) onclick(d); });
+
+  if (with_names) {
+    elems.append('text')
+      .text(function(d) { return d.name; })
+      .attr('id', 'name')
+      .attr('dx', '5');
+  }
+  if (with_tooltip_text) {
+     elems.append('svg:title')
+     .text(function(d) { return d.name; });
+  }
+
+  // Insert the graphics for the axes (after the data, so that they draw on top)
+  var xg = svg.append("g")
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + height + ")")
+      .attr("fill", "none")
+      .attr("stroke", "black")
+      .style("shape-rendering", "crispEdges")
+      .call(xAxis);
+  xg.selectAll("text")
+      .attr("fill", "black")
+      .attr("stroke", "none");
+  xg.append("text")
+      .attr("x", width)
+      .attr("y", -6)
+      .attr("fill", "black")
+      .attr("stroke", "none")
+      .attr("font-family", "sans-serif")
+      .attr("font-size", "11px")
+      .style("text-anchor", "end")
+      .text(xTitle);
+
+  var yg = svg.append("g")
+      .attr("class", "y axis")
+      .attr("fill", "none")
+      .attr("stroke", "black")
+      .style("shape-rendering", "crispEdges")
+      .call(yAxis);
+  yg.selectAll("text")
+      .attr("fill", "black")
+      .attr("stroke", "none");
+  yg.append("text")
+      .attr("fill", "black")
+      .attr("stroke", "none")
+      .attr("transform", "rotate(-90)")
+      .attr("font-family", "sans-serif")
+      .attr("font-size", "11px")
+      .attr("y", 6)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .text(yTitle);
+
+  // The legend: which series is which
+  var legend = svg.selectAll(".legend")
+      .data(series)
+    .enter().append("g")
+      .attr("class", "legend")
+      .attr("transform", function(d, i) { return "translate(0," + i * 20 + ")"; });
+
+  legend.append("rect")
+      .attr("x", width + 10)
+      .attr("width", 18)
+      .attr("height", 18)
+      .style("fill", function(d) { return d.color; });
+
+  legend.append("text")
+      .attr("x", width + 34)
+      .attr("y", 9)
+      .attr("dy", ".35em")
+      .style("text-anchor", "left")
+      .text(function(d) { return d.name; });
 };

@@ -54,18 +54,32 @@ class Project(models.Model):
 class Stack(models.Model):
     class Meta:
         db_table = "stack"
-    title = models.TextField()
-    dimension = Integer3DField()
-    resolution = Double3DField()
-    image_base = models.TextField()
-    comment = models.TextField(blank=True, null=True)
-    trakem2_project = models.BooleanField(default=False)
-    num_zoom_levels = models.IntegerField(default=-1)
-    file_extension = models.TextField(default='jpg', blank=True)
-    tile_width = models.IntegerField(default=256)
-    tile_height = models.IntegerField(default=256)
-    tile_source_type = models.IntegerField(default=1)
-    metadata = models.TextField(default='', blank=True)
+    title = models.TextField(help_text="Descriptive title of this stack.")
+    dimension = Integer3DField(help_text="The pixel dimensionality of the "
+            "stack.")
+    resolution = Double3DField(help_text="The resolution of the stack in "
+            "nanometers.")
+    image_base = models.TextField(help_text="Fully qualified URL where the "
+            "tile data can be found.")
+    comment = models.TextField(blank=True, null=True,
+            help_text="A comment that describes the image data.")
+    trakem2_project = models.BooleanField(default=False,
+            help_text="Is TrakEM2 the source of this stack?")
+    num_zoom_levels = models.IntegerField(default=-1,
+            help_text="The number of zoom levels a stack has data for. A "
+            "value of -1 lets CATMAID dynamically determine the actual value "
+            "so that at this value the largest extent (X or Y) won't be "
+            "smaller than 1024 pixels. Values larger -1 will be used directly.")
+    file_extension = models.TextField(default='jpg', blank=True,
+            help_text="The file extension of the data files.")
+    tile_width = models.IntegerField(default=256,
+            help_text="The width of one tile.")
+    tile_height = models.IntegerField(default=256,
+            help_text="The height of one tile.")
+    tile_source_type = models.IntegerField(default=1,
+            help_text="This represents how the tile data is organized.")
+    metadata = models.TextField(default='', blank=True,
+            help_text="Arbitrary text that is displayed alongside the stack.")
     tags = TaggableManager(blank=True)
 
     def __unicode__(self):
@@ -368,10 +382,8 @@ class UserFocusedManager(models.Manager):
         else:
             # Get the projects that the user can see.
             adminProjects = get_objects_for_user(user, 'can_administer', Project)
-            print >> sys.stderr, 'user is admin for ', str(adminProjects)
             otherProjects = get_objects_for_user(user, ['can_annotate', 'can_browse'], Project, any_perm = True)
             otherProjects = [a for a in otherProjects if a not in adminProjects]
-            print >> sys.stderr, 'user has access to ', str(otherProjects)
 
             # Now filter to the data to which the user has access.
             return fullSet.filter(Q(project__in = adminProjects) | (Q(project__in = otherProjects) & Q(user = user)))
@@ -413,13 +425,17 @@ class Location(UserFocusedModel):
     class Meta:
         db_table = "location"
     editor = models.ForeignKey(User, related_name='location_editor', db_column='editor_id')
-    location = Double3DField()
+    location_x = models.FloatField()
+    location_y = models.FloatField()
+    location_z = models.FloatField()
 
 class Treenode(UserFocusedModel):
     class Meta:
         db_table = "treenode"
     editor = models.ForeignKey(User, related_name='treenode_editor', db_column='editor_id')
-    location = Double3DField()
+    location_x = models.FloatField()
+    location_y = models.FloatField()
+    location_z = models.FloatField()
     parent = models.ForeignKey('self', null=True, related_name='children')
     radius = models.FloatField()
     confidence = models.IntegerField(default=5)
@@ -430,7 +446,9 @@ class Connector(UserFocusedModel):
     class Meta:
         db_table = "connector"
     editor = models.ForeignKey(User, related_name='connector_editor', db_column='editor_id')
-    location = Double3DField()
+    location_x = models.FloatField()
+    location_y = models.FloatField()
+    location_z = models.FloatField()
     confidence = models.IntegerField(default=5)
 
 
@@ -481,7 +499,9 @@ class RegionOfInterest(UserFocusedModel):
     class Meta:
         db_table = "region_of_interest"
     # Repeat the columns inherited from 'location'
-    location = Double3DField()
+    location_x = models.FloatField()
+    location_y = models.FloatField()
+    location_z = models.FloatField()
     # Now new columns:
     stack = models.ForeignKey(Stack)
     zoom_level = models.IntegerField()
@@ -694,8 +714,8 @@ class DataView(models.Model):
         db_table = "data_view"
         ordering = ('position',)
         permissions = (
-            ("can_administer", "Can administer data views"),
-            ("can_browse", "Can browse data views")
+            ("can_administer_dataviews", "Can administer data views"),
+            ("can_browse_dataviews", "Can browse data views")
         )
     title = models.TextField()
     data_view_type = models.ForeignKey(DataViewType)
