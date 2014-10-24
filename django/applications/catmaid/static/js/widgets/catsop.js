@@ -145,14 +145,16 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
       {hash: slice.hash},
       jsonResponseHandler((function (json) {
         var self = this;
-        json.conflict.forEach(function (conflict_set) {
-          conflict_set.conflict_hashes.forEach(function (conflict_hash) {
-            if (conflict_hash !== slice.hash) {
-              var conflictSlice = self.getSliceRowByHash(conflict_hash);
-              self.layers.forEach(function (layer) {
-                layer.addSlice(conflictSlice, 'conflict');
-              });
-            }
+        json.conflict.forEach(function (conflictSet) {
+          conflictSet.conflict_hashes
+              .map(self.getSliceRowByHash.bind(self))
+              .filter(function (s) {return s !== undefined;})
+              .forEach(function (conflictSlice) {
+                  if (conflictSlice.hash !== slice.hash) {
+                    self.layers.forEach(function (layer) {
+                      layer.addSlice(conflictSlice, 'conflict');
+                    });
+                  }
           });
         });
       }).bind(this)));

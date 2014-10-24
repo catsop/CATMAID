@@ -3,6 +3,7 @@ import math
 import sys
 
 from numpy import int64, uint64
+from collections import namedtuple
 
 from django.http import HttpResponse
 
@@ -57,7 +58,7 @@ def id_to_hash(id_int64):
 
 # --- JSON conversion ---
 def slice_dict(slice, with_conflicts=False, with_solution=False):
-    sd = {'assembly' : slice.assembly,
+    sd = {'assembly_id' : slice.assembly_id,
           'hash' : id_to_hash(slice.id),
           'section' : slice.section,
           'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
@@ -66,11 +67,10 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
           'mask' : static(str(slice.id) + '.png')}
 
     if with_conflicts:
-        sd['conflicts'] = ','.join(map(id_to_hash, list(slice.conflicts_as_a.values_list('slice_b_id', flat=True)) +
-                                                   list(slice.conflicts_as_b.values_list('slice_a_id', flat=True))))
+        sd['conflicts'] = ','.join(map(id_to_hash, slice.conflict_slice_ids))
 
     if with_solution:
-        sd['in_solution'] = slice.in_solution()
+        sd['in_solution'] = slice.in_solution
 
     return sd
 
@@ -484,16 +484,51 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
 def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     try:
-        block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
+        block_ids = ','.join([str(int(id)) for id in safe_split(request.POST.get('block_ids'), 'block IDs')])
 
-        conflict_slices_ids = SliceConflictSet.objects \
-		      .filter(blockconflictrelation__block__in=block_ids) \
-		      .values_list('slice_a_id', 'slice_b_id')
-        # Flatten the nested list of slice IDs
-        conflict_slices_ids = [slice_id for row in conflict_slices_ids for slice_id in row]
-        slices = Slice.objects.filter(sliceblockrelation__block__in=block_ids) |\
-                 Slice.objects.filter(id__in=conflict_slices_ids)
-        slices.prefetch_related('conflicts_as_a', 'conflicts_as_b')
+        cursor = connection.cursor()
+        cursor.execute('''
+                SELECT
+                  s.id, s.assembly_id, s.section,
+                  s.min_x, s.min_y, s.max_x, s.max_y,
+                  s.ctr_x, s.ctr_y, s.value,
+                  ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
+                  ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
+                  ARRAY_AGG(DISTINCT ss.id) AS segment_ids,
+                  ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
+                FROM djsopnet_slice s
+                JOIN (SELECT sbr.slice_id
+                        FROM djsopnet_sliceblockrelation sbr
+                        WHERE sbr.block_id IN (%(block_ids)s)
+                      UNION SELECT scs_cbr_a.slice_a_id AS slice_id
+                        FROM djsopnet_blockconflictrelation bcr
+                        JOIN djsopnet_sliceconflictset scs_cbr_a ON (scs_cbr_a.id = bcr.conflict_id)
+                        WHERE bcr.block_id IN (%(block_ids)s)
+                      UNION SELECT scs_cbr_b.slice_b_id AS slice_id
+                        FROM djsopnet_blockconflictrelation bcr
+                        JOIN djsopnet_sliceconflictset scs_cbr_b ON (scs_cbr_b.id = bcr.conflict_id)
+                        WHERE bcr.block_id IN (%(block_ids)s)) AS block_and_conflicts
+                  ON (block_and_conflicts.slice_id = s.id)
+                LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
+                LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
+                JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
+                LEFT JOIN djsopnet_segmentsolution ssol ON (ssol.segment_id = ss.segment_id)
+                GROUP BY s.id
+            ''' % {'block_ids': block_ids})
+
+        cols = [col[0] for col in cursor.description]
+
+        SliceTuple = namedtuple('SliceTuple', cols + ['conflict_slice_ids', 'in_solution'])
+
+        def row_to_namedtuple(row):
+            rowdict = dict(zip(cols, row))
+            rowdict.update({
+                    'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
+                    'in_solution': any(rowdict['in_solution_core_ids'])
+                })
+            return SliceTuple(**rowdict)
+
+        slices = [row_to_namedtuple(row) for row in cursor.fetchall()]
 
         return generate_slices_response(slices=slices,
                 with_conflicts=True, with_solutions=True)
