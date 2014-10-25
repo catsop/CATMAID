@@ -42,9 +42,9 @@
                'width': w,
                'height': h,
                'depth': d,
-               'cwidth': cw,
-               'cheight': ch,
-               'cdepth': cd
+               'core_dim_x': cw,
+               'core_dim_y': ch,
+               'core_dim_z': cd
             }
           }).success(function(data) {
             return $log.info("Successfully set up stack " + sid + " of project " +

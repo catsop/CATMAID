@@ -79,30 +79,29 @@ class SegmentSlice(models.Model):
 class Block(models.Model):
     stack = models.ForeignKey(Stack)
 
-    # bounding box
-    min_x = models.IntegerField(db_index=True)
-    min_y = models.IntegerField(db_index=True)
-    max_x = models.IntegerField(db_index=True)
-    max_y = models.IntegerField(db_index=True)
-    min_z = models.IntegerField(db_index=True)
-    max_z = models.IntegerField(db_index=True)
+    # coordinates
+    coordinate_x = models.IntegerField(db_index=True)
+    coordinate_y = models.IntegerField(db_index=True)
+    coordinate_z = models.IntegerField(db_index=True)
 
     slices_flag = models.BooleanField(default=False)
     segments_flag = models.BooleanField(default=False)
-    solution_cost_flag = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z')
 
 class Core(models.Model):
     stack = models.ForeignKey(Stack)
 
-    # bounding box
-    min_x = models.IntegerField(db_index=True)
-    min_y = models.IntegerField(db_index=True)
-    max_x = models.IntegerField(db_index=True)
-    max_y = models.IntegerField(db_index=True)
-    min_z = models.IntegerField(db_index=True)
-    max_z = models.IntegerField(db_index=True)
+    # coordinates
+    coordinate_x = models.IntegerField(db_index=True)
+    coordinate_y = models.IntegerField(db_index=True)
+    coordinate_z = models.IntegerField(db_index=True)
 
     solution_set_flag = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z')
 
 class SegmentSolution(models.Model):
     core = models.ForeignKey(Core)
@@ -130,20 +129,19 @@ class SegmentBlockRelation(models.Model):
         unique_together = ('block', 'segment')
 
 class BlockInfo(models.Model):
-    stack = models.ForeignKey(Stack)
+    stack = models.OneToOneField(Stack)
 
     # Block height, width, depth, measured units of pixels
-    bheight = models.IntegerField(default=256)
-    bwidth = models.IntegerField(default=256)
-    bdepth = models.IntegerField(default=16)
+    block_dim_x = models.IntegerField(default=256)
+    block_dim_y = models.IntegerField(default=256)
+    block_dim_z = models.IntegerField(default=16)
 
     # Core height, width, depth, measured in units of Blocks
-    cheight = models.IntegerField(default=1)
-    cwidth = models.IntegerField(default=1)
-    cdepth = models.IntegerField(default=1)
+    core_dim_x = models.IntegerField(default=1)
+    core_dim_y = models.IntegerField(default=1)
+    core_dim_z = models.IntegerField(default=1)
 
     # Number of blocks in x, y and z
-
     num_x = models.IntegerField(default=0)
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)

@@ -8,39 +8,103 @@ from django.db import models
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        # Ignore duplicate inserts of slice-slice associations to the conflict sets table
-        db.execute('''
-            CREATE OR REPLACE RULE djsopnet_blockconflictrelation_on_duplicate_ignore
-            AS ON INSERT TO djsopnet_blockconflictrelation
-            WHERE EXISTS (SELECT 1 FROM djsopnet_blockconflictrelation WHERE block_id=NEW.block_id AND conflict_id=NEW.conflict_id)
-            DO INSTEAD NOTHING
-        ''')
-        db.execute('''
-            CREATE OR REPLACE RULE djsopnet_sliceblockrelation_on_duplicate_ignore
-            AS ON INSERT TO djsopnet_sliceblockrelation
-            WHERE EXISTS (SELECT 1 FROM djsopnet_sliceblockrelation WHERE block_id=NEW.block_id AND slice_id=NEW.slice_id)
-            DO INSTEAD NOTHING
-        ''')
-        db.execute('''
-            CREATE OR REPLACE RULE djsopnet_sliceconflictset_on_duplicate_ignore
-            AS ON INSERT TO djsopnet_sliceconflictset
-            WHERE EXISTS (SELECT 1 FROM djsopnet_sliceconflictset WHERE slice_a_id=NEW.slice_a_id AND slice_b_id=NEW.slice_b_id)
-            DO INSTEAD NOTHING
-        ''')
+
+        def make_coordinate_non_nullable(table, dim):
+            db.execute('''
+                ALTER TABLE djsopnet_%(table)s ALTER COLUMN coordinate_%(dim)s SET NOT NULL;
+                ''' % locals())
+
+        for table in ['block', 'core']:
+            for dim in ['x', 'y', 'z']:
+                make_coordinate_non_nullable(table, dim)
+
+        # Deleting field 'Block.solution_cost_flag'
+        db.delete_column(u'djsopnet_block', 'solution_cost_flag')
+
+        # Adding unique constraint on 'Block', fields ['stack', 'coordinate_x', 'coordinate_y', 'coordinate_z']
+        db.create_unique(u'djsopnet_block', ['stack_id', 'coordinate_x', 'coordinate_y', 'coordinate_z'])
+
+
+        # Changing field 'BlockInfo.stack'
+        db.alter_column(u'djsopnet_blockinfo', 'stack_id', self.gf('django.db.models.fields.related.OneToOneField')(to=orm['catmaid.Stack'], unique=True))
+        # Adding unique constraint on 'BlockInfo', fields ['stack']
+        db.create_unique(u'djsopnet_blockinfo', ['stack_id'])
+
+        # Adding unique constraint on 'Core', fields ['stack', 'coordinate_x', 'coordinate_y', 'coordinate_z']
+        db.create_unique(u'djsopnet_core', ['stack_id', 'coordinate_x', 'coordinate_y', 'coordinate_z'])
+
+
+        # Deleting field 'Block.min_x'
+        db.delete_column(u'djsopnet_block', 'min_x')
+
+        # Deleting field 'Block.min_y'
+        db.delete_column(u'djsopnet_block', 'min_y')
+
+        # Deleting field 'Block.min_z'
+        db.delete_column(u'djsopnet_block', 'min_z')
+
+        # Deleting field 'Block.max_z'
+        db.delete_column(u'djsopnet_block', 'max_z')
+
+        # Deleting field 'Block.max_x'
+        db.delete_column(u'djsopnet_block', 'max_x')
+
+        # Deleting field 'Block.max_y'
+        db.delete_column(u'djsopnet_block', 'max_y')
+
+        # Deleting field 'Core.min_x'
+        db.delete_column(u'djsopnet_core', 'min_x')
+
+        # Deleting field 'Core.min_y'
+        db.delete_column(u'djsopnet_core', 'min_y')
+
+        # Deleting field 'Core.min_z'
+        db.delete_column(u'djsopnet_core', 'min_z')
+
+        # Deleting field 'Core.max_z'
+        db.delete_column(u'djsopnet_core', 'max_z')
+
+        # Deleting field 'Core.max_x'
+        db.delete_column(u'djsopnet_core', 'max_x')
+
+        # Deleting field 'Core.max_y'
+        db.delete_column(u'djsopnet_core', 'max_y')
 
     def backwards(self, orm):
-        db.execute('''
-            DROP RULE IF EXISTS djsopnet_blockconflictrelation_on_duplicate_ignore
-            ON djsopnet_blockconflictrelation
-        ''')
-        db.execute('''
-            DROP RULE IF EXISTS djsopnet_sliceblockrelation_on_duplicate_ignore
-            ON djsopnet_sliceblockrelation
-        ''')
-        db.execute('''
-            DROP RULE IF EXISTS djsopnet_sliceconflictset_on_duplicate_ignore
-            ON djsopnet_sliceconflictset
-        ''')
+        for table in ['block', 'core']:
+            for dim in ['x', 'y', 'z']:
+                for ext in ['min', 'max']:
+                    db.add_column('djsopnet_%s' % table, '%s_%s' % (ext,dim),
+                        self.gf('django.db.models.fields.IntegerField')(db_index=True, null=True))
+
+        def compute_block_min_max(dim):
+            db.execute('''
+                UPDATE djsopnet_block b SET min_%(dim)s = (
+                    SELECT (b.coordinate_%(dim)s)*(bi.block_dim_%(dim)s)
+                    FROM djsopnet_blockinfo bi
+                    WHERE bi.stack_id = b.stack_id);
+                UPDATE djsopnet_block b SET max_%(dim)s = (
+                    SELECT (b.coordinate_%(dim)s + 1)*(bi.block_dim_%(dim)s)
+                    FROM djsopnet_blockinfo bi
+                    WHERE bi.stack_id = b.stack_id);
+                ''' % locals())
+
+        def compute_core_min_max(dim):
+            db.execute('''
+                UPDATE djsopnet_core b SET min_%(dim)s = (
+                    SELECT (b.coordinate_%(dim)s)*(bi.core_dim_%(dim)s)*(bi.block_dim_%(dim)s)
+                    FROM djsopnet_blockinfo bi
+                    WHERE bi.stack_id = b.stack_id);
+                UPDATE djsopnet_core b SET max_%(dim)s = (
+                    SELECT (b.coordinate_%(dim)s + 1)*(bi.core_dim_%(dim)s)*(bi.block_dim_%(dim)s)
+                    FROM djsopnet_blockinfo bi
+                    WHERE bi.stack_id = b.stack_id);
+                ''' % locals())
+
+        for dim in ['x', 'y', 'z']:
+            compute_block_min_max(dim)
+            compute_core_min_max(dim)
+
 
     models = {
         u'auth.group': {
@@ -140,17 +204,13 @@ class Migration(SchemaMigration):
             'user': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['auth.User']"})
         },
         u'djsopnet.block': {
-            'Meta': {'object_name': 'Block'},
+            'Meta': {'unique_together': "(('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z'),)", 'object_name': 'Block'},
+            'coordinate_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
+            'coordinate_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
+            'coordinate_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'max_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'max_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'max_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'min_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'segments_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'slices_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
-            'solution_cost_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"})
         },
         u'djsopnet.blockconflictrelation': {
@@ -167,17 +227,17 @@ class Migration(SchemaMigration):
         },
         u'djsopnet.blockinfo': {
             'Meta': {'object_name': 'BlockInfo'},
-            'bdepth': ('django.db.models.fields.IntegerField', [], {'default': '16'}),
-            'bheight': ('django.db.models.fields.IntegerField', [], {'default': '256'}),
-            'bwidth': ('django.db.models.fields.IntegerField', [], {'default': '256'}),
-            'cdepth': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
-            'cheight': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
-            'cwidth': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
+            'block_dim_z': ('django.db.models.fields.IntegerField', [], {'default': '16'}),
+            'block_dim_y': ('django.db.models.fields.IntegerField', [], {'default': '256'}),
+            'block_dim_x': ('django.db.models.fields.IntegerField', [], {'default': '256'}),
+            'core_dim_x': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
+            'core_dim_y': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
+            'core_dim_z': ('django.db.models.fields.IntegerField', [], {'default': '1'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
             'num_x': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
             'num_y': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
             'num_z': ('django.db.models.fields.IntegerField', [], {'default': '0'}),
-            'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"})
+            'stack': ('django.db.models.fields.related.OneToOneField', [], {'to': u"orm['catmaid.Stack']", 'unique': 'True'})
         },
         u'djsopnet.constraint': {
             'Meta': {'object_name': 'Constraint'},
@@ -195,14 +255,11 @@ class Migration(SchemaMigration):
             'segment': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['djsopnet.Segment']"})
         },
         u'djsopnet.core': {
-            'Meta': {'object_name': 'Core'},
+            'Meta': {'unique_together': "(('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z'),)", 'object_name': 'Core'},
+            'coordinate_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
+            'coordinate_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
+            'coordinate_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
-            'max_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'max_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'max_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'min_x': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'min_y': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
-            'min_z': ('django.db.models.fields.IntegerField', [], {'db_index': 'True'}),
             'solution_set_flag': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'stack': ('django.db.models.fields.related.ForeignKey', [], {'to': u"orm['catmaid.Stack']"})
         },
@@ -290,4 +347,3 @@ class Migration(SchemaMigration):
     }
 
     complete_apps = ['djsopnet']
-

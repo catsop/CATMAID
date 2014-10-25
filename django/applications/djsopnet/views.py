@@ -100,9 +100,9 @@ def core_dict(core):
     return bd
 
 def block_info_dict(block_info, stack):
-    bid = {'block_size' : [block_info.bwidth, block_info.bheight, block_info.bdepth],
+    bid = {'block_size' : [block_info.block_dim_x, block_info.block_dim_y, block_info.block_dim_z],
            'count' : [block_info.num_x, block_info.num_y, block_info.num_z],
-           'core_size' : [block_info.cwidth, block_info.cheight, block_info.cdepth],
+           'core_size' : [block_info.core_dim_x, block_info.core_dim_y, block_info.core_dim_z],
            'stack_size' : [stack.dimension.x, stack.dimension.y, stack.dimension.z]}
     return bid
 
@@ -193,9 +193,9 @@ def setup_blocks(request, project_id = None, stack_id = None):
         height = int(request.GET.get('height'))
         depth = int(request.GET.get('depth'))
         # core height, width, and depth in blocks
-        corewib = int(request.GET.get('cwidth'))
-        corehib = int(request.GET.get('cheight'))
-        coredib = int(request.GET.get('cdepth'))
+        corewib = int(request.GET.get('core_dim_x'))
+        corehib = int(request.GET.get('core_dim_y'))
+        coredib = int(request.GET.get('core_dim_z'))
     except TypeError:
         return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), content_type='text/json')
     try:
@@ -229,36 +229,26 @@ def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
     except BlockInfo.DoesNotExist:
 
         info = BlockInfo(stack = s,
-                         bheight = height, bwidth = width, bdepth = depth,
-                         cheight = corehib, cwidth = corewib, cdepth = coredib,
+                         block_dim_y = height, block_dim_x = width, block_dim_z = depth,
+                         core_dim_y = corehib, core_dim_x = corewib, core_dim_z = coredib,
                          num_x = nx, num_y = ny, num_z = nz)
         info.save()
 
     # Create new Blocks
 
-    for z in range(0, s.dimension.z, depth):
-        for y in range(0, s.dimension.y, height):
-            for x in range(0, s.dimension.x, width):
-                x_ub = min(x + width, s.dimension.x)
-                y_ub = min(y + height, s.dimension.y)
-                z_ub = min(z + depth, s.dimension.z)
-                block = Block(stack=s, min_x = x, min_y = y, min_z = z,
-                              max_x = x_ub, max_y = y_ub, max_z = z_ub,
+    for z in range(0, nz):
+        for y in range(0, ny):
+            for x in range(0, nx):
+                block = Block(stack=s, coordinate_x=x, coordinate_y=y, coordinate_z=z,
                               slices_flag = False, segments_flag = False, solution_cost_flag = False)
                 # TODO: figure out how to use bulk_create instead.
                 block.save()
 
-    # Create new Cores
-    cWidth = width * corewib
-    cHeight = height * corehib
-    cDepth = depth * coredib
-    for z in range(0, s.dimension.z, cDepth):
-        for y in range(0, s.dimension.y, cHeight):
-            for x in range(0, s.dimension.x, cWidth):
-                x_ub = min(x + cWidth, s.dimension.x + 1)
-                y_ub = min(y + cHeight, s.dimension.y + 1)
-                z_ub = min(z + cDepth, s.dimension.z + 1)
-                core = Core(stack=s, min_x = x, min_y = y, min_z = z,
+    # Create new Cores, round up if number of blocks is not divisible by core size
+    for z in range(0, (nz + coredib - 1)/coredib):
+        for y in range(0, (ny + corehib - 1)/corehib):
+            for x in range(0, (nx + corewib - 1)/corewib):
+                core = Core(stack=s, coordinate_x=x, coordinate_y=y, coordinate_z=z,
                             max_x = x_ub, max_y = y_ub, max_z = z_ub, solution_set_flag = False)
                 core.save()
 
