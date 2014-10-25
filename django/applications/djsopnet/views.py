@@ -225,7 +225,7 @@ def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
 
     try:
         info = BlockInfo.objects.get(stack=s)
-        raise ValueError("alrady setup")
+        raise ValueError("already setup")
     except BlockInfo.DoesNotExist:
 
         info = BlockInfo(stack = s,
