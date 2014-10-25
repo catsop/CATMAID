@@ -469,6 +469,31 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     slices = Slice.objects.filter(stack = s, id__in = slice_ids)
     return generate_slices_response(slices)
 
+def _slice_select_query(slice_id_query):
+    """Build a querystring to select slices and relationships given an ID query.
+
+    Keyword arguments:
+    slice_id_query -- A string SELECT statement returning a slice_id column
+    """
+    return '''
+            SELECT
+              s.id, s.assembly_id, s.section,
+              s.min_x, s.min_y, s.max_x, s.max_y,
+              s.ctr_x, s.ctr_y, s.value,
+              ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
+              ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
+              ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
+              ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
+            FROM djsopnet_slice s
+            JOIN (%s) AS slice_id_query
+              ON (slice_id_query.slice_id = s.id)
+            LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
+            LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
+            JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
+            LEFT JOIN djsopnet_segmentsolution ssol ON (ssol.segment_id = ss.segment_id)
+            GROUP BY s.id
+            ''' % slice_id_query
+
 def _slicecursor_to_namedtuple(cursor):
     """Create a namedtuple list stubbing for Slice objects from a cursor.
 
@@ -501,34 +526,19 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
         block_ids = ','.join([str(int(id)) for id in safe_split(request.POST.get('block_ids'), 'block IDs')])
 
         cursor = connection.cursor()
-        cursor.execute('''
-                SELECT
-                  s.id, s.assembly_id, s.section,
-                  s.min_x, s.min_y, s.max_x, s.max_y,
-                  s.ctr_x, s.ctr_y, s.value,
-                  ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
-                  ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
-                  ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
-                  ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
-                FROM djsopnet_slice s
-                JOIN (SELECT sbr.slice_id
-                        FROM djsopnet_sliceblockrelation sbr
-                        WHERE sbr.block_id IN (%(block_ids)s)
-                      UNION SELECT scs_cbr_a.slice_a_id AS slice_id
-                        FROM djsopnet_blockconflictrelation bcr
-                        JOIN djsopnet_sliceconflictset scs_cbr_a ON (scs_cbr_a.id = bcr.conflict_id)
-                        WHERE bcr.block_id IN (%(block_ids)s)
-                      UNION SELECT scs_cbr_b.slice_b_id AS slice_id
-                        FROM djsopnet_blockconflictrelation bcr
-                        JOIN djsopnet_sliceconflictset scs_cbr_b ON (scs_cbr_b.id = bcr.conflict_id)
-                        WHERE bcr.block_id IN (%(block_ids)s)) AS block_and_conflicts
-                  ON (block_and_conflicts.slice_id = s.id)
-                LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
-                LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
-                JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
-                LEFT JOIN djsopnet_segmentsolution ssol ON (ssol.segment_id = ss.segment_id)
-                GROUP BY s.id
-            ''' % {'block_ids': block_ids})
+        cursor.execute(_slice_select_query('''
+                SELECT sbr.slice_id
+                  FROM djsopnet_sliceblockrelation sbr
+                  WHERE sbr.block_id IN (%(block_ids)s)
+                UNION SELECT scs_cbr_a.slice_a_id AS slice_id
+                  FROM djsopnet_blockconflictrelation bcr
+                  JOIN djsopnet_sliceconflictset scs_cbr_a ON (scs_cbr_a.id = bcr.conflict_id)
+                  WHERE bcr.block_id IN (%(block_ids)s)
+                UNION SELECT scs_cbr_b.slice_b_id AS slice_id
+                  FROM djsopnet_blockconflictrelation bcr
+                  JOIN djsopnet_sliceconflictset scs_cbr_b ON (scs_cbr_b.id = bcr.conflict_id)
+                  WHERE bcr.block_id IN (%(block_ids)s)
+                ''' % {'block_ids': block_ids}))
 
         slices = _slicecursor_to_namedtuple(cursor)
 
@@ -732,34 +742,20 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
         segment_id = hash_to_id(request.POST.get('hash'))
 
         cursor = connection.cursor()
-        cursor.execute('''
+        cursor.execute(('''
                 WITH req_seg_slices AS (
                     SELECT slice_id FROM djsopnet_segmentslice
                       WHERE segment_id = %(segment_id)s)
-                SELECT
-                  s.id, s.assembly_id, s.section,
-                  s.min_x, s.min_y, s.max_x, s.max_y,
-                  s.ctr_x, s.ctr_y, s.value,
-                  ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
-                  ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
-                  ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
-                  ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
-                FROM djsopnet_slice s
-                JOIN (SELECT slice_id FROM req_seg_slices
-                      UNION SELECT scs_cbr_a.slice_a_id AS slice_id
-                        FROM djsopnet_sliceconflictset scs_cbr_a, req_seg_slices
-                        WHERE scs_cbr_a.slice_b_id = req_seg_slices.slice_id
-                      UNION SELECT scs_cbr_b.slice_b_id AS slice_id
-                        FROM djsopnet_sliceconflictset scs_cbr_b, req_seg_slices
-                        WHERE scs_cbr_b.slice_a_id = req_seg_slices.slice_id)
-                  AS segslices_and_conflicts
-                  ON (segslices_and_conflicts.slice_id = s.id)
-                LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
-                LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
-                JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
-                LEFT JOIN djsopnet_segmentsolution ssol ON (ssol.segment_id = ss.segment_id)
-                GROUP BY s.id
-            ''' % {'segment_id': segment_id})
+                ''' % {'segment_id': segment_id}) + \
+                _slice_select_query('''
+                        SELECT slice_id FROM req_seg_slices
+                        UNION SELECT scs_cbr_a.slice_a_id AS slice_id
+                          FROM djsopnet_sliceconflictset scs_cbr_a, req_seg_slices
+                          WHERE scs_cbr_a.slice_b_id = req_seg_slices.slice_id
+                        UNION SELECT scs_cbr_b.slice_b_id AS slice_id
+                          FROM djsopnet_sliceconflictset scs_cbr_b, req_seg_slices
+                          WHERE scs_cbr_b.slice_a_id = req_seg_slices.slice_id
+                        '''))
 
         slices = _slicecursor_to_namedtuple(cursor)
 
