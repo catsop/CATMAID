@@ -490,9 +490,12 @@ def _slicecursor_to_namedtuple(cursor):
 
     return [slicerow_to_namedtuple(row) for row in cursor.fetchall()]
 
-# Retrieve Slices associated to the Blocks with the given ids or to any
-# ConflictSet that is associated with those Blocks.
 def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id = None):
+    """Retrieve slices and slices in conflict sets for a set of blocks.
+
+    Retrieve Slices associated to the Blocks with the given ids or to any
+    ConflictSet that is associated with those Blocks.
+    """
     s = get_object_or_404(Stack, pk = stack_id)
     try:
         block_ids = ','.join([str(int(id)) for id in safe_split(request.POST.get('block_ids'), 'block IDs')])
