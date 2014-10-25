@@ -80,16 +80,7 @@ def segment_dict(segment):
           'section' : segment.section_inf,
           'box' : [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
           'ctr' : [segment.ctr_x, segment.ctr_y],
-          'type' : segment.type,
-          'direction' : segment.direction,
-          'slice_a' : id_to_hash(segment.slice_a_id),
-          'slice_b' : -1,
-          'slice_c' : -1}
-
-    if segment.slice_b_hash:
-        sd['slice_b'] = id_to_hash(segment.slice_b_id)
-    if segment.slice_c_hash:
-        sd['slice_c'] = id_to_hash(segment.slice_c_id)
+          'type' : segment.type}
 
     return sd
 
@@ -478,6 +469,26 @@ def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
     slices = Slice.objects.filter(stack = s, id__in = slice_ids)
     return generate_slices_response(slices)
 
+def _slicecursor_to_namedtuple(cursor):
+    """Create a namedtuple list stubbing for Slice objects from a cursor.
+
+    Assumes the cursor has been executed and has at least the following columns:
+    conflicts_as_a, conflicts_as_b, in_solution_core_ids, segment_summaries.
+    """
+    cols = [col[0] for col in cursor.description]
+
+    SliceTuple = namedtuple('SliceTuple', cols + ['conflict_slice_ids', 'in_solution'])
+
+    def slicerow_to_namedtuple(row):
+        rowdict = dict(zip(cols, row))
+        rowdict.update({
+                'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
+                'in_solution': any(rowdict['in_solution_core_ids']),
+                'segment_summaries': json.loads(rowdict['segment_summaries'])
+            })
+        return SliceTuple(**rowdict)
+
+    return [slicerow_to_namedtuple(row) for row in cursor.fetchall()]
 
 # Retrieve Slices associated to the Blocks with the given ids or to any
 # ConflictSet that is associated with those Blocks.
@@ -494,7 +505,7 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
                   s.ctr_x, s.ctr_y, s.value,
                   ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
                   ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
-                  ARRAY_AGG(DISTINCT ss.id) AS segment_ids,
+                  ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
                   ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
                 FROM djsopnet_slice s
                 JOIN (SELECT sbr.slice_id
@@ -516,19 +527,7 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
                 GROUP BY s.id
             ''' % {'block_ids': block_ids})
 
-        cols = [col[0] for col in cursor.description]
-
-        SliceTuple = namedtuple('SliceTuple', cols + ['conflict_slice_ids', 'in_solution'])
-
-        def row_to_namedtuple(row):
-            rowdict = dict(zip(cols, row))
-            rowdict.update({
-                    'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
-                    'in_solution': any(rowdict['in_solution_core_ids'])
-                })
-            return SliceTuple(**rowdict)
-
-        slices = [row_to_namedtuple(row) for row in cursor.fetchall()]
+        slices = _slicecursor_to_namedtuple(cursor)
 
         return generate_slices_response(slices=slices,
                 with_conflicts=True, with_solutions=True)
@@ -720,6 +719,54 @@ def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
         segments = Segment.objects.filter(segmentblockrelation__block_id__in=block_ids)
 
         return generate_segments_response(segments)
+    except:
+        return error_response()
+
+def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
+    """Retrieve a segment, its slices, and their first-order conflict slices."""
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        segment_id = hash_to_id(request.POST.get('hash'))
+
+        cursor = connection.cursor()
+        cursor.execute('''
+                WITH req_seg_slices AS (
+                    SELECT slice_id FROM djsopnet_segmentslice
+                      WHERE segment_id = %(segment_id)s)
+                SELECT
+                  s.id, s.assembly_id, s.section,
+                  s.min_x, s.min_y, s.max_x, s.max_y,
+                  s.ctr_x, s.ctr_y, s.value,
+                  ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
+                  ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
+                  ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
+                  ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
+                FROM djsopnet_slice s
+                JOIN (SELECT slice_id FROM req_seg_slices
+                      UNION SELECT scs_cbr_a.slice_a_id AS slice_id
+                        FROM djsopnet_sliceconflictset scs_cbr_a, req_seg_slices
+                        WHERE scs_cbr_a.slice_b_id = req_seg_slices.slice_id
+                      UNION SELECT scs_cbr_b.slice_b_id AS slice_id
+                        FROM djsopnet_sliceconflictset scs_cbr_b, req_seg_slices
+                        WHERE scs_cbr_b.slice_a_id = req_seg_slices.slice_id)
+                  AS segslices_and_conflicts
+                  ON (segslices_and_conflicts.slice_id = s.id)
+                LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
+                LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
+                JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
+                LEFT JOIN djsopnet_segmentsolution ssol ON (ssol.segment_id = ss.segment_id)
+                GROUP BY s.id
+            ''' % {'segment_id': segment_id})
+
+        slices = _slicecursor_to_namedtuple(cursor)
+
+        expanded_segment_ids = sum([[summary['f1'] for summary in slice.segment_summaries] for slice in slices if slice.segment_summaries], [])
+
+        segments = Segment.objects.filter(stack=s, id__in=expanded_segment_ids)
+
+        segment_list = [segment_dict(segment) for segment in segments]
+        slices_list = [slice_dict(slice) for slice in slices or conflict_slices]
+        return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
     except:
         return error_response()
 
