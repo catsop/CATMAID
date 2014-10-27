@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 
 from numpy import int64, uint64
@@ -85,18 +86,17 @@ def segment_dict(segment):
     return sd
 
 def block_dict(block):
+    size = block.stack.blockinfo
     bd = {'id' : block.id,
           'slices' : block.slices_flag,
           'segments' : block.segments_flag,
-          'box' : [block.min_x, block.min_y, block.min_z,
-                   block.max_x, block.max_y, block.max_z]}
+          'box' : block.box}
     return bd
 
 def core_dict(core):
     bd = {'id' : core.id,
           'solutions' : core.solution_set_flag,
-          'box' : [core.min_x, core.min_y, core.min_z,
-                   core.max_x, core.max_y, core.max_z]}
+          'box' : core.box}
     return bd
 
 def block_info_dict(block_info, stack):
@@ -239,8 +239,8 @@ def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
     for z in range(0, nz):
         for y in range(0, ny):
             for x in range(0, nx):
-                block = Block(stack=s, coordinate_x=x, coordinate_y=y, coordinate_z=z,
-                              slices_flag = False, segments_flag = False, solution_cost_flag = False)
+                block = Block(stack=s, slices_flag = False, segments_flag = False,
+                              coordinate_x=x, coordinate_y=y, coordinate_z=z)
                 # TODO: figure out how to use bulk_create instead.
                 block.save()
 
@@ -248,22 +248,20 @@ def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
     for z in range(0, (nz + coredib - 1)/coredib):
         for y in range(0, (ny + corehib - 1)/corehib):
             for x in range(0, (nx + corewib - 1)/corewib):
-                core = Core(stack=s, coordinate_x=x, coordinate_y=y, coordinate_z=z,
-                            max_x = x_ub, max_y = y_ub, max_z = z_ub, solution_set_flag = False)
+                core = Core(stack=s, solution_set_flag = False,
+                            coordinate_x=x, coordinate_y=y, coordinate_z=z)
                 core.save()
 
-# Query, agnostic to Model class
+# Query, agnostic to Model class for Core, Block
 def location_query(model, s, request):
-    x = int(request.GET.get('x'))
-    y = int(request.GET.get('y'))
-    z = int(request.GET.get('z'))
+    x = int(float(request.GET.get('x')))
+    y = int(float(request.GET.get('y')))
+    z = int(float(request.GET.get('z')))
+    size = model.size_for_stack(s)
     return model.objects.get(stack = s,
-                      min_x__lte = x,
-                      min_y__lte = y,
-                      min_z__lte = z,
-                      max_x__gt = x,
-                      max_y__gt = y,
-                      max_z__gt = z)
+                      coordinate_x = math.floor(x/size['x']),
+                      coordinate_y = math.floor(y/size['y']),
+                      coordinate_z = math.floor(z/size['z']))
 
 def bound_query(model, s, request):
     xmin = int(request.GET.get('xmin', -1))
@@ -276,16 +274,16 @@ def bound_query(model, s, request):
     xmax = xmin + width
     ymax = ymin + height
     zmax = zmin + depth
+    size = model.size_for_stack(s)
     return model.objects.filter(stack = s,
-                                max_x__gt = xmin,
-                                max_y__gt = ymin,
-                                max_z__gt = zmin,
-                                min_x__lt = xmax,
-                                min_y__lt = ymax,
-                                min_z__lt = zmax)
+                                coordinate_x__gt = math.floor(xmin),
+                                coordinate_y__gt = math.floor(ymin),
+                                coordinate_z__gt = math.floor(zmin),
+                                coordinate_x__lt = math.ceil(xmax),
+                                coordinate_y__lt = math.ceil(ymax),
+                                coordinate_z__lt = math.ceil(zmax))
 
 def block_at_location(request, project_id = None, stack_id = None):
-
     s = get_object_or_404(Stack, pk=stack_id)
     try:
         block = location_query(Block, s, request)

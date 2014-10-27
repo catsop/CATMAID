@@ -88,6 +88,19 @@ class Block(models.Model):
     slices_flag = models.BooleanField(default=False)
     segments_flag = models.BooleanField(default=False)
 
+    @staticmethod
+    def size_for_stack(s):
+        bi = s.blockinfo
+        return {'x': bi.block_dim_x, 'y': bi.block_dim_y, 'z': bi.block_dim_z}
+
+    def _get_box(self):
+        size = Block.size_for_stack(self.stack)
+        size = [size['x'], size['y'], size['z']]
+        coords = [self.coordinate_x, self.coordinate_y, self.coordinate_z]
+        return [s*c for s,c in zip(size, coords)] + \
+                [s*(c+1) for s,c in zip(size, coords)]
+    box = property(_get_box)
+
     class Meta:
         unique_together = ('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z')
 
@@ -100,6 +113,21 @@ class Core(models.Model):
     coordinate_z = models.IntegerField(db_index=True)
 
     solution_set_flag = models.BooleanField(default=False)
+
+    @staticmethod
+    def size_for_stack(s):
+        bi = s.blockinfo
+        return {'x': bi.core_dim_x*bi.block_dim_x,
+                'y': bi.core_dim_y*bi.block_dim_y,
+                'z': bi.core_dim_z*bi.block_dim_z}
+
+    def _get_box(self):
+        size = Core.size_for_stack(self.stack)
+        size = [size['x'], size['y'], size['z']]
+        coords = [self.coordinate_x, self.coordinate_y, self.coordinate_z]
+        return [s*c for s,c in zip(size, coords)] + \
+                [s*(c+1) for s,c in zip(size, coords)]
+    box = property(_get_box)
 
     class Meta:
         unique_together = ('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z')
