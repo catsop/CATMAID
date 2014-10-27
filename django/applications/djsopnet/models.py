@@ -60,6 +60,10 @@ class Slice(models.Model):
             ''', [self.id])))
     in_solution = property(_get_in_solution)
 
+    def _get_segment_summaries(self):
+        return self.segmentslice_set.values('segment_id', 'direction')
+    segment_summaries = property(_get_segment_summaries)
+
 class Segment(models.Model):
     id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)

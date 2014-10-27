@@ -64,7 +64,11 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
           'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
           'ctr' : [slice.ctr_x, slice.ctr_y],
           'value' : slice.value,
-          'mask' : static(str(slice.id) + '.png')}
+          'mask' : static(str(slice.id) + '.png'),
+          'segment_summaries' : slice.segment_summaries}
+
+    for summary in sd['segment_summaries']:
+        summary.update({'segment_id': id_to_hash(summary['segment_id'])})
 
     if with_conflicts:
         sd['conflicts'] = ','.join(map(id_to_hash, slice.conflict_slice_ids))
@@ -506,10 +510,17 @@ def _slicecursor_to_namedtuple(cursor):
 
     def slicerow_to_namedtuple(row):
         rowdict = dict(zip(cols, row))
+        # In PostgreSQL 9.4 it will be possible to preserve column names in JSON
+        # aggregated ROW columns without subqueries or CTEs. For now manually
+        # map from default field names to original column names.
+        segment_map = {'f1': 'segment_id', 'f2': 'direction'}
         rowdict.update({
                 'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
                 'in_solution': any(rowdict['in_solution_core_ids']),
-                'segment_summaries': json.loads(rowdict['segment_summaries'])
+                'segment_summaries': [
+                    {segment_map[k]: v for k,v in summary.items()}
+                    for summary in json.loads(rowdict['segment_summaries'])
+                ]
             })
         return SliceTuple(**rowdict)
 
@@ -759,12 +770,14 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
 
         slices = _slicecursor_to_namedtuple(cursor)
 
-        expanded_segment_ids = sum([[summary['f1'] for summary in slice.segment_summaries] for slice in slices if slice.segment_summaries], [])
+        expanded_segment_ids = sum([
+            [summary['segment_id'] for summary in slice.segment_summaries]
+            for slice in slices if slice.segment_summaries], [])
 
         segments = Segment.objects.filter(stack=s, id__in=expanded_segment_ids)
 
         segment_list = [segment_dict(segment) for segment in segments]
-        slices_list = [slice_dict(slice) for slice in slices or conflict_slices]
+        slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices or conflict_slices]
         return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
     except:
         return error_response()

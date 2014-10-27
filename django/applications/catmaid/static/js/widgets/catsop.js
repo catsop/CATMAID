@@ -22,9 +22,22 @@ var CatsopWidget = function () {
         return $csList;
       }, $('<ul />'));
     }),
-    'In Solution': (function (s) {return s.in_solution ? 'Y' : '';})
+    'In Solution': (function (s) {return s.in_solution ? 'Y' : '';}),
+    'Segments': ((function (s) {
+      return s.segment_summaries.reduce((function ($segList, ss) {
+        $('<li>' + ss.segment_id + ' (' + (ss.direction ? 'L' : 'R') + ')</li>')
+          .click((function () {this.activateSegment(ss.segment_id);}).bind(this))
+          .appendTo($segList);
+        return $segList;
+      }).bind(this), $('<ul>'));
+    }).bind(this))
   };
   this.segmentRows = [];
+  this.segmentColumns = {
+    'Hash': (function (s) {return s.hash;}),
+    'Section': (function (s) {return s.section;}),
+    'Type': (function (s) {return s.type;})
+  };
   this.containers = {};
   this.$container = {};
   this.layers = [];
@@ -97,16 +110,16 @@ CatsopWidget.prototype.refreshSlices = function () {
       {block_ids: this.block.id},
       jsonResponseHandler((function (json) {
         this.sliceRows = json.slices;
-        this.refreshUI();
+        this.updateSlices();
       }).bind(this)));
 };
 
-CatsopWidget.prototype.refreshUI = function () {
+CatsopWidget.prototype.updateSlices = function () {
   var $table = $('#' + this.containers.slices.attr('id') + '-table');
   $table.empty();
 
   var $thead = $('<tr />').appendTo($('<thead />').appendTo($table));
-  var $tbody = $('<tbody />').appendTo($table);
+  var $tbody = $('<tbody />');
 
   for (var colKey in this.sliceColumns) {
     $thead.append('<th>' + colKey + '</th>');
@@ -119,6 +132,7 @@ CatsopWidget.prototype.refreshUI = function () {
     }
   }, this);
 
+  $tbody.appendTo($table);
   $table.dataTable({bDestroy: true});
 
   var self = this;
@@ -126,6 +140,28 @@ CatsopWidget.prototype.refreshUI = function () {
     var index = $table.dataTable().fnGetPosition(this);
     self.activateSlice(index);
   });
+};
+
+CatsopWidget.prototype.updateSegments = function () {
+  var $table = $('#' + this.containers.segments.attr('id') + '-table');
+  $table.empty();
+
+  var $thead = $('<tr />').appendTo($('<thead />').appendTo($table));
+  var $tbody = $('<tbody />');
+
+  for (var colKey in this.segmentColumns) {
+    $thead.append('<th>' + colKey + '</th>');
+  }
+
+  this.segmentRows.forEach(function (slice) {
+    var $tr = $('<tr />').appendTo($tbody);
+    for (var colKey in this.segmentColumns) {
+      $('<td />').append(this.segmentColumns[colKey](slice)).appendTo($tr);
+    }
+  }, this);
+
+  $tbody.appendTo($table);
+  $table.dataTable({bDestroy: true});
 };
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {
@@ -157,6 +193,20 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
                   }
           });
         });
+      }).bind(this)));
+};
+
+CatsopWidget.prototype.activateSegment = function (hash) {
+  var stackId = this.getStack().getId();
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + stackId +
+          '/segment_and_conflicts',
+      'POST',
+      {hash: hash},
+      jsonResponseHandler((function (json) {
+        this.sliceRows = json.slices;
+        this.segmentRows = json.segments;
+        this.updateSlices();
+        this.updateSegments();
       }).bind(this)));
 };
 
