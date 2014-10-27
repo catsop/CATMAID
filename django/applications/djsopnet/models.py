@@ -4,6 +4,7 @@ from datetime import datetime
 from django.contrib.auth.models import User
 from catmaid.fields import IntegerArrayField, DoubleArrayField
 from catmaid.models import ClassInstance, Stack, UserFocusedModel
+from djsopnet.fields import *
 
 ASSEMBLY_TYPES = (
     ('neuron', 'Neuron Slices'),
@@ -172,6 +173,8 @@ class BlockConflictRelation(models.Model):
 class Constraint(UserFocusedModel):
     # the skeleton that defined the constraint
     skeleton = models.ForeignKey(ClassInstance, null=True, default=None)
+    relation = ConstraintRelationEnumField(default='Equal')
+    value = models.FloatField(default=1.0)
 
 
 class BlockConstraintRelation(models.Model):
@@ -181,3 +184,4 @@ class BlockConstraintRelation(models.Model):
 class ConstraintSegmentRelation(models.Model):
     constraint = models.ForeignKey(Constraint)
     segment = models.ForeignKey(Segment)
+    coefficient = models.FloatField(default=1.0)
