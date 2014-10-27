@@ -116,7 +116,7 @@ def generate_segment_response(segment):
     if segment:
         return HttpResponse(json.dumps(segment_dict(segment)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
+        return HttpResponse(json.dumps({'id' : None}), content_type = 'text/json')
 
 
 def generate_slices_response(slices):
@@ -131,7 +131,7 @@ def generate_block_response(block):
     if block:
         return HttpResponse(json.dumps(block_dict(block)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
+        return HttpResponse(json.dumps({'id' : None}), content_type = 'text/json')
 
 def generate_blocks_response(blocks):
     if blocks is not None:
@@ -144,7 +144,7 @@ def generate_core_response(core):
     if core:
         return HttpResponse(json.dumps(core_dict(core)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
+        return HttpResponse(json.dumps({'id' : None}), content_type = 'text/json')
 
 def generate_cores_response(cores):
     if cores is not None:
@@ -158,7 +158,7 @@ def generate_block_info_response(block_info, stack):
     if block_info:
         return HttpResponse(json.dumps(block_info_dict(block_info, stack)), content_type = 'text/json')
     else:
-        return HttpResponse(json.dumps({'id' : -1}), content_type = 'text/json')
+        return HttpResponse(json.dumps({'id' : None}), content_type = 'text/json')
 
 def generate_conflict_response(conflicts, stack):
     conflict_dicts = []
