@@ -78,29 +78,16 @@ class SopnetTest(object):
 					"settings or initialize SopnetTest "
 					"with the appropriate parameters." % name)
 
-	def __init__(self, project_id=None, raw_stack_id=None, membrane_stack_id=None,
-			block_width=None, block_height=None, block_depth=None,
-			core_width=None, core_height=None, core_depth=None,
-			catmaid_host=None, component_dir=None, loglevel=None,
-			postgresql_database=None, postgresql_host=None,
-			postgresql_user=None, postgresql_password=None):
-		self.project_id = self.param("SOPNET_PROJECT_ID", project_id)
-		self.membrane_stack_id = self.param("SOPNET_MEMBRANE_STACK_ID",
-				membrane_stack_id)
-		self.raw_stack_id = self.param("SOPNET_RAW_STACK_ID", raw_stack_id)
-		self.block_width = self.param("SOPNET_BLOCK_WIDTH", block_width)
-		self.block_height = self.param("SOPNET_BLOCK_HEIGHT", block_height)
-		self.block_depth = self.param("SOPNET_BLOCK_DEPTH", block_depth)
-		self.core_width = self.param("SOPNET_CORE_WIDTH", core_width)
-		self.core_height = self.param("SOPNET_CORE_HEIGHT", core_height)
-		self.core_depth = self.param("SOPNET_CORE_DEPTH", core_depth)
-		self.catmaid_host = self.param("SOPNET_CATMAID_HOST", catmaid_host)
-		self.component_dir = self.param("SOPNET_COMPONENT_DIR", component_dir)
-		self.loglevel = self.param("SOPNET_LOGLEVEL", loglevel)
-		self.postgresql_database = self.param("SOPNET_POSTGRESQL_DATABASE", postgresql_database)
-		self.postgresql_host = self.param("SOPNET_POSTGRESQL_HOST", postgresql_host)
-		self.postgresql_user = self.param("SOPNET_POSTGRESQL_USER", postgresql_user)
-		self.postgresql_password = self.param("SOPNET_POSTGRESQL_PASSWORD", postgresql_password)
+	def __init__(self, **kwargs):
+		required_params = ['project_id', 'raw_stack_id', 'membrane_stack_id',
+			'block_width', 'block_height', 'block_depth',
+			'core_width', 'core_height', 'core_depth',
+			'catmaid_host', 'component_dir', 'loglevel',
+			'postgresql_database', 'postgresql_host',
+			'postgresql_user', 'postgresql_password']
+		for param_name in required_params:
+			setattr(self, param_name,
+				self.param('SOPNET_%s' % param_name.upper(), kwargs.get(param_name, None)))
 
 	def log(self, msg):
 		print("[Test script] %s" % msg)
