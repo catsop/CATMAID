@@ -179,3 +179,6 @@ PROJECT_ROOT = relative('..', '..')
 for subdirectory in ('projects', 'applications', 'lib'):
     full_path = os.path.join(PROJECT_ROOT, subdirectory)
     sys.path.insert(0, full_path)
+
+# SOPNET defaults:
+SOPNET_POSTGRESQL_PORT = '5432'

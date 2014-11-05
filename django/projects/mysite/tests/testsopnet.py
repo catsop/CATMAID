@@ -83,7 +83,7 @@ class SopnetTest(object):
 			'block_width', 'block_height', 'block_depth',
 			'core_width', 'core_height', 'core_depth',
 			'catmaid_host', 'component_dir', 'loglevel',
-			'postgresql_database', 'postgresql_host',
+			'postgresql_database', 'postgresql_host', 'postgresql_port',
 			'postgresql_user', 'postgresql_password']
 		for param_name in required_params:
 			setattr(self, param_name,
@@ -131,6 +131,7 @@ class SopnetTest(object):
 		conf.setCoreSize(ps.point3(self.core_width, self.core_height, self.core_depth))
 		conf.setPostgreSqlDatabase(self.postgresql_database)
 		conf.setPostgreSqlHost(self.postgresql_host)
+		conf.setPostgreSqlPort(self.postgresql_port)
 		conf.setPostgreSqlUser(self.postgresql_user)
 		conf.setPostgreSqlPassword(self.postgresql_password)
 
