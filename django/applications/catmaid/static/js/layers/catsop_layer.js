@@ -1,6 +1,6 @@
 function CatsopResultsLayer (stack) {
   this.stack = stack;
-  this.opacity = 0.75;
+  this.opacity = 0.5;
   this.radius = 3;
 
   // Create container, aligned to the upper left
@@ -43,7 +43,7 @@ CatsopResultsLayer.prototype.redraw = function (completionCallback) {
           .css('top', mag * slice.y - this.stack.yc)
           .css('width', mag * slice.width)
           .css('height', mag * slice.height)
-          .show();
+          .css('display', ''); // Show the slice, but don't override CSS hides.
     } else {
       slice.$img.hide();
     }

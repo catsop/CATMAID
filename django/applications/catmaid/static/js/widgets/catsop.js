@@ -39,10 +39,11 @@ var CatsopWidget = function () {
     'Type': (function (s) {return s.type;}),
     'In Solution': (function (s) {return s.in_solution ? 'Y' : '';})
   };
-  this.containers = {};
-  this.$container = {};
+  this.tableContainers = {};
+  this.container = null;
   this.layers = [];
   this.activeSliceIndex = null;
+  this.activeSegmentHash = null;
 };
 
 CatsopWidget.prototype = {};
@@ -65,17 +66,24 @@ CatsopWidget.prototype.init = function (container) {
         this.refreshLocation();
       }).bind(this)));
 
-  this.containers = ['slices', 'segments'].reduce(function(containers, entity) {
+  this.tableContainers = ['slices', 'segments'].reduce(function(containers, entity) {
+        $container.append('<h4>' + entity + '</h4>');
+        var $collapser = $('<a href="#">Hide</a>').appendTo($container);
         var $entity = $('<div />').appendTo($container);
         $entity
             .attr('id', $container.attr('id') + '-' + entity)
-            .append('<h4>' + entity + '</h4>')
             .append('<table id="' + $container.attr('id') + '-' + entity + '-table" />');
         containers[entity] = $entity;
+        $collapser.click(function () {
+          $entity.toggle();
+          $(this).text($entity.is(':visible') ? 'Hide' : 'Show');
+        });
         return containers;
       }, {});
 
-  this.$container = $container;
+  $container.append('<div id="segmap' + this.widgetID + '" class="segment-graph" />');
+
+  this.container = $container.get()[0];
   this.refreshLocation();
 };
 
@@ -98,7 +106,7 @@ CatsopWidget.prototype.refreshLocation = function () {
       {x: stack.x, y: stack.y, z: stack.z},
       jsonResponseHandler((function (json) {
         this.block = json;
-        $('#' + this.$container.attr('id') + '-block-id').text(json.id);
+        $('#' + $(this.container).attr('id') + '-block-id').text(json.id);
         this.refreshSlices();
       }).bind(this)));
 };
@@ -116,7 +124,7 @@ CatsopWidget.prototype.refreshSlices = function () {
 };
 
 CatsopWidget.prototype.updateSlices = function () {
-  var $table = $('#' + this.containers.slices.attr('id') + '-table');
+  var $table = $('#' + this.tableContainers.slices.attr('id') + '-table');
   $table.empty();
 
   var $thead = $('<tr />').appendTo($('<thead />').appendTo($table));
@@ -144,7 +152,7 @@ CatsopWidget.prototype.updateSlices = function () {
 };
 
 CatsopWidget.prototype.updateSegments = function () {
-  var $table = $('#' + this.containers.segments.attr('id') + '-table');
+  var $table = $('#' + this.tableContainers.segments.attr('id') + '-table');
   $table.empty();
 
   var $thead = $('<tr />').appendTo($('<thead />').appendTo($table));
@@ -163,6 +171,168 @@ CatsopWidget.prototype.updateSegments = function () {
 
   $tbody.appendTo($table);
   $table.dataTable({bDestroy: true});
+
+  this.layers.forEach(function (layer) {
+    layer.clearSlices();
+  });
+
+  var segmap = {nodes: [], links: []};
+  var self = this;
+  var activeSegment = this.segmentRows.filter(function (seg) {return seg.hash === self.activeSegmentHash;})[0];
+  this.moveToObject(activeSegment);
+
+  this.segmentRows.filter(function (seg) {
+    return seg.section === activeSegment.section;
+  }).forEach(function (seg) {
+    seg.name = 'Seg:' + seg.hash;
+    seg.breadth = 1;
+    seg.size = (seg.box[2]-seg.box[0])*(seg.box[3]-seg.box[1]);
+    segmap.nodes.push(seg);
+  });
+
+  this.sliceRows.forEach(function (slice) {
+    slice.name = 'Sli:' + slice.hash;
+    self.layers.forEach(function (layer) {
+      layer.addSlice(slice, 'hidden');
+    });
+    segmap.nodes.push(slice);
+    slice.segment_summaries.forEach(function (segsum) {
+      var match = self.segmentRows.filter(function (sr) {
+        return sr.hash === segsum.segment_id && sr.section === activeSegment.section;});
+      if (match.length) {
+        slice.breadth = segsum.direction ? 0 : 2;
+        if (segsum.direction) segmap.links.push({
+            source: slice, target: match[0], graphValue: Math.sqrt(slice.size)});
+        else segmap.links.push({
+            source: match[0], target: slice, graphValue: Math.sqrt(slice.size)});
+      }
+    });
+  });
+
+  var margin = {top: 0.05, right: 0.05, bottom: 0.15, left: 0.05},
+      width = 1 - margin.left - margin.right,
+      height = 1 - margin.top - margin.bottom;
+  margin.left  *= this.container.clientWidth;
+  margin.right *= this.container.clientWidth;
+  width        *= this.container.clientWidth;
+  margin.top    *= this.container.clientHeight;
+  margin.bottom *= this.container.clientHeight;
+  height        *= this.container.clientHeight;
+
+  d3.select('#segmap' + this.widgetID).select('svg').remove();
+  var svg = d3.select("#segmap" + this.widgetID).append("svg")
+      .attr("width", width)
+      .attr("height", height)
+    .append("g")
+      .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+  var seggraph = CatsopWidget.SegmentGraph()
+      .nodeWidths([width*0.25, width*0.1])
+      .nodePadding(10)
+      .size([width, height]);
+
+  var path = seggraph.link();
+
+  seggraph
+      .nodes(segmap.nodes)
+      .links(segmap.links)
+      .layout(32);
+
+  var link = svg.append("g").selectAll(".link")
+      .data(segmap.links)
+    .enter().append("path")
+      .attr("class", function (d) {
+        return [
+          'link',
+          'slice-hash-' + (typeof d.source.mask === 'undefined' ? d.target.hash : d.source.hash),
+          'seg-hash-' + (typeof d.source.mask !== 'undefined' ? d.target.hash : d.source.hash)
+        ].join(' ');})
+      .attr("d", path)
+      .style("stroke-width", function(d) { return Math.max(1, d.dy); })
+      .sort(function (a, b) { return b.dy - a.dy; });
+
+  link.append("title")
+      .text(function (d) { return d.source.name + " → " + d.target.name; });
+
+  function dragmove(d) {
+    d3.select(this).attr("transform", "translate(" + d.x + "," + (d.y = Math.max(0, Math.min(height - d.dy, d3.event.y))) + ")");
+    seggraph.relayout();
+    link.attr("d", path);
+  }
+
+  var node = svg.append("g").selectAll(".node")
+      .data(segmap.nodes)
+    .enter().append("g")
+      .attr("class", "node")
+      .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
+    .call(d3.behavior.drag()
+      .origin(function (d) { return d; })
+      .on("dragstart", function() { this.parentNode.appendChild(this); })
+      .on("drag", dragmove));
+
+  // Segment nodes
+  node.filter(function (d) { return typeof d.mask === 'undefined'; })
+      .classed('segment-node', true)
+      .on('mouseover', function (d) {
+          d.sourceLinks.map(function (l) {return l.target;})
+            .concat(d.targetLinks.map(function (l) {return l.source;}))
+            .forEach(function (d) {
+              $('.slice-hash-' + d.hash).addClass('highlight');
+              d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
+            });
+          // Class selectors do not work for SVG elements, so use a jQuery
+          // attribute string containing selector, then pass to D3 because
+          // jQuery addClass does not work with SVG elements.
+          d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', true);
+        })
+      .on('mouseout', function (d) {
+          d.sourceLinks.map(function (l) {return l.target;})
+            .concat(d.targetLinks.map(function (l) {return l.source;}))
+            .forEach(function (d) {
+              $('.slice-hash-' + d.hash).removeClass('highlight');
+              d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
+            });
+          d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', false);
+        })
+    .append("rect")
+      .attr("height", function (d) { return d.dy; })
+      .attr("width", seggraph.nodeWidths()[1])
+      .style("fill", function (d) { return d.color = d.in_solution ? '#0F0' : '#CCC'; })
+      .style("stroke", function (d) { return d3.rgb(d.color).darker(2); })
+    .append("title")
+      .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
+
+  // Slice nodes
+  node.filter(function (d) { return typeof d.mask !== 'undefined'; })
+      .classed('slice-node', true)
+      .on('mouseover', function (d) {
+          d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
+        })
+      .on('mouseout', function (d) {
+          d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
+        })
+    .append("rect")
+      .attr("height", function (d) { return d.dy; })
+      .attr("width", seggraph.nodeWidths()[0])
+      .attr("class", function (d) { return 'slice-hash-' + d.hash; });
+  node.filter(function(d) { return typeof d.mask !== 'undefined'; })
+    .append("image")
+      .attr("height", function (d) { return d.dy; })
+      .attr("width", seggraph.nodeWidths()[0])
+      .attr("xlink:href", function (d) { return d.mask; })
+    .append("title")
+      .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
+
+  var segmentTypes = ['End', 'Continuation', 'Branch'];
+  // Segment nodes
+  node.filter(function (d) { return typeof d.mask === 'undefined'; })
+    .append("text")
+      .attr("x", function (d) { return d.dx / 2; })
+      .attr("y", function (d) { return d.dy / 2; })
+      .attr("dy", ".35em")
+      .attr("text-anchor", "middle")
+      .attr("transform", null)
+      .text(function(d) { return segmentTypes[d.type]; });
 };
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {
@@ -198,6 +368,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
 };
 
 CatsopWidget.prototype.activateSegment = function (hash) {
+  this.activeSegmentHash = hash;
   var stackId = this.getStack().getId();
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + stackId +
           '/segment_and_conflicts',
@@ -217,10 +388,17 @@ CatsopWidget.prototype.getSliceRowByHash = function (hash) {
 
 CatsopWidget.prototype.moveToSlice = function (rowIndex) {
   var slice = this.sliceRows[rowIndex];
+  this.moveToObject(slice);
+};
+
+/**
+ * Moves the stack view to any object with section and ctr properties.
+ */
+CatsopWidget.prototype.moveToObject = function (obj) {
   var stack = this.getStack();
-  var z = slice.section,
-      y = slice.ctr[1],
-      x = slice.ctr[0];
+  var z = obj.section,
+      y = obj.ctr[1],
+      x = obj.ctr[0];
   // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
   z = stack.stackToProjectZ(z, y, x);
   y = stack.stackToProjectY(z, y, x);

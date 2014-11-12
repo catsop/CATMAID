@@ -13,6 +13,10 @@
 	background-blend-mode: multiply;
 }
 
+.catsop-layer .slice-mask.hidden {
+	display: none;
+}
+
 .catsop-layer .slice-mask.active {
 	background-color: #FF0;
 	z-index: 5;
@@ -28,6 +32,7 @@
 }
 
 .catsop-layer .slice-mask.highlight {
+	display: inline;
 	background-color: #00F;
 	border: 1px solid #00F;
 	z-index: 6;
@@ -35,4 +40,37 @@
 
 .catsop-layer .slice-mask.highlight.in-solution {
 	background-color: #0FF;
+}
+
+.segment-graph .segment-node rect {
+	cursor: move;
+	fill-opacity: .9;
+	shape-rendering: crispEdges;
+}
+
+.segment-graph .slice-node rect {
+	fill: #000000;
+	fill-opacity: 1;
+	stroke: #000000;
+	stroke-width: 5;
+	stroke-opacity: 1;
+}
+
+.segment-graph .slice-node rect.highlight {
+	stroke: #0000FF;
+}
+
+.segment-graph .node text {
+	pointer-events: none;
+	text-shadow: 0 1px 0 #fff;
+}
+
+.segment-graph .link {
+	fill: none;
+	stroke: #000;
+	stroke-opacity: .2;
+}
+
+.segment-graph .link:hover, .segment-graph .link.highlight {
+	stroke-opacity: .65;
 }
