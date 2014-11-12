@@ -87,6 +87,10 @@ class Segment(models.Model):
     # 2 - Branch
     type = models.IntegerField(db_index=True)
 
+    def _get_in_solution(self):
+        return SegmentSolution.objects.filter(segment_id=self.id).exists()
+    in_solution = property(_get_in_solution)
+
 class SegmentSlice(models.Model):
     slice = models.ForeignKey(Slice)
     segment = models.ForeignKey(Segment)

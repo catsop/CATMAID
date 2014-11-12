@@ -36,7 +36,8 @@ var CatsopWidget = function () {
   this.segmentColumns = {
     'Hash': (function (s) {return s.hash;}),
     'Section': (function (s) {return s.section;}),
-    'Type': (function (s) {return s.type;})
+    'Type': (function (s) {return s.type;}),
+    'In Solution': (function (s) {return s.in_solution ? 'Y' : '';})
   };
   this.containers = {};
   this.$container = {};

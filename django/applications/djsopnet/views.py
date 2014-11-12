@@ -78,13 +78,16 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
 
     return sd
 
-def segment_dict(segment):
+def segment_dict(segment, with_solution=False):
     sd = {'assembly' : segment.assembly,
           'hash' : id_to_hash(segment.id),
           'section' : segment.section_inf,
           'box' : [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
           'ctr' : [segment.ctr_x, segment.ctr_y],
           'type' : segment.type}
+
+    if with_solution:
+        sd['in_solution'] = segment.in_solution
 
     return sd
 
@@ -126,8 +129,8 @@ def generate_slices_response(slices, with_conflicts=False, with_solutions=False)
     slice_list = [slice_dict(slice, with_conflicts, with_solutions) for slice in slices]
     return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type = 'text/json')
 
-def generate_segments_response(segments):
-    segment_list = [segment_dict(segment) for segment in segments]
+def generate_segments_response(segments, with_solutions=False):
+    segment_list = [segment_dict(segment, with_solutions) for segment in segments]
     return HttpResponse(json.dumps({'ok' : True, 'segments' : segment_list}), content_type = 'text/json')
 
 def generate_block_response(block):
@@ -776,7 +779,7 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
 
         segments = Segment.objects.filter(stack=s, id__in=expanded_segment_ids)
 
-        segment_list = [segment_dict(segment) for segment in segments]
+        segment_list = [segment_dict(segment, with_solution=True) for segment in segments]
         slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices or conflict_slices]
         return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
     except:
