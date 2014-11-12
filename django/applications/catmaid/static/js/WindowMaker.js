@@ -2810,6 +2810,7 @@ var WindowMaker = new function()
     var win = new CMWWindow("CATSOP Results");
     var content = win.getFrame();
     var container = createContainer('catsop-results' + CW.widgetID);
+    content.style.backgroundColor = "#ffffff";
 
     content.appendChild(container);
 
