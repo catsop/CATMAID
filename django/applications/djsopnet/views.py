@@ -64,6 +64,7 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
           'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
           'ctr' : [slice.ctr_x, slice.ctr_y],
           'value' : slice.value,
+          'size' : slice.size,
           'mask' : static(str(slice.id) + '.png'),
           'segment_summaries' : slice.segment_summaries}
 
@@ -486,7 +487,7 @@ def _slice_select_query(slice_id_query):
             SELECT
               s.id, s.assembly_id, s.section,
               s.min_x, s.min_y, s.max_x, s.max_y,
-              s.ctr_x, s.ctr_y, s.value,
+              s.ctr_x, s.ctr_y, s.value, s.size,
               ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
               ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
               ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
