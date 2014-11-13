@@ -1,9 +1,11 @@
 import json
 import math
+import os
 import sys
 
 from numpy import int64, uint64
 from collections import namedtuple
+from pgmagick import Image, Blob, Color, CompositeOperator
 
 from django.http import HttpResponse
 
@@ -406,6 +408,22 @@ def get_core_solution_flag(request, project_id = None, stack_id = None):
     return get_flag(s, request, 'solution_set_flag', 'core_id', Core)
 
 # --- Slices ---
+
+def slice_alpha_mask(request, project_id=None, stack_id=None, slice_hash=None):
+    # For performance the existence of project, stack and slice are not verified.
+    slice_id = hash_to_id(slice_hash) # Also effectively sanitizes slice_hash.
+
+    gray_mask_file = os.path.join(settings.SOPNET_COMPONENT_DIR, str(slice_id) + '.png')
+    if not os.path.isfile(gray_mask_file): raise(Http404)
+
+    gray_mask = Image(gray_mask_file)
+    alpha_mask = Image(gray_mask.size(), Color('#FFF'))
+    alpha_mask.composite(gray_mask, 0, 0, CompositeOperator.CopyOpacityCompositeOp)
+    response_blob = Blob()
+    alpha_mask.magick('PNG')
+    alpha_mask.write(response_blob)
+
+    return HttpResponse(response_blob.data, content_type='image/png')
 
 def do_insert_slices(stack, req_dict):
     try:

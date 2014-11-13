@@ -22,6 +22,7 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_solution_cost_flag$', 'get_block_solution_flag'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_solution_set_flag$', 'get_core_solution_flag'),
 
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slice/(?P<slice_hash>\d+)/alpha_mask$', 'slice_alpha_mask'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/insert_slices$', 'insert_slices'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_block$', 'associate_slices_to_block'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_by_hash$', 'retrieve_slices_by_hash'),
