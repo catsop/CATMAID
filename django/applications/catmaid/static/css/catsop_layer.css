@@ -8,9 +8,7 @@
 	position: absolute;
 	/* Slices must have opacity separate from layer opacity to handle conflict slice overlap. */
 	opacity: 0.75;
-	background-size: 100%;
-	background-repeat: no-repeat;
-	background-blend-mode: multiply;
+	border: 0;
 }
 
 .catsop-layer .slice-mask.hidden {
@@ -34,7 +32,6 @@
 .catsop-layer .slice-mask.highlight {
 	display: inline;
 	background-color: #00F;
-	border: 1px solid #00F;
 	z-index: 6;
 }
 

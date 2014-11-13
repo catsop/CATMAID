@@ -66,7 +66,9 @@ CatsopResultsLayer.prototype.clearSlices = function () {
 CatsopResultsLayer.prototype.addSlice = function (slice, status) {
   var $sliceImg = $('<img class="slice-mask slice-hash-' + slice.hash + '" />')
       .hide()
-      .css('background-image', 'url("' + slice.mask + '")')
+      .css('-webkit-mask-box-image', 'url("' +
+          [django_url + 'sopnet', project.id, 'stack', this.stack.getId(), 'slice', slice.hash, 'alpha_mask'].join('/')  +
+          '") 0 stretch')
       .addClass(status)
       .appendTo($(this.view));
   if (slice.in_solution) $sliceImg.addClass('in-solution');
