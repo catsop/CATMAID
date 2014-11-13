@@ -116,16 +116,8 @@ CatsopWidget.SegmentGraph = function() {
 
   function computeNodeBreadths() {
     nodes.forEach(function(node) {
-      node.x = node.breadth;
       node.dx = nodeWidths[node.breadth % nodeWidths.length];
-    });
-
-    scaleNodeBreadths((size[0] - nodeWidths[0]) / 2);
-  }
-
-  function scaleNodeBreadths(kx) {
-    nodes.forEach(function(node) {
-      node.x *= kx;
+      node.x = (size[0] - node.dx) * node.breadth/2;
     });
   }
 

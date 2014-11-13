@@ -209,25 +209,27 @@ CatsopWidget.prototype.updateSegments = function () {
     });
   });
 
-  var margin = {top: 0.05, right: 0.05, bottom: 0.15, left: 0.05},
+  var graphWidth = this.container.clientWidth,
+      graphHeight = this.container.clientHeight;
+  var margin = {top: 0.04, right: 0.04, bottom: 0.05, left: 0.05},
       width = 1 - margin.left - margin.right,
       height = 1 - margin.top - margin.bottom;
-  margin.left  *= this.container.clientWidth;
-  margin.right *= this.container.clientWidth;
-  width        *= this.container.clientWidth;
-  margin.top    *= this.container.clientHeight;
-  margin.bottom *= this.container.clientHeight;
-  height        *= this.container.clientHeight;
+  margin.left  *= graphWidth;
+  margin.right *= graphWidth;
+  width        *= graphWidth;
+  margin.top    *= graphHeight;
+  margin.bottom *= graphHeight;
+  height        *= graphHeight;
 
   d3.select('#segmap' + this.widgetID).select('svg').remove();
   var svg = d3.select("#segmap" + this.widgetID).append("svg")
-      .attr("width", width)
-      .attr("height", height)
+      .attr("width", graphWidth)
+      .attr("height", graphHeight)
     .append("g")
       .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
   var seggraph = CatsopWidget.SegmentGraph()
-      .nodeWidths([width*0.25, width*0.1])
+      .nodeWidths([width*0.275, width*0.15])
       .nodePadding(10)
       .size([width, height]);
 
