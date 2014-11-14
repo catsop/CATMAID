@@ -108,7 +108,7 @@ CatsopWidget.SegmentGraph = function() {
   // Compute the value (size) of each node by summing the associated links.
   function computeNodeValues() {
     nodes.forEach(function(node) {
-      if (sliceNode(node)) node.graphValue = 4.0 *Math.sqrt(node.size);
+      if (sliceNode(node)) node.graphValue = 0; // Not used for slice nodes.
       else node.graphValue = Math.max(d3.sum(node.sourceLinks, graphValue),
                               d3.sum(node.targetLinks, graphValue));
     });
@@ -143,10 +143,19 @@ CatsopWidget.SegmentGraph = function() {
         return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, graphValue);
       });
 
+      var heightScale = nodesByBreadth
+          .filter(function (ns) { return sliceNode(ns[0]); })
+          .reduce(function (minScale, nodes) {
+            var heightScale = size[1] / nodes
+              .reduce(function (sum, n) { return sum + nodePadding + n.box[3] - n.box[1]; }, 0);
+            return Math.min(heightScale, minScale);
+          }, 1);
+
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
           node.y = i;
-          node.dy = node.graphValue * ky;
+          if (sliceNode(node)) node.dy = heightScale * (node.box[3] - node.box[1]);
+          else node.dy = node.graphValue * ky;
         });
       });
 
