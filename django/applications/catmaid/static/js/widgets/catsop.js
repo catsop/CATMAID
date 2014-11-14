@@ -44,19 +44,16 @@ var CatsopWidget = function () {
   this.layers = [];
   this.activeSliceIndex = null;
   this.activeSegmentHash = null;
+  this.stack = null;
+  this.offsetStack = null;
 };
 
 CatsopWidget.prototype = {};
 $.extend(CatsopWidget.prototype, new InstanceRegistry());
 
 CatsopWidget.prototype.init = function (container) {
-  // Create and  new layers
-  project.getStacks().forEach((function(s) {
-    var layer = new CatsopResultsLayer(s);
-    this.layers.push(layer);
-    s.addLayer("catsop-layer" + this.widgetID, layer);
-    s.redraw();
-  }).bind(this));
+  this.stack = project.focusedStack;
+  openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
 
   var $container = $(container);
   $container.append('<h3>Segmentation for block: <span id="' + $container.attr('id') +
@@ -87,23 +84,30 @@ CatsopWidget.prototype.init = function (container) {
   this.refreshLocation();
 };
 
+CatsopWidget.prototype.initLayers = function (offsetStack) {
+  this.offsetStack = offsetStack;
+
+  project.setFocusedStack(this.stack);
+
+  [this.stack, this.offsetStack].forEach((function(s) {
+    var layer = new CatsopResultsLayer(s);
+    this.layers.push(layer);
+    s.addLayer("catsop-layer" + this.widgetID, layer);
+    s.redraw();
+  }).bind(this));
+};
+
 CatsopWidget.prototype.destroy = function () {
-  project.getStacks().forEach((function(s) {
+  [this.stack, this.offsetStack].forEach((function(s) {
     s.removeLayer("catsop-layer" + this.widgetID);
   }).bind(this));
 };
 
-CatsopWidget.prototype.getStack = function () {
-  return project.getStacks()[0]; // TODO: not a robust way to determine raw stack
-};
-
 CatsopWidget.prototype.refreshLocation = function () {
-  var stack = this.getStack();
-
-  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + stack.getId() +
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/block_at_location',
       'GET',
-      {x: stack.x, y: stack.y, z: stack.z},
+      {x: this.stack.x, y: this.stack.y, z: this.stack.z},
       jsonResponseHandler((function (json) {
         this.block = json;
         $('#' + $(this.container).attr('id') + '-block-id').text(json.id);
@@ -112,8 +116,7 @@ CatsopWidget.prototype.refreshLocation = function () {
 };
 
 CatsopWidget.prototype.refreshSlices = function () {
-  var stackId = this.getStack().getId();
-  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + stackId +
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/slices_by_blocks_and_conflict',
       'POST',
       {block_ids: this.block.id},
@@ -348,7 +351,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
     layer.addSlice(slice, 'active');
   });
 
-  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.getStack().getId() +
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/conflict_sets_by_slice',
       'POST',
       {hash: slice.hash},
@@ -371,8 +374,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
 
 CatsopWidget.prototype.activateSegment = function (hash) {
   this.activeSegmentHash = hash;
-  var stackId = this.getStack().getId();
-  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + stackId +
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/segment_and_conflicts',
       'POST',
       {hash: hash},
@@ -397,13 +399,12 @@ CatsopWidget.prototype.moveToSlice = function (rowIndex) {
  * Moves the stack view to any object with section and ctr properties.
  */
 CatsopWidget.prototype.moveToObject = function (obj) {
-  var stack = this.getStack();
   var z = obj.section,
       y = obj.ctr[1],
       x = obj.ctr[0];
   // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
-  z = stack.stackToProjectZ(z, y, x);
-  y = stack.stackToProjectY(z, y, x);
-  x = stack.stackToProjectX(z, y, x);
+  z = this.stack.stackToProjectZ(z, y, x);
+  y = this.stack.stackToProjectY(z, y, x);
+  x = this.stack.stackToProjectX(z, y, x);
   project.moveTo(z, y, x);
 };
