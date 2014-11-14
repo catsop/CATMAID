@@ -243,6 +243,9 @@ Arbor.prototype.findBranchAndEndNodes = function() {
     if (undefined === parents[node]) ends.push(node);
   }
 
+  // Corner case: an Arbor with a root and no children
+  if (0 === children.length && this.root) ends.push(this.root);
+
   return {ends: ends,
           branches: branches,
           n_branches: n_branches};
@@ -328,10 +331,9 @@ Arbor.prototype.childrenArray = function() {
 
 /** Return an Object with node keys and true values, in O(2n) time. */
 Arbor.prototype.nodes = function() {
-  var children = this.childrenArray(),
+  var a = this.nodesArray(),
       nodes = {};
-  for (var i=0; i<children.length; ++i) nodes[children[i]] = true;
-  if (null !== this.root) nodes[this.root] = true;
+  for (var i=0; i<a.length; ++i) nodes[a[i]] = true;
 	return nodes;
 };
 
@@ -344,7 +346,7 @@ Arbor.prototype.nodesArray = function() {
 
 /** Counts number of nodes in O(n) time. */
 Arbor.prototype.countNodes = function() {
-	return this.childrenArray().length + (null !== this.root ? 1 : 0);
+	return this.nodesArray().length;
 };
 
 /** Returns an array of arrays, unsorted, where the longest array contains the linear
@@ -659,7 +661,7 @@ Arbor.prototype.subArbor = function(new_root) {
 	sub.root = new_root;
 
 	while (open.length > 0) {
-		paren = open.shift(), // faster than pop
+		paren = open.shift(); // faster than pop
 		children = successors[paren];
 		while (children.length > 0) {
 			child = children[0];
@@ -1002,6 +1004,9 @@ Arbor.prototype.convolveSlabs = function(positions, sigma, initialValue, slabIni
     return accum;
 };
 
+/** Compute the cable length of the arbor after performing a Gaussian convolution.
+ * Does not alter the given positions map. Conceptually equivalent to
+ * var cable = arbor.cableLength(arbor.smoothPositions(positions, sigma)); */
 Arbor.prototype.smoothCableLength = function(positions, sigma) {
     return this.convolveSlabs(positions, sigma, 0,
             function(sum, id, p) {
@@ -1012,6 +1017,8 @@ Arbor.prototype.smoothCableLength = function(positions, sigma) {
             });
 };
 
+/** Alter the positions map to express the new positions of the nodes
+ * after a Gaussian convolution. */
 Arbor.prototype.smoothPositions = function(positions, sigma, accum) {
     return this.convolveSlabs(positions, sigma, accum ? accum : {},
             function(s, id, p) {
@@ -1281,7 +1288,7 @@ Arbor.prototype.pathToUpstreamNodeIn = function(node, stops) {
   return null;
 };
 
-/** For each branch node, record of a measurement for each of its subtrees.
+/** For each branch node, record a measurement for each of its subtrees.
  *
  *  - initialFn: returns the value to start accumulating on.
  *  - accumFn: can alter its accum parameter.
@@ -1553,7 +1560,7 @@ Arbor.prototype.pruneAt = function(nodes) {
 /** Find the nearest upstream node common to all given nodes.
  * nodes: a map of nodes vs not undefined.
  * Runs in less than O(n).*/
-Arbor.prototype.lowestCommonAncestor = function(nodes) {
+Arbor.prototype.nearestCommonAncestor = function(nodes) {
   // Corner cases
   if (null === this.root) return null;
   if (undefined !== nodes[this.root]) return this.root;
@@ -1584,7 +1591,7 @@ Arbor.prototype.lowestCommonAncestor = function(nodes) {
 /** Returns an array of Arbor instances.
  * Each Arbor contains a subset of the given array of nodes.
  * If all given nodes are connected will return a single Arbor. */
-Arbor.prototype.subArbors = function(nodes) {
+Arbor.prototype.connectedFractions = function(nodes) {
   var members = {},
       arbors = {},
       seen = {};
@@ -1699,4 +1706,62 @@ Arbor.prototype.simplify = function(keepers) {
     simple.edges[child] = path[path.length -1];
   }
   return simple;
+};
+
+/** Given source nodes and target nodes, find for each source node 
+ * the nearest target node.
+ * distanceFn: a function that takes two nodes as arguments and returns a number.
+ * If targets is empty will return Number.MAX_VALUE for each source. */
+Arbor.prototype.minDistancesFromTo = function(sources, targets, distanceFn) {
+  var neighbors = this.allNeighbors(),
+      distances = {},
+      sourceIDs = Object.keys(sources);
+
+  // Breadth-first search starting from each source node
+  for (var i=0; i<sourceIDs.length; ++i) {
+    var source = sourceIDs[i];
+    // Maybe source and target coincide
+    if (targets[source]) {
+      distances[source] = 0;
+      continue;
+    }
+    // Else grow breadth-first
+    var surround = neighbors[source],
+        circle = new Array(surround.length),
+        min = Number.MAX_VALUE;
+    for (var k=0; k<circle.length; ++k) {
+      circle[k] = {child: surround[k],
+                   paren: source,
+                   dist: 0}; // cummulative distance
+    }
+    while (true) {
+      var next = []; // reset
+      // Iterate through nodes of one circle
+      for (var k=0; k<circle.length; ++k) {
+        var t = circle[k],
+            d = t.dist + distanceFn(t.child, t.paren);
+        if (d > min) continue; // terminate exploration in this direction
+        if (targets[t.child]) {
+          if (d < min) min = d;
+          // terminate exploration in this direction
+          continue;
+        }
+        // Else, grow the next circle
+        var s = neighbors[t.child];
+        for (var j=0; j<s.length; ++j) {
+          if (t.paren == s[j]) continue; // == and not === so that numbers and "numbers" can be compared properly
+          next.push({child: s[j],
+                     paren: t.child,
+                     dist: d});
+        }
+      }
+      if (!next || 0 === next.length) {
+        distances[source] = min;
+        break;
+      }
+      circle = next;
+    }
+  }
+
+  return distances;
 };

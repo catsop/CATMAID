@@ -2,13 +2,17 @@ import decimal
 import json
 import math
 
+from collections import defaultdict
+
 from django.db import connection
 from django.http import HttpResponse
 
-from catmaid.models import *
-from catmaid.fields import Double3D
-from catmaid.control.authentication import *
-from catmaid.control.common import *
+from catmaid.models import UserRole, Treenode, BrokenSlice, ClassInstance, \
+        ClassInstanceClassInstance
+from catmaid.control.authentication import requires_user_role, \
+        can_edit_class_instance_or_fail, can_edit_or_fail
+from catmaid.control.common import get_relation_to_id_map, \
+        get_class_to_id_map, insert_into_log
 from catmaid.control.neuron import _delete_if_empty
 
 
@@ -211,7 +215,10 @@ def create_interpolated_treenode(request, project_id=None):
 
     last_treenode_id, skeleton_id = _create_interpolated_treenode(request, \
          params, project_id, False)
-    return HttpResponse(json.dumps({'treenode_id': last_treenode_id}))
+    return HttpResponse(json.dumps({
+        'treenode_id': last_treenode_id,
+        'skeleton_id': skeleton_id
+    }))
 
 
 def _create_interpolated_treenode(request, params, project_id, skip_last):
@@ -360,9 +367,13 @@ def delete_treenode(request, project_id=None):
     """ Deletes a treenode. If the skeleton has a single node, deletes the
     skeleton and its neuron. Returns the parent_id, if any."""
     treenode_id = int(request.POST.get('treenode_id', -1))
+    # Raise an exception if the user doesn't have permission to edit the
+    # treenode.
+    can_edit_or_fail(request.user, treenode_id, 'treenode')
     # Raise an Exception if the user doesn't have permission to edit the neuron
     # the skeleton of the treenode is modeling.
     can_edit_treenode_or_fail(request.user, project_id, treenode_id)
+
     treenode = Treenode.objects.get(pk=treenode_id)
     parent_id = treenode.parent_id
 
@@ -373,7 +384,7 @@ def delete_treenode(request, project_id=None):
             response_on_error = 'Could not retrieve children for ' \
                 'treenode #%s' % treenode_id
             n_children = Treenode.objects.filter(parent=treenode).count()
-            response_on_error = "Can't delete root node when it has children"
+            response_on_error = "Could not delete root node"
             if n_children > 0:
                 # TODO yes you can, the new root is the first of the children,
                 # and other children become independent skeletons
@@ -416,7 +427,10 @@ def delete_treenode(request, project_id=None):
         # Remove treenode
         response_on_error = 'Could not delete treenode.'
         Treenode.objects.filter(pk=treenode_id).delete()
-        return HttpResponse(json.dumps({'parent_id': parent_id}))
+        return HttpResponse(json.dumps({
+            'parent_id': parent_id,
+            'success': "Removed treenode successfully."
+        }))
 
     except Exception as e:
         raise Exception(response_on_error + ': ' + str(e))
@@ -450,10 +464,10 @@ def _treenode_info(project_id, treenode_id):
         for row in c.fetchall()
     ]
     if (len(results) > 1):
-        raise Exception('Found more than one skeleton and neuron for '
+        raise ValueError('Found more than one skeleton and neuron for '
                         'treenode %s' % treenode_id)
     elif (len(results) == 0):
-        raise Exception('No skeleton and neuron for treenode %s' % treenode_id)
+        raise ValueError('No skeleton and neuron for treenode %s' % treenode_id)
 
     return results[0]
 

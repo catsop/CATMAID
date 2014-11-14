@@ -6,12 +6,11 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.core.cache import cache
 
-from pgmagick import Image, Blob
 from catmaid.control import cropping
 from catmaid.control.authentication import requires_user_role
 from catmaid.control.common import urljoin
-from catmaid.models import UserRole, RegionOfInterest, Project, Relation
-from catmaid.models import Stack, ClassInstance, RegionOfInterestClassInstance
+from catmaid.models import UserRole, RegionOfInterest, Project, Relation, \
+        Stack, ClassInstance, RegionOfInterestClassInstance
 
 from celery.task import task
 from celery.utils.log import get_task_logger
@@ -47,7 +46,7 @@ def get_roi_info(request, project_id=None, roi_id=None):
 
     return HttpResponse(json.dumps(info))
 
-@requires_user_role([UserRole.Annotate, UserRole.Browse])
+@requires_user_role(UserRole.Annotate)
 def link_roi_to_class_instance(request, project_id=None, relation_id=None,
         stack_id=None, ci_id=None):
     """ With the help of this method one can link a region of interest

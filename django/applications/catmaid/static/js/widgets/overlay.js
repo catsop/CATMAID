@@ -25,11 +25,15 @@ var SkeletonAnnotations = {
   TYPE_NODE : "treenode",
   TYPE_CONNECTORNODE : "connector",
 
-  sourceView : new ActiveSkeleton()
+  sourceView : new ActiveSkeleton(),
+
+  // Event name constants
+  EVENT_ACTIVE_NODE_CHANGED: "tracing_active_node_changed",
 };
 
 SkeletonAnnotations.MODES = Object.freeze({SKELETON: 0, SYNAPSE: 1});
 SkeletonAnnotations.currentmode = SkeletonAnnotations.MODES.skeleton;
+Events.extend(SkeletonAnnotations);
 
 /**
  * Sets the active node, if node is not null. Otherwise, the active node is
@@ -37,17 +41,31 @@ SkeletonAnnotations.currentmode = SkeletonAnnotations.MODES.skeleton;
  * coordinates, its position has to be unscaled.
  */
 SkeletonAnnotations.atn.set = function(node, stack_id) {
+  var changed = false;
+
   if (node) {
+    // Find out if there was a change
     var stack = project.getStack(stack_id);
+    changed = (this.id !== node.id) ||
+              (this.skeleton_id !== node.skeleton_id) ||
+              (this.type !== node.type) ||
+              (this.z !== node.z) ||
+              (this.y !== node.y)  ||
+              (this.x !== node.x) ||
+              (this.parent_id !== node.parent_id) ||
+              (this.stack_id !== stack_id);
+
+    // Assign new properties
     this.id = node.id;
     this.skeleton_id = node.skeleton_id;
     this.type = node.type;
-    this.x = node.x / stack.scale;
-    this.y = node.y / stack.scale;
+    this.x = node.x;
+    this.y = node.y;
     this.z = node.z;
     this.parent_id = node.parent ? node.parent.id : null;
     this.stack_id = stack_id;
   } else {
+    changed = true;
     // Set all to null
     for (var prop in this) {
       if (this.hasOwnProperty(prop)) {
@@ -57,6 +75,12 @@ SkeletonAnnotations.atn.set = function(node, stack_id) {
         this[prop] = null;
       }
     }
+  }
+
+  // Trigger event if node ID or position changed
+  if (changed) {
+    SkeletonAnnotations.trigger(
+          SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED, this);
   }
 };
 
@@ -69,7 +93,7 @@ SkeletonAnnotations.getSVGOverlayByPaper = function(paper) {
   for (var stackID in instances) {
     if (instances.hasOwnProperty(stackID)) {
       var s = instances[stackID];
-      if (paper === s.paper) {
+      if (paper === s.paper.node()) {
         return s;
       }
     }
@@ -137,11 +161,7 @@ SkeletonAnnotations.getActiveNodePosition = function() {
 };
 
 SkeletonAnnotations.getActiveNodeVector3 = function() {
-  var stack = project.getStack(this.atn.stack_id);
-  return new THREE.Vector3(
-      stack.stackToProjectX(this.atn.z, this.atn.y, this.atn.x),
-      stack.stackToProjectY(this.atn.z, this.atn.y, this.atn.x),
-      stack.stackToProjectZ(this.atn.z, this.atn.y, this.atn.x));
+  return new THREE.Vector3(this.atn.x, this.atn.y, this.atn.z);
 };
 
 SkeletonAnnotations.getActiveStackId = function() {
@@ -244,7 +264,15 @@ SkeletonAnnotations.SVGOverlay = function(stack) {
   this.view.style.cursor ="url(" + STATIC_URL_JS + "images/svg-circle.cur) 15 15, crosshair";
   this.view.onmousemove = this.createViewMouseMoveFn(this.stack, this.coords);
 
-  this.paper = Raphael(this.view, Math.floor(stack.dimension.x * stack.scale), Math.floor(stack.dimension.y * stack.scale));
+  this.paper = d3.select(this.view)
+                  .append('svg')
+                  .attr({
+                      width: stack.viewWidth,
+                      height: stack.viewHeight,
+                      style: 'overflow: hidden; position: relative;'});
+// If the equal ratio between stack, SVG viewBox and overlay DIV size is not
+// maintained, this additional attribute would be necessary:
+// this.paper.attr('preserveAspectRatio', 'xMinYMin meet')
   this.graphics = new SkeletonElements(this.paper);
 };
 
@@ -448,7 +476,6 @@ SkeletonAnnotations.SVGOverlay.prototype.activateNode = function(node) {
       SkeletonAnnotations.setNeuronNameInTopbar(this.stack.getId(), node.skeleton_id);
       atn.set(node, this.getStack().getId());
       this.recolorAllNodes();
-      WebGLApplication.prototype.staticUpdateActiveNodePosition();
     } else if (SkeletonAnnotations.TYPE_CONNECTORNODE === node.type) {
       statusBar.replaceLast("Activated connector node #" + node.id);
       atn.set(node, this.getStack().getId());
@@ -926,7 +953,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createNode = function (parentID, phys_x
 
         // Check whether the Z coordinate of the new node is beyond one section away
         // from the Z coordinate of the parent node (which is the active by definition)
-        if (active_node_z !== null && Math.abs(active_node_z - nn.z) > 1) {
+        if (active_node_z !== null && Math.abs(active_node_z - nn.z) > self.stack.resolution.z) {
           growlAlert('BEWARE', 'Node added beyond one section from its parent node!');
         }
       });
@@ -1059,7 +1086,7 @@ SkeletonAnnotations.SVGOverlay.prototype.refreshNodesFromTuples = function (jso,
   // Now that all edges have been created, disable unused arrows
   this.graphics.disableRemainingArrows();
 
-  // Create raphael's circles on top of the edges
+  // Create circles on top of the edges
   // so that the events reach the circles first
   for (var i in this.nodes) {
     if (this.nodes.hasOwnProperty(i)) {
@@ -1123,14 +1150,27 @@ SkeletonAnnotations.SVGOverlay.prototype.redraw = function( stack, completionCal
     }
   }
 
+  var screenScale = userprofile.tracing_overlay_screen_scaling;
+  this.paper.classed('screen-scale', screenScale);
+  var dynamicScale = screenScale ? (1 / new_scale) : false;
+  this.graphics.scale(
+      userprofile.tracing_overlay_scale,
+      Math.max(stack.resolution.x, stack.resolution.y),
+      dynamicScale);
+
   if ( !doNotUpdate ) {
     this.updateNodes(completionCallback);
   }
 
-  this.view.style.left = Math.floor((-pl / stack.resolution.x) * new_scale) + "px";
-  this.view.style.top = Math.floor((-pt / stack.resolution.y) * new_scale) + "px";
+  this.paper.attr({
+      viewBox: [
+          pl - stack.translation.x,
+          pt - stack.translation.y,
+          (stack.viewWidth / stack.scale) * stack.resolution.x,
+          (stack.viewHeight / stack.scale) * stack.resolution.y].join(' '),
+      width: stack.viewWidth,     // Width and height only need to be updated on
+      height: stack.viewHeight}); // resize.
 
-  this.updatePaperDimensions(stack);
   if (doNotUpdate) {
     if (typeof completionCallback !== "undefined") {
       completionCallback();
@@ -1167,8 +1207,8 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
   }
 
   // take into account current local offset coordinates and scale
-  var pos_x = m.offsetX;
-  var pos_y = m.offsetY;
+  var pos_x = this.coords.offsetXPhysical;
+  var pos_y = this.coords.offsetYPhysical;
   var pos_z = this.phys2pixZ(project.coordinates.z);
 
   // get physical coordinates for node position creation
@@ -1203,7 +1243,7 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
         if (e.shiftKey) {
           // Create a new connector and a new link
           var synapse_type = e.altKey ? 'post' : 'pre';
-          statusBar.replaceLast("created connector, with " + synapse_type + "synaptic treenode id " + atn.id);
+          statusBar.replaceLast("Created connector with " + synapse_type + "synaptic treenode #" + atn.id);
           var self = this;
           this.createSingleConnector(phys_x, phys_y, phys_z, pos_x, pos_y, pos_z, 5,
               function (connectorID) {
@@ -1215,7 +1255,7 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
         return true;
       } else if (SkeletonAnnotations.TYPE_CONNECTORNODE === atn.type) {
         // create new treenode (and skeleton) postsynaptic to activated connector
-        statusBar.replaceLast("created treenode with id " + atn.id + "postsynaptic to activated connector");
+        statusBar.replaceLast("Created treenode #" + atn.id + " postsynaptic to active connector");
         this.createPostsynapticTreenode(atn.id, phys_x, phys_y, phys_z, -1, 5, pos_x, pos_y, pos_z);
         e.stopPropagation();
         return true;
@@ -1249,33 +1289,23 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
   return true;
 };
 
-SkeletonAnnotations.SVGOverlay.prototype.updatePaperDimensions = function () {
-  var wi = Math.floor(this.stack.dimension.x * this.stack.scale);
-  var he = Math.floor(this.stack.dimension.y * this.stack.scale);
-  // update width/height with the dimension from the database, which is in pixel unit
-  this.view.style.width = wi + "px";
-  this.view.style.height = he + "px";
-  // update the raphael canvas as well
-  this.paper.setSize(wi, he);
-};
-
 SkeletonAnnotations.SVGOverlay.prototype.phys2pixX = function (x) {
-  return (x - this.stack.translation.x) / this.stack.resolution.x * this.stack.scale;
+  return x;
 };
 SkeletonAnnotations.SVGOverlay.prototype.phys2pixY = function (y) {
-  return (y - this.stack.translation.y) / this.stack.resolution.y * this.stack.scale;
+  return y;
 };
 SkeletonAnnotations.SVGOverlay.prototype.phys2pixZ = function (z) {
-  return (z - this.stack.translation.z) / this.stack.resolution.z;
+  return z;
 };
 SkeletonAnnotations.SVGOverlay.prototype.pix2physX = function (x) {
-  return this.stack.translation.x + ((x) / this.stack.scale) * this.stack.resolution.x;
+  return x;
 };
 SkeletonAnnotations.SVGOverlay.prototype.pix2physY = function (y) {
-  return this.stack.translation.y + ((y) / this.stack.scale) * this.stack.resolution.y;
+  return y;
 };
 SkeletonAnnotations.SVGOverlay.prototype.pix2physZ = function (z) {
-  return z *this.stack.resolution.z + this.stack.translation.z;
+  return z;
 };
 
 SkeletonAnnotations.SVGOverlay.prototype.show = function () {
@@ -1446,38 +1476,73 @@ SkeletonAnnotations.SVGOverlay.prototype.goToParentNode = function(treenode_id) 
   this.moveToAndSelectNode(node.parent_id);
 };
 
-SkeletonAnnotations.SVGOverlay.prototype.editRadius = function(treenode_id) {
+/**
+ * Shows a dialog to edit the radius property of a node. By default, it also
+ * lets the user estimate the radius with the help of a small measurement tool,
+ * which can be disabled by setting the no_measurement_tool parameter to true.
+ */
+SkeletonAnnotations.SVGOverlay.prototype.editRadius = function(treenode_id, no_measurement_tool) {
   if (this.isIDNull(treenode_id)) return;
   var self = this;
   this.goToNode(treenode_id,
       function() {
-        var dialog = new OptionsDialog("Edit radius");
-        var input = dialog.appendField("Radius: ", "treenode-edit-radius", self.nodes[treenode_id].radius);
-        var choice = dialog.appendChoice("Apply: ", "treenode-edit-radius-scope",
-          ['Only this node', 'From this node to the next branch or end node (included)',
-           'From this node to the previous branch node or root (excluded)',
-           'From this node to root (included)', 'All nodes'],
-          [0, 1, 2, 3, 4],
-          self.editRadius_defaultValue);
-        dialog.onOK = function() {
-          var radius = parseFloat(input.value);
-          if (isNaN(radius)) {
-            alert("Invalid number: '" + input.value + "'");
-            return;
-          }
-          self.editRadius_defaultValue = choice.selectedIndex;
-          self.submit(
-            django_url + project.id + '/treenode/' + treenode_id + '/radius',
-            {radius: radius,
-             option: choice.selectedIndex},
-            function(json) {
-              // Refresh 3d views if any
-              WebGLApplication.prototype.staticReloadSkeletons([self.nodes[treenode_id].skeleton_id]);
-              // Reinit SVGOverlay to read in the radius of each altered treenode
-              self.updateNodes();
-            });
+        function show_dialog(defaultRadius)
+        {
+          var dialog = new OptionsDialog("Edit radius");
+          var input = dialog.appendField("Radius: ", "treenode-edit-radius", defaultRadius);
+          var choice = dialog.appendChoice("Apply: ", "treenode-edit-radius-scope",
+            ['Only this node', 'From this node to the next branch or end node (included)',
+             'From this node to the previous branch node or root (excluded)',
+             'From this node to root (included)', 'All nodes'],
+            [0, 1, 2, 3, 4],
+            self.editRadius_defaultValue);
+          dialog.onOK = function() {
+            var radius = parseFloat(input.value);
+            if (isNaN(radius)) {
+              alert("Invalid number: '" + input.value + "'");
+              return;
+            }
+            self.editRadius_defaultValue = choice.selectedIndex;
+            self.submit(
+              django_url + project.id + '/treenode/' + treenode_id + '/radius',
+              {radius: radius,
+               option: choice.selectedIndex},
+              function(json) {
+                // Refresh 3d views if any
+                WebGLApplication.prototype.staticReloadSkeletons([self.nodes[treenode_id].skeleton_id]);
+                // Reinit SVGOverlay to read in the radius of each altered treenode
+                self.updateNodes();
+              });
+          };
+          dialog.show();
         };
-        dialog.show();
+
+        // If there was a measurement tool based radius change was started
+        // before, stop this.
+        if (self.nodes[treenode_id].surroundingCircleElements) {
+          self.nodes[treenode_id].removeSurroundingCircle(function(rx, ry) {
+            if (typeof rx === 'undefined' || typeof ry === 'undefined') {
+              show_dialog(self.nodes[treenode_id].radius);
+              return;
+            }
+            // Convert pixel radius components to nanometers
+            var r = Math.round(Math.sqrt(Math.pow(rx, 2) + Math.pow(ry, 2)));
+            // Show dialog with the new radius
+            show_dialog(r);
+          });
+        } else if (no_measurement_tool) {
+          show_dialog(self.nodes[treenode_id].radius);
+        } else {
+          self.nodes[treenode_id].drawSurroundingCircle(function (r) {
+            r.x /= self.stack.scale;
+            r.y /= self.stack.scale;
+            r.x += ( self.stack.x - self.stack.viewWidth / self.stack.scale / 2 );
+            r.y += ( self.stack.y - self.stack.viewHeight / self.stack.scale / 2 );
+            return {
+                x: self.stack.stackToProjectX(self.stack.z, r.y, r.x),
+                y: self.stack.stackToProjectY(self.stack.z, r.y, r.x)};
+          });
+        }
       });
 };
 
@@ -1789,73 +1854,117 @@ SkeletonAnnotations.SVGOverlay.prototype.switchBetweenTerminalAndConnector = fun
   }
 };
 
-/** Delete the connector from the database and removes it from
- * the current view and local objects. */
-SkeletonAnnotations.SVGOverlay.prototype.deleteConnectorNode = function(connectornode) {
+/**
+ * Delete a node with the given ID. The node can either be a connector or a
+ * treenode.
+ */
+SkeletonAnnotations.SVGOverlay.prototype.deleteNode = function(nodeId) {
+  var node = this.nodes[nodeId];
   var self = this;
-  this.submit(
-      django_url + project.id + '/connector/delete',
-      {pid: project.id,
-       connector_id: connectornode.id},
-      function(json) {
-        connectornode.needsync = false;
-        // If there was a presynaptic node, select it
-        var preIDs  = Object.keys(connectornode.pregroup);
-        var postIDs = Object.keys(connectornode.postgroup);
-        if (preIDs.length > 0) {
-            self.selectNode(preIDs[0]);
-        } else if (postIDs.length > 0) {
-            self.selectNode(postIDs[0]);
-        } else {
-            self.activateNode(null);
-        }
-        // capture ID prior to refreshing nodes and connectors
-        var cID = connectornode.id;
-        // Refresh all nodes in any case, to reflect the new state of the database
-        self.updateNodes();
 
-        statusBar.replaceLast("Deleted connector #" + cID);
-      });
-};
+  if (!node) {
+    error("Could not find a node with id " + nodeId);
+    return false;
+  }
 
-/** Delete the node from the database and removes it from
- * the current view and local objects.  */
-SkeletonAnnotations.SVGOverlay.prototype.deleteTreenode = function (node, wasActiveNode) {
-  var self = this;
-  this.submit(
-      django_url + project.id + '/treenode/delete',
-      {pid: project.id,
-       treenode_id: node.id},
-      function(json) {
-        // nodes not refreshed yet: node still contains the properties of the deleted node
-        // ensure the node, if it had any changes, these won't be pushed to the database: doesn't exist anymore
-        node.needsync = false;
-        // activate parent node when deleted
-        if (wasActiveNode) {
-          if (json.parent_id) {
-            self.selectNode(json.parent_id);
+  if (!mayEdit() || !node.can_edit) {
+    if (node.type === SkeletonAnnotations.TYPE_CONNECTORNODE) {
+      error("You don't have permission to delete connector #" + node.id);
+    } else {
+      error("You don't have permission to delete node #" + node.id);
+    }
+    return false;
+  }
+
+  // Unset active node to avoid actions that involve the deleted node
+  var isActiveNode = (node.id === SkeletonAnnotations.getActiveNodeId());
+  if (isActiveNode) {
+    this.activateNode(null);
+  }
+
+  // Call actual delete methods defined below (which are callable due to
+  // hoisting)
+  switch (node.type) {
+    case SkeletonAnnotations.TYPE_CONNECTORNODE:
+      deleteConnectorNode(node);
+      break;
+    case SkeletonAnnotations.TYPE_NODE:
+      deleteTreenode(node, isActiveNode);
+      break;
+  }
+
+  /**
+   * Delete the connector from the database and removes it from the current view
+   * and local objects.
+   */
+  function deleteConnectorNode(connectornode) {
+    self.submit(
+        django_url + project.id + '/connector/delete',
+        {pid: project.id,
+        connector_id: connectornode.id},
+        function(json) {
+          connectornode.needsync = false;
+          // If there was a presynaptic node, select it
+          var preIDs  = Object.keys(connectornode.pregroup);
+          var postIDs = Object.keys(connectornode.postgroup);
+          if (preIDs.length > 0) {
+              self.selectNode(preIDs[0]);
+          } else if (postIDs.length > 0) {
+              self.selectNode(postIDs[0]);
           } else {
-            // No parent. But if this node was postsynaptic or presynaptic
-            // to a connector, the connector must be selected:
-            var pp = self.findConnectors(node.id);
-            // Try first connectors for which node is postsynaptic:
-            if (pp[1].length > 0) {
-              self.selectNode(pp[1][0]);
-            // Then try connectors for which node is presynaptic
-            } else if (pp[0].length > 0) {
-              self.selectNode(pp[0][0]);
-            } else {
               self.activateNode(null);
+          }
+          // capture ID prior to refreshing nodes and connectors
+          var cID = connectornode.id;
+          // Refresh all nodes in any case, to reflect the new state of the database
+          self.updateNodes();
+
+          statusBar.replaceLast("Deleted connector #" + cID);
+        });
+  };
+
+  /**
+   * Delete the node from the database and removes it from the current view and
+   * local objects.
+   */
+  function deleteTreenode(node, wasActiveNode) {
+    self.submit(
+        django_url + project.id + '/treenode/delete',
+        {pid: project.id,
+        treenode_id: node.id},
+        function(json) {
+          // nodes not refreshed yet: node still contains the properties of the deleted node
+          // ensure the node, if it had any changes, these won't be pushed to the database: doesn't exist anymore
+          node.needsync = false;
+          // activate parent node when deleted
+          if (wasActiveNode) {
+            if (json.parent_id) {
+              self.selectNode(json.parent_id);
+            } else {
+              // No parent. But if this node was postsynaptic or presynaptic
+              // to a connector, the connector must be selected:
+              var pp = self.findConnectors(node.id);
+              // Try first connectors for which node is postsynaptic:
+              if (pp[1].length > 0) {
+                self.selectNode(pp[1][0]);
+              // Then try connectors for which node is presynaptic
+              } else if (pp[0].length > 0) {
+                self.selectNode(pp[0][0]);
+              } else {
+                self.activateNode(null);
+              }
             }
           }
-        }
-        // capture ID prior to refreshing nodes and connectors
-        var nodeID = node.id;
-        // Refresh all nodes in any case, to reflect the new state of the database
-        self.updateNodes();
+          // capture ID prior to refreshing nodes and connectors
+          var nodeID = node.id;
+          // Refresh all nodes in any case, to reflect the new state of the database
+          self.updateNodes();
 
-        statusBar.replaceLast("Deleted node #" + nodeID);
-      });
+          statusBar.replaceLast("Deleted node #" + nodeID);
+        });
+  };
+
+  return true;
 };
 
 // Now that functions exist:
@@ -1926,7 +2035,11 @@ SkeletonAnnotations.Tag = new (function() {
   this.handle_tagbox = function(atn, svgOverlay) {
     var atnID = SkeletonAnnotations.getActiveNodeId();
     var stack = project.getStack(atn.stack_id);
-    var screenPos = [atn.x * stack.scale, atn.y * stack.scale];
+    var screenOrigin = stack.screenPosition();
+    var screenPos = [
+      stack.scale * (stack.projectToStackX(atn.z * stack.resolution.z, atn.y, atn.x) - screenOrigin.left),
+      stack.scale * (stack.projectToStackY(atn.z * stack.resolution.z, atn.y, atn.x) - screenOrigin.top),
+    ];
     this.tagbox = $("<div class='tagBox' id='tagBoxId" + atnID +
         "' style='z-index: 8; border: 1px solid #B3B2B2; padding: 5px; left: " +
         screenPos[0] + "px; top: " + screenPos[1] + "px;' />");

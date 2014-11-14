@@ -1,15 +1,20 @@
 import json
-from string import upper
 
-from django.http import HttpResponse
+from string import upper
+from itertools import imap
+from datetime import datetime, timedelta
+
+from django.db import connection
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
 
-from catmaid.models import *
-from catmaid.control.authentication import *
-from catmaid.control.common import *
-
-from itertools import imap
+from catmaid.fields import Double3D
+from catmaid.models import Project, Stack, ProjectStack, Connector, \
+        ConnectorClassInstance, Treenode, TreenodeConnector, UserRole
+from catmaid.control.authentication import requires_user_role, can_edit_or_fail
+from catmaid.control.common import cursor_fetch_dictionary, \
+        get_relation_to_id_map
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def graphedge_list(request, project_id=None):
@@ -44,12 +49,12 @@ def graphedge_list(request, project_id=None):
 
     result = []
     for k,v in edge.items():
-     if skeletonlist[0] in v['pre'] and skeletonlist[1] in v['post']:
-        connectordata[k]['pretreenode'] = v['pretreenode'][ v['pre'].index( skeletonlist[0] ) ]
-        connectordata[k]['posttreenode'] = v['posttreenode'][ v['post'].index( skeletonlist[1] ) ]
-        result.append(connectordata[k])
+        if skeletonlist[0] in v['pre'] and skeletonlist[1] in v['post']:
+            connectordata[k]['pretreenode'] = v['pretreenode'][ v['pre'].index( skeletonlist[0] ) ]
+            connectordata[k]['posttreenode'] = v['posttreenode'][ v['post'].index( skeletonlist[1] ) ]
+            result.append(connectordata[k])
 
-    return HttpResponse(json.dumps( result ), mimetype='text/json')
+    return HttpResponse(json.dumps( result ), content_type='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def one_to_many_synapses(request, project_id=None):
@@ -69,17 +74,15 @@ def one_to_many_synapses(request, project_id=None):
         raise Exception("Cannot accept a relation named '%s'" % relation_name)
     cursor = connection.cursor();
     cursor.execute('''
-    SELECT tc1.connector_id, c.location_x, c.location_y, c.location_y,
-           tc1.treenode_id, tc1.skeleton_id, tc1.confidence, u1.username,
+    SELECT tc1.connector_id, c.location_x, c.location_y, c.location_z,
+           tc1.treenode_id, tc1.skeleton_id, tc1.confidence, tc1.user_id,
            t1.location_x, t1.location_y, t1.location_z,
-           tc2.treenode_id, tc2.skeleton_id, tc2.confidence, u2.username,
+           tc2.treenode_id, tc2.skeleton_id, tc2.confidence, tc2.user_id,
            t2.location_x, t2.location_y, t2.location_z
     FROM treenode_connector tc1,
          treenode_connector tc2,
          treenode t1,
          treenode t2,
-         auth_user u1,
-         auth_user u2,
          relation r1,
          connector c
     WHERE tc1.skeleton_id = %s
@@ -91,8 +94,6 @@ def one_to_many_synapses(request, project_id=None):
       AND tc1.relation_id != tc2.relation_id
       AND tc1.treenode_id = t1.id
       AND tc2.treenode_id = t2.id
-      AND tc1.user_id = u1.id
-      AND tc2.user_id = u2.id
     ''' % (skid, ','.join(map(str, skids)), relation_name))
 
     def parse(loc):
@@ -111,11 +112,15 @@ def one_to_many_synapses(request, project_id=None):
 def list_connector(request, project_id=None):
     stack_id = request.POST.get('stack_id', None)
     skeleton_id = request.POST.get('skeleton_id', None)
-    if skeleton_id is None:
+
+    def empty_result():
         return HttpResponse(json.dumps({
             'iTotalRecords': 0,
             'iTotalDisplayRecords': 0,
             'aaData': []}))
+
+    if not skeleton_id:
+        return empty_result()
     else:
         skeleton_id = int(skeleton_id)
 
@@ -139,10 +144,6 @@ def list_connector(request, project_id=None):
         else:
             relation_type_id = relation_map['postsynaptic_to']
             inverse_relation_type_id = relation_map['presynaptic_to']
-
-        response_on_error = 'Could not retrieve resolution and translation parameters for project.'
-        resolution = get_object_or_404(Stack, id=int(stack_id)).resolution
-        translation = get_object_or_404(ProjectStack, stack=int(stack_id), project=project_id).translation
 
         response_on_error = 'Failed to select connectors.'
         cursor = connection.cursor()
@@ -259,6 +260,9 @@ def list_connector(request, project_id=None):
 
         total_result_count = len(connectors)
 
+        if 0 == total_result_count:
+            return empty_result()
+
         # Paging
         if display_length == 0:
             connectors = connectors[display_start:]
@@ -266,6 +270,14 @@ def list_connector(request, project_id=None):
         else:
             connectors = connectors[display_start:display_start + display_length]
             connector_ids = connector_ids[display_start:display_start + display_length]
+
+        response_on_error = 'Could not retrieve resolution and translation parameters for project.'
+        if stack_id:
+            resolution = get_object_or_404(Stack, id=int(stack_id)).resolution
+            translation = get_object_or_404(ProjectStack, stack=int(stack_id), project=project_id).translation
+        else:
+            resolution = Double3D(1.0, 1.0, 1.0)
+            translation = Double3D(0.0, 0.0, 0.0)
 
         # Format output
         aaData_output = []
@@ -293,6 +305,9 @@ def list_connector(request, project_id=None):
             row.append(c['other_treenode_y'])
             z = c['other_treenode_z']
             row.append(z)
+            # FIXME: This is the only place we need a stack nad this can be
+            # done in the client as well. So we really want to keep this and
+            # have a more complicated API?
             row.append(int((z - translation.z) / resolution.z))
             row.append(labels)
             row.append(connected_skeleton_treenode_count)
@@ -463,3 +478,62 @@ def delete_connector(request, project_id=None):
         'connector_id': connector_id}))
 
 
+@requires_user_role(UserRole.Browse)
+def list_completed(request, project_id):
+    completed_by = request.GET.get('completed_by', None)
+    from_date = request.GET.get('from', None)
+    to_date = request.GET.get('to', None)
+
+    # Sanitize
+    if completed_by:
+        completed_by = int(completed_by)
+    if from_date:
+        from_date = datetime.strptime(from_date, '%Y%m%d')
+    if to_date:
+        to_date = datetime.strptime(to_date, '%Y%m%d')
+
+    response = _list_completed(project_id, completed_by, from_date, to_date)
+    return HttpResponse(json.dumps(response), content_type="text/json")
+
+
+def _list_completed(project_id, completed_by=None, from_date=None, to_date=None):
+    """ Get a list of connector links that can be optionally constrained to be
+    completed by a certain user in a given time frame. The returned connector
+    links are by default only constrained by both sides having different
+    relations and the first link was created before the second one.
+    """
+    params = [project_id]
+    query = '''
+        SELECT tc2.connector_id, c.location_x, c.location_y, c.location_z,
+            tc2.treenode_id, tc2.skeleton_id, tc2.confidence, tc2.user_id,
+            t2.location_x, t2.location_y, t2.location_z,
+            tc1.treenode_id, tc1.skeleton_id, tc1.confidence, tc1.user_id,
+            t1.location_x, t1.location_y, t1.location_z
+        FROM treenode_connector tc1
+        JOIN treenode_connector tc2 ON tc1.connector_id = tc2.connector_id
+        JOIN connector c ON tc1.connector_id = c.id
+        JOIN treenode t1 ON t1.id = tc1.treenode_id
+        JOIN treenode t2 ON t2.id = tc2.treenode_id
+        WHERE t1.project_id=%s
+        AND tc1.relation_id <> tc2.relation_id
+        AND tc1.creation_time > tc2.creation_time'''
+
+    if completed_by:
+        params.append(completed_by)
+        query += " AND tc1.user_id=%s"
+    if from_date:
+        params.append(from_date.isoformat())
+        query += " AND tc1.creation_time >= %s"
+    if to_date:
+        to_date =  to_date + timedelta(days=1)
+        params.append(to_date.isoformat())
+        query += " AND tc1.creation_time < %s"
+
+    cursor = connection.cursor()
+    cursor.execute(query, params)
+
+    return tuple((row[0], (row[1], row[2], row[3]),
+                  row[4], row[5], row[6], row[7],
+                  (row[8], row[9], row[10]),
+                  row[11], row[12], row[13], row[14],
+                  (row[15], row[16], row[17])) for row in cursor.fetchall())

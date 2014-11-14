@@ -4,12 +4,12 @@ from datetime import timedelta, datetime
 from dateutil import parser as dateparser
 
 from django.http import HttpResponse
-from django.db.models import Count
+from django.db.models.aggregates import Count
 from django.db import connection
 
 from catmaid.control.authentication import requires_user_role
 from catmaid.models import ClassInstance, Connector, Treenode, User, UserRole, \
-    Review, Relation, TreenodeConnector
+        Review, Relation, TreenodeConnector
 
 
 def _process(query, minus1name):
@@ -26,7 +26,7 @@ def _process(query, minus1name):
         result['values'].append(row[1])
         s = (names[row[0]], row[1]) if -1 != row[0] else (minus1name, row[1])
         result['users'].append('%s (%d)' % s)
-    return HttpResponse(json.dumps(result), mimetype='text/json')
+    return HttpResponse(json.dumps(result), content_type='text/json')
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -78,7 +78,7 @@ def stats_summary(request, project_id=None):
             creation_time__month=startdate.month,
             creation_time__day=startdate.day,
             class_column__class_name=class_name).count()
-    return HttpResponse(json.dumps(result), mimetype='text/json')
+    return HttpResponse(json.dumps(result), content_type='text/json')
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -111,7 +111,7 @@ def stats_history(request, project_id=None):
         'date': stat['date'],
         'count': stat['count']} for stat in stats]
 
-    return HttpResponse(json.dumps(stats), mimetype='text/json')
+    return HttpResponse(json.dumps(stats), content_type='text/json')
 
 def stats_user_activity(request, project_id=None):
     username = request.GET.get('username', None)
@@ -145,7 +145,7 @@ def stats_user_activity(request, project_id=None):
     prelinks = [time.mktime(ele['creation_time'].timetuple()) for ele in stats_prelink]
     postlinks = [time.mktime(ele['creation_time'].timetuple()) for ele in stats_postlink]
     return HttpResponse(json.dumps({'skeleton_nodes': timepoints,
-         'presynaptic': prelinks, 'postsynaptic': postlinks}), mimetype='text/json')
+         'presynaptic': prelinks, 'postsynaptic': postlinks}), content_type='text/json')
 
 def stats_user_history(request, project_id=None):
     # Get the start date for the query, defaulting to 10 days ago.
@@ -166,10 +166,7 @@ def stats_user_history(request, project_id=None):
     # Calculate number of days between (including) start and end
     daydelta = (end_date + timedelta(days=1) - start_date).days
 
-    all_users = User.objects.filter().values('username', 'id')
-    map_userid_to_name = {}
-    for user in all_users:
-        map_userid_to_name[user['id']] = user['username']
+    all_users = User.objects.filter().values_list('id', flat=True)
     days = []
     daysformatted = []
     for i in range(daydelta):
@@ -177,46 +174,52 @@ def stats_user_history(request, project_id=None):
         days.append(tmp_date.strftime("%Y%m%d"))
         daysformatted.append(tmp_date.strftime("%a %d, %h %Y"))
     stats_table = {}
-    for userid in map_userid_to_name.keys():
+    for userid in all_users:
         if userid == -1:
             continue
-        stats_table[map_userid_to_name[userid]] = {}
+        userid = str(userid)
+        stats_table[userid] = {}
         for i in range(daydelta):
-            name = map_userid_to_name[userid]
             date = (start_date + timedelta(days=i)).strftime("%Y%m%d")
-            stats_table[name][date] = {}
+            stats_table[userid][date] = {}
 
     # Look up all tree nodes for the project in the given date range. Also add
     # a computed field which is just the day of the last edited date/time.
     treenode_stats = []
     cursor = connection.cursor()
-    try:
-        cursor.execute('''\
-            SELECT "treenode"."user_id", (date_trunc('day', creation_time)) AS "date", COUNT("treenode"."id") AS "count"
-              FROM "treenode"
-              INNER JOIN (
-                SELECT "treenode"."skeleton_id", COUNT("treenode"."id") as "skeleton_nodes"
-                  FROM "treenode"
-                  GROUP BY "treenode"."skeleton_id") as tn2
-                ON "treenode"."skeleton_id" = tn2."skeleton_id"
-              WHERE ("treenode"."project_id" = %(project_id)s
-                AND "treenode"."creation_time" BETWEEN %(start_date)s AND %(end_date)s
-                AND tn2."skeleton_nodes" > 1)
-              GROUP BY "treenode"."user_id", "date"
-              ORDER BY "treenode"."user_id" ASC, "date" ASC''', \
-              dict(project_id=project_id, start_date=start_date, end_date=end_date))
-        treenode_stats = cursor.fetchall()
-    finally:
-        cursor.close()
+    cursor.execute('''\
+        SELECT "treenode"."user_id", (date_trunc('day', creation_time)) AS "date", COUNT("treenode"."id") AS "count"
+            FROM "treenode"
+            INNER JOIN (
+            SELECT "treenode"."skeleton_id", COUNT("treenode"."id") as "skeleton_nodes"
+                FROM "treenode"
+                GROUP BY "treenode"."skeleton_id") as tn2
+            ON "treenode"."skeleton_id" = tn2."skeleton_id"
+            WHERE ("treenode"."project_id" = %(project_id)s
+            AND "treenode"."creation_time" BETWEEN %(start_date)s AND %(end_date)s
+            AND tn2."skeleton_nodes" > 1)
+            GROUP BY "treenode"."user_id", "date"
+            ORDER BY "treenode"."user_id" ASC, "date" ASC''', \
+            dict(project_id=project_id, start_date=start_date, end_date=end_date))
+    treenode_stats = cursor.fetchall()
 
-    connector_stats = Connector.objects \
-        .filter(
-            project=project_id,
-            creation_time__range=(start_date, end_date)) \
-        .extra(select={'date': "date_trunc('day', creation_time)"}) \
-        .order_by('user', 'date') \
-        .values_list('user', 'date') \
-        .annotate(count=Count('id'))
+    # Retrieve a list of how many completed connector relations a user has
+    # created in a given time frame. A completed connector relation is either
+    # one were a user created both the presynaptic and the postsynaptic side
+    # (one of them in the given time frame) or if a user completes an existing
+    # 'half connection'. To avoid duplicates, only links are counted, where the
+    # second node is younger than the first one
+    cursor.execute('''
+        SELECT t1.user_id, (date_trunc('day', t1.creation_time)) AS date, count(*)
+        FROM treenode_connector t1
+        JOIN treenode_connector t2 ON t1.connector_id = t2.connector_id
+        WHERE t1.project_id=%s
+        AND t1.creation_time BETWEEN %s AND %s
+        AND t1.relation_id <> t2.relation_id
+        AND t1.creation_time > t2.creation_time
+        GROUP BY t1.user_id, date
+    ''', (project_id, start_date, end_date))
+    connector_stats = cursor.fetchall()
 
     tree_reviewed_nodes = Review.objects \
         .filter(
@@ -228,22 +231,22 @@ def stats_user_history(request, project_id=None):
         .annotate(count = Count('treenode'))
 
     for di in treenode_stats:
-        name = map_userid_to_name[di[0]]
+        user_id = str(di[0])
         date = di[1].strftime('%Y%m%d')
-        stats_table[name][date]['new_treenodes'] = di[2]
+        stats_table[user_id][date]['new_treenodes'] = di[2]
 
     for di in connector_stats:
-        name = map_userid_to_name[di[0]]
+        user_id = str(di[0])
         date = di[1].strftime('%Y%m%d')
-        stats_table[name][date]['new_connectors'] = di[2]
+        stats_table[user_id][date]['new_connectors'] = di[2]
 
     for di in tree_reviewed_nodes:
-        name = map_userid_to_name[di[0]]
+        user_id = str(di[0])
         date = di[1].strftime('%Y%m%d')
-        stats_table[name][date]['new_reviewed_nodes'] = di[2]
+        stats_table[user_id][date]['new_reviewed_nodes'] = di[2]
 
     return HttpResponse(json.dumps({
         'stats_table': stats_table,
         'days': days,
-        'daysformatted': daysformatted}), mimetype='text/json')
+        'daysformatted': daysformatted}), content_type='text/json')
 

@@ -250,28 +250,32 @@ var WindowMaker = new function()
         '<thead>' +
           '<tr>' +
             '<th rowspan="2">Neuron name</th>' +
-            '<th colspan="4">Arbor</th>' +
-            '<th colspan="4">Backbone</th>' +
-            '<th colspan="4">Dendrites</th>' +
-            '<th colspan="4">Axon terminals</th>' +
+            '<th colspan="5">Arbor</th>' +
+            '<th colspan="5">Backbone</th>' +
+            '<th colspan="5">Dendrites</th>' +
+            '<th colspan="5">Axon terminals</th>' +
           '</tr>' +
           '<tr>' +
             '<th>Cable (nm)</th>' +
             '<th>Inputs</th>' +
             '<th>Outputs</th>' +
             '<th>Time (min)</th>' +
+            '<th>Mito -chondria</th>' +
             '<th>Cable (nm)</th>' +
             '<th>Inputs</th>' +
             '<th>Outputs</th>' +
             '<th>Time (min)</th>' +
+            '<th>Mito -chondria</th>' +
             '<th>Cable (nm)</th>' +
             '<th>Inputs</th>' +
             '<th>Outputs</th>' +
             '<th>Time (min)</th>' +
+            '<th>Mito -chondria</th>' +
             '<th>Cable (nm)</th>' +
             '<th>Inputs</th>' +
             '<th>Outputs</th>' +
             '<th>Time (min)</th>' +
+            '<th>Mito -chondria</th>' +
           '</tr>' +
         '</thead>' +
       '</table>';
@@ -345,6 +349,17 @@ var WindowMaker = new function()
       } else {
         ND.setMinStrahler(parseInt(this.value));
       }
+    };
+    minStrahlerInput.onmousewheel = function(e) {
+        if (e.wheelDelta < 0) {
+          if (this.value > 0) {
+            ND.setMinStrahler(parseInt(this.value) - 1);
+            ND.update();
+          }
+        } else {
+          ND.setMinStrahler(parseInt(this.value) + 1);
+          ND.update();
+        }
     };
     minStrahler.appendChild(minStrahlerInput);
     buttons.appendChild(minStrahler);
@@ -434,9 +449,9 @@ var WindowMaker = new function()
   };
 
 
-  var createStagingListWindow = function( webglwin, webglwin_name ) {
+  var createStagingListWindow = function( instance, webglwin, webglwin_name ) {
 
-    var ST = new SelectionTable();
+    var ST = instance ? instance : new SelectionTable();
 
     var win = new CMWWindow(ST.getName());
     var content = win.getFrame();
@@ -662,94 +677,64 @@ var WindowMaker = new function()
     var content = win.getFrame();
     content.style.backgroundColor = "#ffffff";
 
-    var buttons = document.createElement( "div" );
-    buttons.id = "buttons_in_3d_webgl_widget";
-    content.appendChild(buttons);
-    
-    var container = createContainer("view_in_3d_webgl_widget" + WA.widgetID);
-    content.appendChild(container);
+    var bar = document.createElement( "div" );
+    bar.id = "3d_viewer_buttons";
+    bar.setAttribute('class', 'buttonpanel');
 
-    buttons.appendChild(document.createTextNode('From'));
+    var titles = document.createElement('ul');
+    bar.appendChild(titles);
+    var tabs = ['Main', 'Display', 'Shading'].reduce(function(o, name) {
+          titles.appendChild($('<li><a href="#' + name + WA.widgetID + '">' + name + '</a></li>')[0]);
+          var div = document.createElement('div');
+          div.setAttribute('id', name + WA.widgetID);
+          bar.appendChild(div);
+          o[name] = div;
+          return o;
+    }, {});
+
+    var appendToTab = function(tab, elems) {
+      elems.forEach(function(e) {
+        switch (e.length) {
+          case 1: tab.appendChild(e[0]); break;
+          case 2: appendButton(tab, e[0], e[1]); break;
+          case 3: appendButton(tab, e[0], e[1], e[2]); break;
+        }
+      });
+    };
+
     var select_source = SkeletonListSources.createSelect(WA);
-    buttons.appendChild(select_source);
 
-    var load = document.createElement('input');
-    load.setAttribute("type", "button");
-    load.setAttribute("value", "Append");
-    load.onclick = WA.loadSource.bind(WA);
-    buttons.appendChild(load);
+    appendToTab(tabs['Main'],
+        [
+          [document.createTextNode('From')],
+          [select_source],
+          ['Append', WA.loadSource.bind(WA)],
+          ['Clear', WA.clear.bind(WA)],
+          ['Refresh', WA.updateSkeletons.bind(WA)],
+          ['Options', WA.configureParameters.bind(WA)],
+        ]);
 
-    var reload = document.createElement('input');
-    reload.setAttribute("type", "button");
-    reload.setAttribute("value", "Refresh");
-    reload.onclick = WA.updateSkeletons.bind(WA);
-    buttons.appendChild(reload);
+    var follow_active = document.createElement('input');
+    follow_active.setAttribute('type', 'checkbox');
+    follow_active.checked = false;
+    follow_active.onclick = function() {
+      WA.setFollowActive(this.checked);
+    };
 
-    var append = document.createElement('input');
-    append.setAttribute("type", "button");
-    append.setAttribute("value", "Clear");
-    append.onclick = WA.clear.bind(WA);
-    buttons.appendChild(append);
+    appendToTab(tabs['Display'],
+        [
+          ['Center active', WA.look_at_active_node.bind(WA)],
+          [follow_active],
+          [document.createTextNode('Follow active')],
+          ['XY', WA.XYView.bind(WA)],
+          ['XZ', WA.XZView.bind(WA)],
+          ['ZY', WA.ZYView.bind(WA)],
+          ['ZX', WA.ZXView.bind(WA)],
+          ['Restrict connectors', WA.toggleConnectors.bind(WA)],
+          ['Fullscreen', WA.fullscreenWebGL.bind(WA)],
+          ['Refresh', WA.updateSkeletons.bind(WA)], // repeated on purpose
+        ]);
     
-    var center = document.createElement('input');
-    center.setAttribute("type", "button");
-    center.setAttribute("value", "Center active");
-    center.style.marginLeft = '1em';
-    center.onclick = WA.look_at_active_node.bind(WA);
-    buttons.appendChild(center);
-
-    var fulls = document.createElement('input');
-    fulls.setAttribute("type", "button");
-    fulls.setAttribute("value", "Fullscreen");
-    fulls.style.marginLeft = '1em';
-    fulls.onclick = WA.fullscreenWebGL.bind(WA);
-    buttons.appendChild(fulls);
-
-    var xy = document.createElement('input');
-    xy.setAttribute("type", "button");
-    xy.setAttribute("value", "XY");
-    xy.style.marginLeft = '1em';
-    xy.onclick =  WA.XYView.bind(WA);
-    buttons.appendChild(xy);
-
-    var xz = document.createElement('input');
-    xz.setAttribute("type", "button");
-    xz.setAttribute("value", "XZ");
-    xz.onclick = WA.XZView.bind(WA);
-    buttons.appendChild(xz);
-
-    var zy = document.createElement('input');
-    zy.setAttribute("type", "button");
-    zy.setAttribute("value", "ZY");
-    zy.onclick = WA.ZYView.bind(WA);
-    buttons.appendChild(zy);
-
-    var zx = document.createElement('input');
-    zx.setAttribute("type", "button");
-    zx.setAttribute("value", "ZX");
-    zx.onclick = WA.ZXView.bind(WA);
-    buttons.appendChild(zx);
-
-    // Restrict display to shared connectors between visible skeletons
-    var connectors = document.createElement('input');
-    connectors.setAttribute("type", "button");
-    connectors.setAttribute("value", "Restrict connectors");
-    connectors.style.marginLeft = '1em';
-    connectors.onclick = WA.toggleConnectors.bind(WA);
-    buttons.appendChild(connectors);
-
-    var options = document.createElement('input');
-    options.setAttribute("type", "button");
-    options.setAttribute("value", "Options");
-    options.style.marginLeft = '1em';
-    options.onclick = WA.configureParameters.bind(WA);
-    buttons.appendChild(options);
-    
-    var shadingLabel = document.createElement('div');
-    shadingLabel.innerHTML = 'Shading:';
-    shadingLabel.style.display = 'inline';
-    shadingLabel.style.marginLeft = '1em';
-    buttons.appendChild(shadingLabel);
     var shadingMenu = document.createElement('select');
     shadingMenu.setAttribute("id", "skeletons_shading" + WA.widgetID);
     $('<option/>', {value : 'none', text: 'None', selected: true}).appendTo(shadingMenu);
@@ -764,16 +749,12 @@ var WindowMaker = new function()
     $('<option/>', {value : 'partitions', text: 'Principal branch length'}).appendTo(shadingMenu);
     $('<option/>', {value : 'strahler', text: 'Strahler analysis'}).appendTo(shadingMenu);
     shadingMenu.onchange = WA.set_shading_method.bind(WA);
-    buttons.appendChild(shadingMenu);
 
-    buttons.appendChild(document.createTextNode(" Inv:"));
     var invert = document.createElement('input');
     invert.setAttribute('type', 'checkbox');
     invert.checked = false;
     invert.onclick = WA.toggleInvertShading.bind(WA);
-    buttons.appendChild(invert);
 
-    buttons.appendChild(document.createTextNode(" Color:"));
     var colorMenu = document.createElement('select');
     colorMenu.setAttribute('id', 'webglapp_color_menu' + WA.widgetID);
     $('<option/>', {value : 'none', text: 'Source', selected: true}).appendTo(colorMenu);
@@ -783,23 +764,37 @@ var WindowMaker = new function()
     $('<option/>', {value : 'axon-and-dendrite', text: 'Axon and dendrite'}).appendTo(colorMenu);
     $('<option/>', {value : 'downstream-of-tag', text: 'Downstream of tag'}).appendTo(colorMenu);
     colorMenu.onchange = WA.updateColorMethod.bind(WA, colorMenu);
-    buttons.appendChild(colorMenu);
 
-    buttons.appendChild(document.createTextNode(" Synapse color:"));
     var synColors = document.createElement('select');
     synColors.options.add(new Option('Type: pre/red, post/cyan', 'cyan-red'));
     synColors.options.add(new Option('N with partner: pre[red > blue], post[yellow > cyan]', 'by-amount'));
     synColors.options.add(new Option('Synapse clusters', 'synapse-clustering'));
     synColors.options.add(new Option('Max. flow cut: axon (green) and dendrite (blue)', 'axon-and-dendrite'));
     synColors.onchange = WA.updateConnectorColors.bind(WA, synColors);
-    buttons.appendChild(synColors);
 
-    var map = document.createElement('input');
-    map.setAttribute("type", "button");
-    map.setAttribute("value", "User colormap");
-    map.style.marginLeft = '1em';
-    map.onclick = WA.toggle_usercolormap_dialog.bind(WA);
-    buttons.appendChild(map);
+    appendToTab(tabs['Shading'],
+        [
+          [document.createTextNode('Shading: ')],
+          [shadingMenu],
+          [document.createTextNode(' Inv: ')],
+          [invert],
+          [document.createTextNode(' Color:')],
+          [colorMenu],
+          [document.createTextNode(' Synapse color:')],
+          [synColors],
+          ['User colormap', WA.toggle_usercolormap_dialog.bind(WA)],
+        ]);
+
+    content.appendChild( bar );
+
+    $(bar).tabs();
+
+    var buttons = document.createElement( "div" );
+    buttons.id = "buttons_in_3d_webgl_widget";
+    content.appendChild(buttons);
+
+    var container = createContainer("view_in_3d_webgl_widget" + WA.widgetID);
+    content.appendChild(container);
 
     // TOREMOVE: this serves as an entry point for debugging
     var slices = document.createElement('input');
@@ -810,8 +805,6 @@ var WindowMaker = new function()
 
     var canvas = document.createElement('div');
     canvas.setAttribute("id", "viewer-3d-webgl-canvas" + WA.widgetID);
-    // canvas.style.width = "800px";
-    // canvas.style.height = "600px";
     canvas.style.backgroundColor = "#000000";
     container.appendChild(canvas);
 
@@ -822,7 +815,7 @@ var WindowMaker = new function()
     addLogic(win);
     WA.init( 800, 600, canvas.getAttribute("id") );
     // Create a Selection Table, preset as the sync target
-    createStagingListWindow( win, WA.getName() );
+    createStagingListWindow( null, win, WA.getName() );
 
     win.addListener(
       function(callingWindow, signal) {
@@ -838,13 +831,11 @@ var WindowMaker = new function()
                 if (windows.hasOwnProperty(name)) {
                   if (win === windows[name]) {
                     delete windows[name];
-                    // console.log("deleted " + name);
                     break;
                   }
                 }
               }
               WA.destroy();
-              // win.close(); // it is done anyway
             }
             break;
           case CMWWindow.RESIZE:
@@ -965,6 +956,7 @@ var WindowMaker = new function()
 
     var bar = document.createElement('div');
     bar.setAttribute("id", 'compartment_graph_window_buttons' + GG.widgetID);
+    bar.setAttribute('class', 'buttonpanel');
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
@@ -1003,7 +995,8 @@ var WindowMaker = new function()
     color.options.add(new Option('review status (own)', 'own-review'));
     color.options.add(new Option('input/output', 'I/O'));
     color.options.add(new Option('betweenness centrality', 'betweenness_centrality'));
-    color.options.add(new Option('circles of hell', 'circles_of_hell')); // inspired by Tom Jessell's comment
+    color.options.add(new Option('circles of hell (upstream)', 'circles_of_hell_upstream')); // inspired by Tom Jessell's comment
+    color.options.add(new Option('circles of hell (downstream)', 'circles_of_hell_downstream'));
     color.onchange = GG._colorize.bind(GG, color);
 
     var layout = appendSelect(tabs['Layout'], "compartment_layout",
@@ -1077,8 +1070,8 @@ var WindowMaker = new function()
          [document.createTextNode(" by ")],
          [n_circles],
          [document.createTextNode("hops, limit:")],
-         [f("pre")],
-         [f("post")]]);
+         [f("upstream")],
+         [f("downstream")]]);
 
     appendToTab(tabs['Export'],
         [['Export GML', GG.exportGML.bind(GG)],
@@ -1088,34 +1081,15 @@ var WindowMaker = new function()
          ['Quantify', GG.quantificationDialog.bind(GG)]]);
 
     appendToTab(tabs['Subgraphs'],
-        [[document.createTextNode('Select node(s) and: ')],
-         ['Split axon and dendrite', GG.splitAxonAndDendrite.bind(GG)],
-         ['Split by synapse clustering', GG.splitBySynapseClustering.bind(GG)]]);
+        [[document.createTextNode('Select node(s) and split by: ')],
+         ['Axon & dendrite', GG.splitAxonAndDendrite.bind(GG)],
+         ['Axon, backbone dendrite & dendritic terminals', GG.splitAxonAndTwoPartDendrite.bind(GG)], 
+         ['Synapse clusters', GG.splitBySynapseClustering.bind(GG)],
+         ['Reset', GG.unsplit.bind(GG)]]);
 
     content.appendChild( bar );
 
     $(bar).tabs();
-
-    // Remove excessive padding in ui-tabs-panel and ui-tabs-nav classes
-    // and reduce font size in buttons
-    Object.keys(tabs).forEach(function(name) {
-      tabs[name].style.padding = "0px";
-      var c = tabs[name].children;
-      for (var i=0; i<c.length; ++i) {
-        c[i].style['font-family'] = "Arial, Helvetica, sans-serif";
-        c[i].style['font-size'] = '11px';
-      }
-    });
-    var ul = bar.childNodes[0];
-    ul.style.padding = "0px";
-    var lis = ul.childNodes;
-    for (var i=0; i<lis.length; ++i) {
-      lis[i].style.padding = "";
-      var a = lis[i].childNodes[0];
-      a.style.padding = ".2em 1em";
-      a.style['font-family'] = "Arial, Helvetica, sans-serif";
-      a.style['font-size'] = '11px';
-    }
 
     /* Create graph container and assure that it's overflow setting is set to
      * 'hidden'. This is required, because cytoscape.js' redraw can be delayed
@@ -1857,9 +1831,16 @@ var WindowMaker = new function()
 
         var start = document.createElement('input');
         start.setAttribute("type", "button");
-        start.setAttribute("id", "start_review_skeleton");
+        start.setAttribute("id", "start_review_whole skeleton");
         start.setAttribute("value", "Start to review skeleton");
-        start.onclick = function(ev) { ReviewSystem.startSkeletonToReview(); };
+        start.onclick = ReviewSystem.startReviewActiveSkeleton.bind(ReviewSystem, false);
+        contentbutton.appendChild(start);
+
+        var start = document.createElement('input');
+        start.setAttribute("type", "button");
+        start.setAttribute("id", "start_review_subarbor");
+        start.setAttribute("value", "Start to review current sub-arbor");
+        start.onclick = ReviewSystem.startReviewActiveSkeleton.bind(ReviewSystem, true);
         contentbutton.appendChild(start);
 
         var end = document.createElement('input');

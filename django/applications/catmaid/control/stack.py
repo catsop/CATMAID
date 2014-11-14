@@ -1,12 +1,18 @@
-from django.shortcuts import get_object_or_404
-
-from catmaid.models import *
-from catmaid.control.authentication import *
-from catmaid.control.common import *
-
-import os, os.path
+import os.path
 from contextlib import closing
 import h5py
+import json
+import httplib
+
+from django.conf import settings
+
+from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
+
+from catmaid.models import UserRole, Project, Stack, ProjectStack, \
+        BrokenSlice, Overlay
+from catmaid.control.authentication import requires_user_role
+
 
 def get_stack_info(project_id=None, stack_id=None, user=None):
     """ Returns a dictionary with relevant information for stacks.
@@ -101,7 +107,7 @@ def list_stack_tags(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     tags = [ str(t) for t in s.tags.all()]
     result = {'tags':tags}
-    return HttpResponse(json.dumps(result, sort_keys=True, indent=4), mimetype="text/json")
+    return HttpResponse(json.dumps(result, sort_keys=True, indent=4), content_type="text/json")
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def update_stack_tags(request, project_id=None, stack_id=None, tags=None):
@@ -120,12 +126,12 @@ def update_stack_tags(request, project_id=None, stack_id=None, tags=None):
     s.tags.set(*tags)
 
     # Return an empty closing response
-    return HttpResponse(json.dumps(""), mimetype="text/json")
+    return HttpResponse(json.dumps(""), content_type="text/json")
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def stack_info(request, project_id=None, stack_id=None):
     result=get_stack_info(project_id, stack_id, request.user)
-    return HttpResponse(json.dumps(result, sort_keys=True, indent=4), mimetype="text/json")
+    return HttpResponse(json.dumps(result, sort_keys=True, indent=4), content_type="text/json")
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -144,7 +150,7 @@ def stack_models(request, project_id=None, stack_id=None):
             break
 
     if not filename:
-        return HttpResponse(json.dumps(d), mimetype="text/json")
+        return HttpResponse(json.dumps(d), content_type="text/json")
 
     with closing(h5py.File(filename, 'r')) as hfile:
         meshnames=hfile['meshes'].keys()
@@ -171,7 +177,7 @@ def stack_models(request, project_id=None, stack_id=None):
                 'materials': [],
                 'colors': []
             }
-    return HttpResponse(json.dumps(d), mimetype="text/json")
+    return HttpResponse(json.dumps(d), content_type="text/json")
 
 def stacks(request, project_id=None):
     """ Returns a response containing the JSON object with menu information
@@ -180,7 +186,7 @@ def stacks(request, project_id=None):
     p = Project.objects.get(pk=project_id)
     info = get_stacks_menu_info(p)
     return HttpResponse(json.dumps(info, sort_keys=True, indent=4),
-        mimetype="text/json")
+        content_type="text/json")
 
 def get_stacks_menu_info(project):
     """ Returns a dictionary with information needed to create a menu

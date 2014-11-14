@@ -1,19 +1,20 @@
 import json
+import re
 
 from collections import defaultdict
 from datetime import datetime
 
 from django.db import connection
 from django.http import HttpResponse
+from django.contrib.auth.models import User 
 
-from django.shortcuts import get_object_or_404
-
-from catmaid.models import *
-from catmaid.control.authentication import *
-from catmaid.control.common import *
+from catmaid.models import UserRole, Treenode, TreenodeConnector, Connector, \
+        Location, ClassInstanceClassInstance, Review
+from catmaid.control.authentication import requires_user_role, \
+        can_edit_all_or_fail, user_domain
+from catmaid.control.common import get_relation_to_id_map, insert_into_log
 from catmaid.control.treenode import can_edit_treenode_or_fail
 
-import sys
 try:
     import networkx as nx
 except:
@@ -120,15 +121,15 @@ def node_list_tuples(request, project_id=None):
 
         n_retrieved_nodes = 0 # at one per row, only those within the section
         for row in cursor.fetchall():
-          n_retrieved_nodes += 1
-          t1id = row[0]
-          if t1id not in treenode_ids:
-              treenode_ids.add(t1id)
-              treenodes.append(row[0:8] + (is_superuser or row[8] == user_id or row[8] in domain,))
-          t2id = row[9]
-          if t2id not in treenode_ids:
-              treenode_ids.add(t2id)
-              treenodes.append(row[9:17] + (is_superuser or row[17] == user_id or row[17] in domain,))
+            n_retrieved_nodes += 1
+            t1id = row[0]
+            if t1id not in treenode_ids:
+                treenode_ids.add(t1id)
+                treenodes.append(row[0:8] + (is_superuser or row[8] == user_id or row[8] in domain,))
+            t2id = row[9]
+            if t2id not in treenode_ids:
+                treenode_ids.add(t2id)
+                treenodes.append(row[9:17] + (is_superuser or row[17] == user_id or row[17] in domain,))
 
 
         # Find connectors related to treenodes in the field of view
@@ -260,7 +261,7 @@ def node_list_tuples(request, project_id=None):
                 treenode_ids.add(row[0:8] + (is_superuser or row[8] == user_id or row[8] in domain,))
 
         labels = defaultdict(list)
-        if 'true' == request.POST['labels']:
+        if 'true' == request.POST.get('labels', None):
             z0 = params['z']
             # Collect treenodes visible in the current section
             visible = ','.join(str(row[0]) for row in treenodes if row[4] == z0)
@@ -312,7 +313,7 @@ def update_location_reviewer(request, project_id=None, node_id=None):
     r.review_time = datetime.now()
     r.save()
 
-    return HttpResponse(json.dumps({'reviewer_id': request.user.id}), mimetype='text/json')
+    return HttpResponse(json.dumps({'reviewer_id': request.user.id}), content_type='text/json')
 
 
 @requires_user_role(UserRole.Annotate)
@@ -334,7 +335,7 @@ def update_confidence(request, project_id=None, node_id=0):
         location = Location.objects.filter(id=tnid).values_list('location_x',
                 'location_y', 'location_z')[0]
         insert_into_log(project_id, request.user.id, "change_confidence", location, "Changed to %s" % new_confidence)
-        return HttpResponse(json.dumps({'message': 'success'}), mimetype='text/json')
+        return HttpResponse(json.dumps({'message': 'success'}), content_type='text/json')
 
     # Else, signal error
     if to_connector:
@@ -411,7 +412,8 @@ def node_update(request, project_id=None):
     _update(Treenode, 'treenode', nodes['t'], now, request.user)
     _update(Connector, 'connector', nodes['c'], now, request.user)
 
-    return HttpResponse(json.dumps(len(nodes)))
+    num_updated_nodes = len(nodes['t'].keys()) + len(nodes['c'].keys())
+    return HttpResponse(json.dumps({'updated': num_updated_nodes}))
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -508,7 +510,7 @@ def _skeleton_as_graph(skeleton_id):
     return graph
 
 
-def _fetch_location(treenode_id):
+def _fetch_treenode_location(treenode_id):
     cursor = connection.cursor()
     cursor.execute('''
         SELECT
@@ -522,7 +524,7 @@ def _fetch_location(treenode_id):
     return cursor.fetchone()
 
 
-def _fetch_location_connector(connector_id):
+def _fetch_connector_location(connector_id):
     cursor = connection.cursor()
     cursor.execute('''
         SELECT
@@ -534,16 +536,23 @@ def _fetch_location_connector(connector_id):
         WHERE id=%s''', [connector_id])
     return cursor.fetchone()
 
+def _fetch_location(location_id):
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT
+          id,
+          location_x AS x,
+          location_y AS y,
+          location_z AS z
+        FROM location
+        WHERE id=%s''', [location_id])
+    return cursor.fetchone()
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def get_location(request, project_id=None):
     try:
         tnid = int(request.POST['tnid'])
-        nodetype = request.POST.get('type', 'treenode')
-        if nodetype == 'connector':
-            return HttpResponse(json.dumps(_fetch_location_connector(tnid)))
-        else:
-            return HttpResponse(json.dumps(_fetch_location(tnid)))
+        return HttpResponse(json.dumps(_fetch_location(tnid)))
     except Exception as e:
         raise Exception('Could not obtain the location of node with id #%s' % tnid)
 
@@ -610,7 +619,7 @@ def find_previous_branchnode_or_root(request, project_id=None):
         if seq and alt:
             tnid = _find_first_interesting_node(seq)
 
-        return HttpResponse(json.dumps(_fetch_location(tnid)))
+        return HttpResponse(json.dumps(_fetch_treenode_location(tnid)))
     except Exception as e:
         raise Exception('Could not obtain previous branch node or root:' + str(e))
 
@@ -649,7 +658,7 @@ def find_next_branchnode_or_end(request, project_id=None):
         if seq and alt:
             tnid = _find_first_interesting_node(seq)
 
-        return HttpResponse(json.dumps(_fetch_location(tnid)))
+        return HttpResponse(json.dumps(_fetch_treenode_location(tnid)))
     except Exception as e:
         raise Exception('Could not obtain next branch node or root:' + str(e))
 

@@ -8,8 +8,8 @@
  */
 var NeuronDendrogram = function() {
   this.widgetID = this.registerInstance();
+  this.registerSource();
 
-  this.skeletonId = null;
   this.collapsed = true;
   this.showNodeIDs = false;
   this.showTags = true;
@@ -22,23 +22,126 @@ var NeuronDendrogram = function() {
   // The current translation and scale, to preserve state between updates
   this.translation = null;
   this.scale = null;;
+
+  // Listen to change events of the active node
+  SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
+      this.selectActiveNode, this);
 };
 
 NeuronDendrogram.prototype = {};
 $.extend(NeuronDendrogram.prototype, new InstanceRegistry());
+$.extend(NeuronDendrogram.prototype, new SkeletonSource());
+$.extend(NeuronDendrogram.prototype, Events.Event);
 
-NeuronDendrogram.prototype.getName = function() {
+/* Implement interfaces */
+
+NeuronDendrogram.prototype.getName = function()
+{
   return "Neuron Dendrogram " + this.widgetID;
 };
+
+NeuronDendrogram.prototype.destroy = function() {
+  SkeletonAnnotations.off(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
+      this.selectActiveNode, this);
+  this.unregisterInstance();
+  this.unregisterSource();
+};
+
+NeuronDendrogram.prototype.append = function() {};
+NeuronDendrogram.prototype.clear = function(source_chain) {};
+NeuronDendrogram.prototype.removeSkeletons = function() {};
+NeuronDendrogram.prototype.updateModels = function() {};
+
+NeuronDendrogram.prototype.getSelectedSkeletons = function()
+{
+  if (this.currentSkeletonId) {
+    return [this.currentSkeletonId];
+  } else {
+    return [];
+  }
+};
+
+NeuronDendrogram.prototype.hasSkeleton = function(skeleton_id)
+{
+  return this.currentSkeletonId === skeleton_id;
+};
+
+NeuronDendrogram.prototype.getSelectedSkeletonModels = function()
+{
+  var models = {};
+  if (this.currentSkeletonId) {
+    models[this.currentSkeletonId] = new SelectionTable.prototype.SkeletonModel(
+        this.currentSkeletonId, "", new THREE.Color().setRGB(1, 1, 0));
+  }
+  return models;
+};
+
+NeuronDendrogram.prototype.highlight = function(skeleton_id)
+{
+  // TODO: Highlight
+};
+
+/* Non-interface methods */
 
 NeuronDendrogram.prototype.init = function(container)
 {
   this.container = container;
 };
 
-NeuronDendrogram.prototype.destroy = function() {
-  this.unregisterInstance();
-};
+/**
+ * Will select the active node, if its skeleton is laoded. If the active node is
+ * a collapsed node, the next visible child will be selected.
+ */
+NeuronDendrogram.prototype.selectActiveNode = function(activeNode)
+{
+  if (activeNode) {
+    this.selectNode(activeNode.id, activeNode.skeleton_id);
+  } else {
+    this.resetHighlighting();
+  }
+}
+
+/**
+ * Will select the node with the given ID, if its skeleton is laoded. If the
+ * active node is a collapsed node, the next visible child will be selected.
+ */
+NeuronDendrogram.prototype.selectNode = function(node_id, skeleton_id)
+{
+  if (!node_id || skeleton_id !== this.currentSkeletonId || !this.renderTree) {
+    this.resetHighlighting();
+    return;
+  }
+
+  var childToParent = this.currentSkeletonTree.reduce(function(o, n) {
+    // Map node ID to parent ID
+    o[n[0]] = n[1];
+    return o;
+  }, {});
+
+  // Find either node itself or closest parent
+  var nodeToHighlight = node_id;
+  var numDownstreamSteps = 0;
+  while (true) {
+    if (-1 !== this.renderedNodeIds.indexOf(nodeToHighlight)) {
+      break;
+    } else {
+      // Try next parent
+      numDownstreamSteps++;
+      nodeToHighlight = childToParent[nodeToHighlight];
+    }
+  }
+
+  if (!nodeToHighlight) {
+    error("Couldn't find node to highlight in dendrogram");
+    return;
+  } else if (nodeToHighlight !== node_id) {
+    growlAlert("Information", "The active node is currently not visible in " +
+        "the dendrogram. Therefore, the next visible node downstream has " +
+        "been selected, which is " + numDownstreamSteps + " hop(s) away.");
+  }
+
+  this.highlightNode(nodeToHighlight);
+}
 
 /**
  * Load the active skeleton
@@ -82,6 +185,31 @@ NeuronDendrogram.prototype.loadSkeleton = function(skid)
           this.update();
         }).bind(this)));
 };
+
+/**
+ * Traverses the given tree and returns a list of the IDs of all nodes in it.
+ */
+NeuronDendrogram.prototype.getNodesInTree = function(rootNode)
+{
+  function traverse(node, node_ids)
+  {
+    node_ids.push(node.id);
+
+    if (node.children) {
+      node.children.forEach(function(c) {
+        traverse(c, node_ids);
+      });
+    }
+  };
+
+  var node_ids = [];
+
+  if (rootNode) {
+    traverse(rootNode, node_ids);
+  }
+
+  return node_ids;
+}
 
 /**
  * Creates a tree representation of a node array. Nodes that appear in
@@ -191,9 +319,11 @@ NeuronDendrogram.prototype.update = function()
 
   var tag = $('input#dendrogram-tag-' + this.widgetID).val();
   var taggedNodeIds = this.currentSkeletonTags.hasOwnProperty(tag) ? this.currentSkeletonTags[tag] : [];
-  var tree = this.createTreeRepresentation(this.currentSkeletonTree, taggedNodeIds);
+  this.renderTree = this.createTreeRepresentation(this.currentSkeletonTree, taggedNodeIds);
+  this.renderedNodeIds = this.getNodesInTree(this.renderTree);
+
   if (this.currentSkeletonTree && this.currentSkeletonTags) {
-    this.renderDendogram(tree, this.currentSkeletonTags, tag);
+    this.renderDendogram(this.renderTree, this.currentSkeletonTags, tag);
   }
 };
 
@@ -227,6 +357,42 @@ NeuronDendrogram.prototype.getMaxDepth = function(node)
   } else {
     return 1;
   }
+};
+
+/**
+ * Remove the 'highlight' class from all nodes.
+ */
+NeuronDendrogram.prototype.resetHighlighting = function()
+{
+  d3.selectAll('.node').classed('highlight', false);
+};
+
+/**
+ * Add the 'highlight' class to a node element and its children.
+ */
+NeuronDendrogram.prototype.highlightNode = function(node_id)
+{
+  this.resetHighlighting();
+
+  // Get the actual node
+  var node = d3.select("#node" + node_id).data();
+  if (node.length !== 1) {
+    error("Couldn't find node " + node_id + " in dendrogram");
+    return;
+  } else {
+    node = node[0];
+  }
+
+  // Highlight current node and children
+  function highlightNodeAndChildren(n) {
+    // Set node to be highlighted
+    d3.select("#node" + n.id).classed('highlight', true);
+    // Highlight children
+    if (n.children) {
+      n.children.forEach(highlightNodeAndChildren);
+    }
+  }
+  highlightNodeAndChildren(node);
 };
 
 /**
@@ -349,24 +515,12 @@ NeuronDendrogram.prototype.renderDendogram = function(tree, tags, referenceTag)
   /**
    * The node click handler is called if users double click on a node. It will
    * select the current node and highlight all downstream neurons in the
-   * dendrogram.
+   * dendrogram. The highlighting is done as response to the active node change.
    */
   var nodeClickHandler = function(skid) {
     return function(n) {
       // Don't let the event bubble up
       d3.event.stopPropagation();
-      // Reset all previous highlights
-      d3.selectAll('.node').classed('highlight', false);
-      // Highlight current node and children
-      function highlightNodeAndChildren(node) {
-        // Set node to be highlighted
-        d3.select("#node" + node.id).classed('highlight', true);
-        // Highlight children
-        if (node.children) {
-          node.children.forEach(highlightNodeAndChildren);
-        }
-      }
-      highlightNodeAndChildren(n);
 
       // Select node in tracing layer
       SkeletonAnnotations.staticMoveTo(
@@ -411,7 +565,7 @@ NeuronDendrogram.prototype.renderDendogram = function(tree, tags, referenceTag)
     .attr("id", function(d) { return "node" + d.id; })
     .attr("transform", nodeTransform)
     .classed('tagged', function(d) { return d.belowTag; })
-    .on("dblclick", nodeClickHandler);
+    .on("dblclick", nodeClickHandler.bind(this));
   node.append("circle")
     .attr("r", 4.5);
   styleNodeText(node.append("text")).text(nodeName);

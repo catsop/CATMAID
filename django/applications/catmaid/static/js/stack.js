@@ -417,14 +417,6 @@ function Stack(
 			}
 		}
 
-
-		/**
-		 * This question is completely useless but without asking it, Firefox on
-		 * Linux systems will not redraw the screen properly.  Took me ... to
-		 * find this out.
-		 */
-		var a = view.offsetWidth;
-
 		self.old_z = self.z;
 		self.old_y = self.y;
 		self.old_x = self.x;
@@ -862,7 +854,7 @@ function Stack(
 	vert.style.opacity = horr.style.opacity = "0.5";
 	view.appendChild( vert );
 	view.appendChild( horr );
-	self.showReferenceLines( userprofile.display_stack_reference_lines );
+	self.showReferenceLines( userprofile ? userprofile.display_stack_reference_lines : false );
 
 	// take care, that all values are within a proper range
 	// Declare the x,y,z,s as coordinates in pixels

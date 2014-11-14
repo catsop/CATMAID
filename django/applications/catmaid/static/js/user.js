@@ -35,6 +35,26 @@ User.all = function()
   return User.prototype.users;
 };
 
+/**
+ * Returns a user object that matches the given ID or a dummy object if the ID
+ * was not found.
+ */
+User.safe_get = function(id)
+{
+  if (User.prototype.users[id]) {
+    return User.prototype.users[id];
+  } else {
+    return {
+      // Return dummy instance
+      id: id,
+      login: 'unknown',
+      fullName: 'unknown',
+      firstName: 'unknown',
+      lastName: 'unknown',
+      color: new THREE.Color().setRGB(255, 0, 0),
+    }
+  }
+};
 
 /**
  * Gets the user object belonging the passed ID and calls the passed function
@@ -113,6 +133,8 @@ Userprofile.prototype.getOptions = function() {
     show_segmentation_tool: false,
     show_tracing_tool: false,
     show_ontology_tool: false,
+    tracing_overlay_screen_scaling: true,
+    tracing_overlay_scale: true
   };
 };
 
@@ -126,7 +148,7 @@ Userprofile.prototype.saveAll = function(success, error) {
   var option_permissions = this.getOptions();
   for (var field in option_permissions) {
     if (option_permissions[field]) {
-      options_to_save[field] = this[field] ? 1 : 0;
+      options_to_save[field] = this[field];
     }
   }
   // Make the current set persistent

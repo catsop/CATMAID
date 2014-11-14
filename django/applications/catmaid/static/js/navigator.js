@@ -389,7 +389,7 @@ function Navigator()
 		new Action({
 			helpText: "Move down 1 slice in z (or 10 with Shift held)",
 			keyShortcuts: {
-				'.': [ 46, 190 ]
+				'.': [ 190 ]
 			},
 			run: function (e) {
 				self.slider_z.move((e.shiftKey ? 10 : 1));
@@ -441,6 +441,43 @@ function Navigator()
 			run: function (e) {
 				self.input_y.value = parseInt(self.input_y.value, 10) + (e.shiftKey ? 100 : (e.altKey ? 1 : 10));
 				self.input_y.onchange(e);
+				return true;
+			}
+		}),
+
+		new Action({
+			helpText: "Hide all layers except image tile layer (while held)",
+			keyShortcuts: {
+				"SPACE": [ 32 ]
+			},
+			run: function (e) {
+				// Avoid repeated onkeydown events in some browsers.
+				if (self.hideLayersHeld) return;
+				self.hideLayersHeld = true;
+
+				// Hide any visible layers (besides the tile layer).
+				var layers = self.stack.getLayers();
+				var layerOpacities = Object.keys(layers).reduce(function (opacities, k) {
+					if (k !== 'TileLayer') {
+						opacities[k] = layers[k].getOpacity();
+						layers[k].setOpacity(0);
+					}
+					return opacities;
+				}, {});
+
+				// Set a key up a listener to make these layers visible again
+				// when the key is released.
+				var target = e.target;
+				var oldListener = target.onkeyup;
+				target.onkeyup = function (e) {
+					if (e.keyCode == 32) {
+						Object.keys(layerOpacities).forEach(function (k) {
+							layers[k].setOpacity(layerOpacities[k]);
+						});
+						target.onkeyup = oldListener;
+						self.hideLayersHeld = false;
+					} else if (oldListener) oldListener(e);
+				};
 				return true;
 			}
 		})];

@@ -95,6 +95,8 @@ PROFILE_SHOW_CROPPING_TOOL = False
 PROFILE_SHOW_SEGMENTATION_TOOL = False
 PROFILE_SHOW_TRACING_TOOL = False
 PROFILE_SHOW_ONTOLOGY_TOOL = False
+PROFILE_TRACING_OVERLAY_SCREEN_SCALING = True
+PROFILE_TRACING_OVERLAY_SCALE = 1
 
 # Defines if a cropped image of a ROI should be created
 # automatically when the ROI is created. If set to False
@@ -118,6 +120,12 @@ MEDIA_TREENODE_SUBDIRECTORY = 'treenode_archives'
 # instance, uses this to cancel a request if the generated file grows larger
 # than this. This defaults to 50 Megabyte.
 GENERATED_FILES_MAXIMUM_SIZE = 52428800
+
+# Specifies if user registration is allowed
+USER_REGISTRATION_ALLOWED = False
+
+# A new user's defaul groups
+NEW_USER_DEFAULT_GROUPS = []
 
 # A sequence of modules that contain Celery tasks which we want Celery to know
 # about automatically.

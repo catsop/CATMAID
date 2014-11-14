@@ -11,6 +11,10 @@ var WebGLApplication = function() {
   this.registerSource();
   // Indicates whether init has been called
   this.initialized = false;
+
+  // Listen to changes of the active node
+  SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
+    this.staticUpdateActiveNodePosition, this);
 };
 
 WebGLApplication.prototype = {};
@@ -36,6 +40,8 @@ WebGLApplication.prototype.getName = function() {
 };
 
 WebGLApplication.prototype.destroy = function() {
+  SkeletonAnnotations.off(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
+      this.staticUpdateActiveNodePosition);
   this.unregisterInstance();
   this.unregisterSource();
   this.space.destroy();
@@ -149,6 +155,7 @@ WebGLApplication.prototype.Options = function() {
   this.resampling_delta = 3000; // nm
   this.skeleton_line_width = 3;
   this.invert_shading = false;
+  this.follow_active = false;
 };
 
 WebGLApplication.prototype.Options.prototype = {};
@@ -403,6 +410,10 @@ WebGLApplication.prototype.updateActiveNodePosition = function() {
 WebGLApplication.prototype.staticUpdateActiveNodePosition = function() {
   this.getInstances().map(function(instance) {
     instance.updateActiveNodePosition();
+    // Center the active node, if wanted
+    if (instance.options.follow_active) {
+      instance.look_at_active_node();
+    }
   });
 };
 
@@ -1558,8 +1569,8 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode.prototyp
 };
 
 WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode.prototype.updatePosition = function(space, options) {
-	var pos = SkeletonAnnotations.getActiveNodePosition();
-	if (!pos) {
+  var pos = SkeletonAnnotations.getActiveNodePosition();
+  if (!pos) {
     space.updateSplitShading(this.skeleton_id, null, options);
     this.skeleton_id = null;
     return;
@@ -1569,17 +1580,12 @@ WebGLApplication.prototype.Space.prototype.Content.prototype.ActiveNode.prototyp
   space.updateSplitShading(this.skeleton_id, skeleton_id, options);
   this.skeleton_id = skeleton_id;
 
-	var stack = space.stack,
-      t = stack.translation,
-			r = stack.resolution,
-			// Get world coordinates of active node (which is already unscaled)
-			c = new THREE.Vector3(t.x + pos.x * r.x,
-														t.y + pos.y * r.y,
-														t.z + pos.z * r.z);
+  // Get world coordinates of active node
+  var c = new THREE.Vector3(pos.x, pos.y, pos.z);
 
-	space.toSpace(c);
-
-	this.mesh.position.set(c.x, c.y, c.z);
+  space.toSpace(c);
+  
+  this.mesh.position.set(c.x, c.y, c.z);
 };
 
 WebGLApplication.prototype.Space.prototype.updateSkeleton = function(skeletonmodel, json, options) {
@@ -1931,7 +1937,13 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createArbor = func
 };
 
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.getPositions = function() {
-  return this.geometry['neurite'].vertices.reduce(function(o, v) { o[v.node_id] = v; return o; }, {});
+  var vs = this.geometry['neurite'].vertices,
+      p = {};
+  for (var i=0; i<vs.length; ++i) {
+    var v = vs[i];
+    p[v.node_id] = v;
+  }
+  return p;
 };
 
 /** Determine the nodes that belong to the axon by computing the centrifugal flow
@@ -1948,33 +1960,12 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.splitByFlowCentral
       if (arbor.root != soma) arbor.reroot(soma);
     }
 
-    var syn = new ArborParser().synapses(json[1]),
-        flow_centrality = arbor.flowCentrality(syn.outputs, syn.inputs, syn.n_outputs, syn.n_inputs);
+    var ap = new ArborParser();
+    ap.arbor = arbor;
+    ap.synapses(json[1]);
 
-    if (!flow_centrality) return null;
-
-    var max = 0,
-        nodes = Object.keys(flow_centrality);
-    for (var i=0; i<nodes.length; ++i) {
-      var node = nodes[i],
-          fc = flow_centrality[node].centrifugal;
-      if (fc > max) {
-        max = fc;
-      }
-    }
-
-    var above = [],
-        threshold = 0.9 * max;
-    for (var i=0; i<nodes.length; ++i) {
-      var node = nodes[i];
-      if (flow_centrality[node].centrifugal > threshold) {
-        above.push(node);
-      }
-    }
-
-    var cut = SynapseClustering.prototype.findAxonCut(arbor, syn.outputs, above);
-
-    return arbor.subArbor(cut).nodes();
+    var axon = SynapseClustering.prototype.findAxon(ap, 0.9, this.getPositions());
+    return axon ? axon.nodes() : null;
 };
 
 WebGLApplication.prototype.Space.prototype.Skeleton.prototype.updateSkeletonColor = function(options) {
@@ -2386,17 +2377,28 @@ WebGLApplication.prototype.Space.prototype.Skeleton.prototype.completeUpdateConn
   } else if ('synapse-clustering' === options.connector_color) {
     var sc = this.createSynapseClustering(options.synapse_clustering_bandwidth),
         density_hill_map = sc.densityHillMap(),
-        clusters = sc.clusterSizes(density_hill_map),
-        colorizer = new Colorizer(),
-        cluster_colors = Object.keys(clusters)
+        clusters = sc.clusterMaps(density_hill_map),
+        colorizer = d3.scale.category10(),
+        synapse_treenodes = Object.keys(sc.synapses);
+    // Remove bogus cluster - TODO fix this bogus cluster in SynapseClustering
+    delete clusters[undefined];
+    // Filter out clusters without synapses
+    var clusterIDs = Object.keys(clusters).filter(function(id) {
+      var treenodes = clusters[id];
+      for (var k=0; k<synapse_treenodes.length; ++k) {
+        if (treenodes[synapse_treenodes[k]]) return true;
+      }
+      return false;
+    });
+    var cluster_colors = clusterIDs
           .map(function(cid) { return [cid, clusters[cid]]; })
           .sort(function(a, b) {
             var la = a[1].length,
                 lb = b[1].length;
             return la === lb ? 0 : (la > lb ? -1 : 1);
           })
-          .reduce(function(o, c) {
-            o[c[0]] = colorizer.pickColor();
+          .reduce(function(o, c, i) {
+            o[c[0]] = new THREE.Color().set(colorizer(i));
             return o;
           }, {});
 
@@ -2861,6 +2863,11 @@ WebGLApplication.prototype.toggleInvertShading = function() {
   this.set_shading_method();
 };
 
+WebGLApplication.prototype.setFollowActive = function(value) {
+  this.options.follow_active = value ? true : false;
+  this.space.render();
+};
+
 /**
  * Initial entry point to test retrieval of broken_slices
  *
@@ -2914,5 +2921,4 @@ WebGLApplication.prototype.showSlices = function() {
       }
       space.render();
     });
-
 };

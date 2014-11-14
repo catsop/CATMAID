@@ -1,29 +1,28 @@
-import sys
 import re
-import urllib
 import json
 
-from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
-from django.db import connection
-from django.http import HttpResponse, HttpResponseRedirect
-from django.core.urlresolvers import reverse
-from django.core.exceptions import ObjectDoesNotExist
-from django.shortcuts import _get_queryset
-
-from catmaid.models import Project, UserRole, ClassInstance
-from catmaid.models import ClassInstanceClassInstance
-from django.contrib.auth.models import User, Group
-
-from catmaid.control.common import json_error_response
-from catmaid.control.common import my_render_to_response
-
-from django.contrib.auth import authenticate, logout, login
-
-from guardian.models import UserObjectPermission, GroupObjectPermission
-from guardian.shortcuts import get_perms_for_model, get_objects_for_user, get_perms, get_objects_for_group
 from functools import wraps
 from itertools import groupby
+
+from guardian.models import UserObjectPermission, GroupObjectPermission
+from guardian.shortcuts import get_perms_for_model
+
+from django import forms
+from django.conf import settings
+from django.core.urlresolvers import reverse
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth import authenticate, logout, login
+from django.contrib.auth.models import User, Group
+from django.contrib.auth.forms import UserCreationForm
+from django.db import connection
+from django.http import HttpResponse, HttpResponseRedirect
+from django.core.exceptions import ObjectDoesNotExist
+from django.shortcuts import _get_queryset, render
+
+
+from catmaid.models import Project, UserRole, ClassInstance, \
+        ClassInstanceClassInstance
+from catmaid.control.common import my_render_to_response
 
 def login_vnc(request):
     return my_render_to_response(request,
@@ -56,9 +55,9 @@ def login_user(request):
                 profile_context['is_superuser'] = user.is_superuser
                 return HttpResponse(json.dumps(profile_context))
             else:
-               # Return a 'disabled account' error message
-               profile_context['error'] = ' Disabled account'
-               return HttpResponse(json.dumps(profile_context))
+                # Return a 'disabled account' error message
+                profile_context['error'] = ' Disabled account'
+                return HttpResponse(json.dumps(profile_context))
         else:
             # Return an 'invalid login' error message.
             profile_context['userprofile'] = request.user.userprofile.as_dict()
@@ -124,7 +123,7 @@ def requires_user_role(roles):
                         "project %d" % (u.first_name + ' ' + u.last_name, \
                         int(kwargs['project_id']))
                 return HttpResponse(json.dumps({'error': msg,
-                        'permission_error': True}), mimetype='text/json')
+                        'permission_error': True}), content_type='text/json')
 
         return wraps(f)(inner_decorator)
     return decorated_with_requires_user_role
@@ -366,3 +365,18 @@ def all_usernames(request, project_id=None):
     ''')
     return HttpResponse(json.dumps(cursor.fetchall()))
 
+def register(request):
+    # Return right away if user registration is not enabled
+    if not settings.USER_REGISTRATION_ALLOWED:
+        return HttpResponseRedirect(reverse("home"))
+
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            new_user = form.save()
+            return HttpResponseRedirect(reverse("home"))
+    else:
+        form = UserCreationForm()
+    return render(request, "catmaid/registration/register.html", {
+        'form': form,
+    })

@@ -9,11 +9,9 @@ import re
 import urllib
 
 from django.conf import settings
-from django.contrib.auth.models import User
-from django.contrib.auth.models import Group, Permission
-from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth.models import User, Group
 
-from .fields import Double3DField, Integer3DField, IntegerArrayField, RGBAField
+from fields import Double3DField, Integer3DField, RGBAField
 
 from guardian.shortcuts import get_objects_for_user
 
@@ -499,6 +497,7 @@ class RegionOfInterest(UserFocusedModel):
     class Meta:
         db_table = "region_of_interest"
     # Repeat the columns inherited from 'location'
+    editor = models.ForeignKey(User, related_name='roi_editor', db_column='editor_id')
     location_x = models.FloatField()
     location_y = models.FloatField()
     location_z = models.FloatField()
@@ -778,6 +777,10 @@ class UserProfile(models.Model):
     show_ontology_tool = models.BooleanField(
         default=settings.PROFILE_SHOW_ONTOLOGY_TOOL)
     color = RGBAField(default=distinct_user_color)
+    tracing_overlay_screen_scaling = models.BooleanField(
+        default=settings.PROFILE_TRACING_OVERLAY_SCREEN_SCALING)
+    tracing_overlay_scale = models.FloatField(
+        default=settings.PROFILE_TRACING_OVERLAY_SCALE)
 
     def __unicode__(self):
         return self.user.username
@@ -797,6 +800,8 @@ class UserProfile(models.Model):
         pdict['show_segmentation_tool'] = self.show_segmentation_tool
         pdict['show_tracing_tool'] = self.show_tracing_tool
         pdict['show_ontology_tool'] = self.show_ontology_tool
+        pdict['tracing_overlay_screen_scaling'] = self.tracing_overlay_screen_scaling
+        pdict['tracing_overlay_scale'] = self.tracing_overlay_scale
         return pdict
 
     # Fix a problem with duplicate keys when new users are added.
@@ -822,6 +827,19 @@ def create_user_profile(sender, instance, created, **kwargs):
 # Connect the a User object's post save signal to the profile
 # creation
 post_save.connect(create_user_profile, sender=User)
+
+def add_user_to_default_groups(sender, instance, created, **kwargs):
+    if created and settings.NEW_USER_DEFAULT_GROUPS:
+        for group in settings.NEW_USER_DEFAULT_GROUPS:
+            try:
+                g = Group.objects.get(name=group)
+                g.user_set.add(instance)
+            except Group.DoesNotExist:
+                print("Default group %s does not exist" % group)
+
+# Connect the a User object's post save signal to the profile
+# creation
+post_save.connect(add_user_to_default_groups, sender=User)
 
 # Prevent interactive question about wanting a superuser created.  (This code
 # has to go in this "models" module so that it gets processed by the "syncdb"

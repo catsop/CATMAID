@@ -1,24 +1,26 @@
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404
-
-from catmaid.models import *
-from catmaid.objects import *
-from catmaid.control.authentication import *
-from catmaid.control.common import *
-from catmaid.control.neuron import _delete_if_empty
-from catmaid.control.neuron_annotations import create_annotation_query
-from catmaid.control.neuron_annotations import _annotate_entities
-from catmaid.control.neuron_annotations import _update_neuron_annotations
-from catmaid.control.review import get_treenodes_to_reviews, get_review_status
-from catmaid.control.treenode import _create_interpolated_treenode
-from collections import defaultdict
-
 import decimal
 import json
-
-from operator import itemgetter
 import networkx as nx
-from tree_util import reroot, edge_count_to_root
+from operator import itemgetter
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.db import connection
+
+from catmaid.models import Project, UserRole, Class, ClassInstance, Review, \
+        ClassInstanceClassInstance, Relation, Treenode, TreenodeConnector
+from catmaid.objects import Skeleton
+from catmaid.control.authentication import requires_user_role, \
+        can_edit_class_instance_or_fail, can_edit_or_fail
+from catmaid.control.common import insert_into_log, get_relation_to_id_map 
+from catmaid.control.neuron import _delete_if_empty
+from catmaid.control.neuron_annotations import create_annotation_query, \
+        _annotate_entities, _update_neuron_annotations
+from catmaid.control.review import get_treenodes_to_reviews, get_review_status
+from catmaid.control.treenode import _create_interpolated_treenode
+from catmaid.control.tree_util import reroot, edge_count_to_root
 
 
 def get_skeleton_permissions(request, project_id, skeleton_id):
@@ -115,7 +117,7 @@ def skeleton_statistics(request, project_id=None, skeleton_id=None):
         'postsynaptic_sites': skel.postsynaptic_sites_count(),
         'cable_length': int(skel.cable_length()),
         'measure_construction_time': construction_time,
-        'percentage_reviewed': "%.2f" % skel.percentage_reviewed() }), mimetype='text/json')
+        'percentage_reviewed': "%.2f" % skel.percentage_reviewed() }), content_type='text/json')
 
 # Will fail if skeleton_id does not exist
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -124,12 +126,32 @@ def contributor_statistics(request, project_id=None, skeleton_id=None):
     n_nodes = 0
     # Count the total number of 60-second intervals with at least one treenode in them
     minutes = set()
+    min_review_minutes = set()
+    multi_review_minutes = 0
     epoch = datetime.utcfromtimestamp(0)
 
-    for row in Treenode.objects.filter(skeleton_id=skeleton_id).values_list('id', 'parent_id', 'user_id', 'creation_time'):
+    for row in Treenode.objects.filter(skeleton_id=skeleton_id).values_list('user_id', 'creation_time'):
         n_nodes += 1
-        contributors[row[2]] += 1
-        minutes.add(int((row[3] - epoch).total_seconds() / 60))
+        contributors[row[0]] += 1
+        minutes.add(int((row[1] - epoch).total_seconds() / 60))
+
+    # Take into account that multiple people may have reviewed the same nodes
+    # Therefore measure the time for the user that has the most nodes reviewed,
+    # then add the nodes not reviewed by that user but reviewed by the rest
+    rev = defaultdict(dict)
+    for row in Review.objects.filter(skeleton_id=skeleton_id).values_list('reviewer', 'treenode', 'review_time'):
+        rev[row[0]][row[1]] = row[2]
+    seen = set()
+
+    for reviewer, treenodes in sorted(rev.iteritems(), key=itemgetter(1), reverse=True):
+        reviewer_minutes = set()
+        for treenode, timestamp in treenodes.iteritems():
+            minute = int((timestamp - epoch).total_seconds() / 60)
+            reviewer_minutes.add(minute)
+            if not (treenode in seen):
+                seen.add(treenode)
+                min_review_minutes.add(minute)
+        multi_review_minutes += len(reviewer_minutes)
 
     relations = {row[0]: row[1] for row in Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id')}
 
@@ -149,6 +171,8 @@ def contributor_statistics(request, project_id=None, skeleton_id=None):
     return HttpResponse(json.dumps({
         'name': neuron_name,
         'construction_minutes': len(minutes),
+        'min_review_minutes': len(min_review_minutes),
+        'multiuser_review_minutes': multi_review_minutes,
         'n_nodes': n_nodes,
         'node_contributors': contributors,
         'n_pre': sum(synapses[relations['presynaptic_to']].values()),
@@ -165,7 +189,7 @@ def node_count(request, project_id=None, skeleton_id=None, treenode_id=None):
         skeleton_id = Treenode.objects.get(pk=treenode_id).skeleton_id
     return HttpResponse(json.dumps({
         'count': Treenode.objects.filter(skeleton_id=skeleton_id).count(),
-        'skeleton_id': skeleton_id}), mimetype='text/json')
+        'skeleton_id': skeleton_id}), content_type='text/json')
 
 def _get_neuronname_from_skeletonid( project_id, skeleton_id ):
     p = get_object_or_404(Project, pk=project_id)
@@ -182,7 +206,7 @@ def _get_neuronname_from_skeletonid( project_id, skeleton_id ):
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def neuronname(request, project_id=None, skeleton_id=None):
-    return HttpResponse(json.dumps(_get_neuronname_from_skeletonid(project_id, skeleton_id)), mimetype='text/json')
+    return HttpResponse(json.dumps(_get_neuronname_from_skeletonid(project_id, skeleton_id)), content_type='text/json')
 
 def _neuronnames(skeleton_ids, project_id):
     qs = ClassInstanceClassInstance.objects.filter(
@@ -366,7 +390,7 @@ def split_skeleton(request, project_id=None):
     insert_into_log(project_id, request.user.id, "split_skeleton", location,
                     "Split skeleton with ID {0} (neuron: {1})".format( skeleton_id, neuron.name ) )
 
-    return HttpResponse(json.dumps({}), mimetype='text/json')
+    return HttpResponse(json.dumps({}), content_type='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def root_for_skeleton(request, project_id=None, skeleton_id=None):
@@ -379,7 +403,7 @@ def root_for_skeleton(request, project_id=None, skeleton_id=None):
         'x': tn.location_x,
         'y': tn.location_y,
         'z': tn.location_z}),
-        mimetype='text/json')
+        content_type='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeleton_ancestry(request, project_id=None):
@@ -588,7 +612,7 @@ def skeleton_info_raw(request, project_id=None):
 
     incoming, outgoing = _skeleton_info_raw(project_id, skeletons, op)
 
-    return HttpResponse(json.dumps({'incoming': incoming, 'outgoing': outgoing}), mimetype='text/json')
+    return HttpResponse(json.dumps({'incoming': incoming, 'outgoing': outgoing}), content_type='text/json')
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -639,7 +663,7 @@ def skeleton_info(request, project_id=None, skeleton_id=None):
         'outgoing': list(reversed(sorted(data['outgoing'].values(), key=itemgetter('synaptic_count'))))
     }
     json_return = json.dumps(result, sort_keys=True, indent=4)
-    return HttpResponse(json_return, mimetype='text/json')
+    return HttpResponse(json_return, content_type='text/json')
 
 @requires_user_role([UserRole.Browse, UserRole.Annotate])
 def review_status(request, project_id=None):
@@ -927,7 +951,7 @@ def reset_own_reviewer_ids(request, project_id=None, skeleton_id=None):
     """
     skeleton_id = int(skeleton_id) # sanitize
     Review.objects.filter(skeleton_id=skeleton_id, reviewer=request.user).delete();
-    return HttpResponse(json.dumps({'status': 'success'}), mimetype='text/json')
+    return HttpResponse(json.dumps({'status': 'success'}), content_type='text/json')
 
 
 @requires_user_role(UserRole.Annotate)
@@ -1063,4 +1087,86 @@ def annotation_list(request, project_id=None):
             })
         response['metaannotations'] = metaannotations
 
-    return HttpResponse(json.dumps(response), mimetype="text/json")
+    return HttpResponse(json.dumps(response), content_type="text/json")
+
+@requires_user_role(UserRole.Browse)
+def list(request, project_id):
+    created_by = request.GET.get('created_by', None)
+    reviewed_by = request.GET.get('reviewed_by', None)
+    from_date = request.GET.get('from', None)
+    to_date = request.GET.get('to', None)
+    nodecount_gt = int(request.GET.get('nodecount_gt', 0))
+
+    # Sanitize
+    if reviewed_by:
+        reviewed_by = int(reviewed_by)
+    if created_by:
+        created_by = int(created_by)
+    if from_date:
+        from_date = datetime.strptime(from_date, '%Y%m%d')
+    if to_date:
+        to_date = datetime.strptime(to_date, '%Y%m%d')
+
+    response = _list(project_id, created_by, reviewed_by, from_date, to_date, nodecount_gt)
+    return HttpResponse(json.dumps(response), content_type="text/json")
+
+def _list(project_id, created_by=None, reviewed_by=None, from_date=None,
+          to_date=None, nodecount_gt=0):
+    """ Returns a list of skeleton IDs of which nodes exist that fulfill the
+    given constraints (if any). It can be constrained who created nodes in this
+    skeleton during a given period of time. Having nodes that are reviewed by
+    a certain user is another constraint. And so is the node count that one can
+    specify which each result node must exceed.
+    """
+    if created_by and reviewed_by:
+        raise ValueError("Please specify node creator or node reviewer")
+
+    if reviewed_by:
+        params = [project_id, reviewed_by]
+        query = '''
+            SELECT DISTINCT r.skeleton_id
+            FROM review r
+            WHERE r.project_id=%s AND r.reviewer_id=%s
+        '''
+
+        if from_date:
+            params.append(from_date.isoformat())
+            query += " AND r.review_time >= %s"
+        if to_date:
+            to_date = to_date + timedelta(days=1)
+            params.append(to_date.isoformat())
+            query += " AND r.review_time < %s"
+    else:
+        params = [project_id]
+        query = '''
+            SELECT DISTINCT skeleton_id
+            FROM treenode t
+            WHERE t.project_id=%s
+        '''
+
+    if created_by:
+        params.append(created_by)
+        query += " AND t.user_id=%s"
+
+        if from_date:
+            params.append(from_date.isoformat())
+            query += " AND t.creation_time >= %s"
+        if to_date:
+            to_date = to_date + timedelta(days=1)
+            params.append(to_date.isoformat())
+            query += " AND t.creation_time < %s"
+
+    if nodecount_gt > 0:
+        params.append(nodecount_gt)
+        query = '''
+            SELECT sub.skeleton_id
+            FROM (
+                SELECT t.skeleton_id AS skeleton_id, COUNT(*) AS count
+                FROM (%s) q JOIN treenode t ON q.skeleton_id = t.skeleton_id
+                GROUP BY t.skeleton_id
+            ) AS sub WHERE sub.count > %%s
+        ''' % query
+
+    cursor = connection.cursor()
+    cursor.execute(query, params)
+    return [r[0] for r in cursor.fetchall()]

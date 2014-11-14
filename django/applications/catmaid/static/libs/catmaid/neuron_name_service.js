@@ -137,7 +137,9 @@ var NeuronNameService = (function()
        */
       register: function(client, model, callback)
       {
-        this.registerAll(client, [model], callback);
+        var models = {};
+        models[model.id] = model;
+        this.registerAll(client, models, callback);
       },
 
       /**
@@ -180,7 +182,8 @@ var NeuronNameService = (function()
       /**
        * Unregisters the skeletons in skids from the client, removing them from the
        * set of skeletons managed by the service if no other clients are registered
-       * to those skeletons.
+       * to those skeletons. The skids parameter is expected to be an array of
+       * skeleton IDs.
        *
        * If called with only one argument, removes all references to the given
        * client.
@@ -195,8 +198,7 @@ var NeuronNameService = (function()
         // from being notified on update.
         skids = skids || Object.keys(managedSkeletons);
 
-        for (var idx in skids) {
-          var skid = skids[idx];
+        skids.forEach(function(skid) {
           if (skid in managedSkeletons) {
             var cIdx = managedSkeletons[skid].clients.indexOf(client);
             if (-1 !== cIdx) {
@@ -210,7 +212,7 @@ var NeuronNameService = (function()
               }
             }
           }
-        }
+        });
 
         if (unregisterAll) {
           var cIdx = clients.indexOf(client);

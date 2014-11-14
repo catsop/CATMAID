@@ -15,7 +15,8 @@ var GroupGraph = function() {
   this.node_width = 30; // pixels
   this.node_height = 30; // pixels
 
-  this.color_circles_of_hell = this.colorCirclesOfHell.bind(this);
+  this.color_circles_of_hell_upstream = this.colorCirclesOfHell.bind(this, true);
+  this.color_circles_of_hell_downstream = this.colorCirclesOfHell.bind(this, false);
 
   this.edge_color = '#555';
   this.edge_opacity = 1.0;
@@ -103,7 +104,7 @@ GroupGraph.prototype.getSkeletons = function() {
 GroupGraph.prototype.getNodes = function(skeleton_id) {
   return this.cy.nodes().filter(function(i, node) {
 		return node.data("skeletons").some(function(skeleton) {
-			return skeleton_id === skeleton.id;
+			return skeleton_id == skeleton.id; // == and not === to allow number and "number"
 		});
   });
 };
@@ -339,6 +340,7 @@ GroupGraph.prototype.init = function() {
     } else if (evt.originalEvent.shiftKey && (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey)) {
       // Remove node
       delete this.groups[node.id()]; // if present
+      delete this.subgraphs[node.data('skeletons')[0].id]; // if present
       node.remove();
       unselect(evt); // remove should have triggered, but not always
     }
@@ -540,7 +542,10 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
     var morphologies = {};
     fetchSkeletons(
         subgraph_skids,
-        function(skid) { return django_url + project.id + '/' + skid + '/1/1/0/compact-arbor'; },
+        (function(skid) {
+          var with_tags = (this.subgraphs[skid] === this.SUBGRAPH_AXON_BACKBONE_TERMINALS ? 1 : 0);
+          return django_url + project.id + '/' + skid + '/1/1/' + with_tags + '/compact-arbor';
+        }).bind(this),
         function(skid) { return {}; },
         function(skid, json) { morphologies[skid] = json; },
         (function(skid) { delete this.subgraphs[skid]; }).bind(this), // failed loading
@@ -604,7 +609,7 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
   });
 
   // Recreate subgraphs
-  var subnodes = [],
+  var subnodes = {},
       subedges = {}; // map of {connectorID: {pre: graph node ID,
                      //                       post: {graph node ID: count}}}
   subgraph_skids.forEach((function(skid) {
@@ -615,46 +620,85 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
         name = NeuronNameService.getInstance().getName(skid),
         common = {skeletons: [models[skid]],
                   node_count: 0,
-                  color: '#' + models[skid].color.getHexString()};
+                  color: '#' + models[skid].color.getHexString()},
+        createNode = function(id, label, is_branch) {
+          return {data: $.extend(is_branch ? {branch: true} : {}, common,
+            {id: id,
+             label: label,
+             upstream_skids: {}, // map of skeleton ID vs number of postsynaptic relations
+             downstream_skids: {}})}; // map of skeleton ID vs number of presynaptic relations
+        };
 
-    if (mode === this.SUBGRAPH_AXON_DENDRITE) {
+    var graph = [];
+
+    var splitDendrite = function(axon) {
+      // Split dendrite further into backbone and terminal subarbors
+      var backbone = ap.arbor.upstreamArbor(m[2]['microtubules end'].reduce(function(o, nodeID) { o[nodeID] = true; return o; }, {}));
+      var node_dend1 = createNode(skid + '_backbone_dendrite', name + ' [backbone dendrite]'),
+          node_dend2 = createNode(skid + '_dendritic_terminals', name + ' [dendritic terminals]');
+      graph.push(node_dend1);
+      graph.push(node_dend2);
+      subnodes[node_dend1.data.id] = node_dend1;
+      subnodes[node_dend2.data.id] = node_dend2;
+      parts[node_dend1.data.id] = function(treenodeID) {
+        return backbone.contains(treenodeID) && !axon.contains(treenodeID);
+      };
+      parts[node_dend2.data.id] = function(treenodeID) {
+        return !backbone.contains(treenodeID) && !axon.contains(treenodeID);
+      }
+    }
+
+    if (mode === this.SUBGRAPH_AXON_DENDRITE
+      || mode === this.SUBGRAPH_AXON_BACKBONE_TERMINALS) {
+
+      var axon = null;
+
       if (ap.n_inputs > 0 && ap.n_outputs > 0) {
-        var fc = ap.arbor.flowCentrality(ap.outputs, ap.inputs, ap.n_outputs, ap.n_inputs);
-        var nodes = ap.arbor.nodesArray(),
-            max = 0,
-            cut = null;
-        for (var i=0; i<nodes.length; ++i) {
-          var c = fc[nodes[i]].centrifugal;
-          if (c > max) {
-            max = c;
-            cut = nodes[i];
-          }
-        }
-        var axon = ap.arbor.subArbor(cut);
+        axon = SynapseClustering.prototype.findAxon(ap, 0.9, ap.positions);
+      }
 
-        // Create two nodes, one for the axon and one for the dendrite
-        var node_axon = {data: $.extend({}, common, {id: skid + '_axon', label: name + ' [axon]'})},
-            node_dend = {data: $.extend({}, common, {id: skid + '_dendrite', label: name + ' [dendrite]'})};
-
+      if (axon) {
+        // Subgraph with a node for the axon
+        var node_axon = createNode(skid + '_axon', name + ' [axon]');
+        graph.push(node_axon);
         parts[node_axon.data.id] = function(treenodeID) { return axon.contains(treenodeID); };
-        parts[node_dend.data.id] = function(treenodeID) { return !axon.contains(treenodeID); };
+        subnodes[node_axon.data.id] = node_axon;
 
-        subnodes.push(node_axon);
-        subnodes.push(node_dend);
+        // Create nodes for dendrites
+        if (mode === this.SUBGRAPH_AXON_BACKBONE_TERMINALS && !m[2].hasOwnProperty('microtubules end')) {
+          // Fall back
+          mode = this.SUBGRAPH_AXON_DENDRITE;
+        }
 
-        // ... connected by an undirected edge
+        if (mode === this.SUBGRAPH_AXON_BACKBONE_TERMINALS) {
+          // Split dendrite further into backbone and terminal subarbors
+          splitDendrite(axon);
+        } else if (mode === this.SUBGRAPH_AXON_DENDRITE) {
+          var node_dend = createNode(skid + '_dendrite', name + ' [dendrite]');
+          graph.push(node_dend);
+          subnodes[node_dend.data.id] = node_dend;
+          parts[node_dend.data.id] = function(treenodeID) { return !axon.contains(treenodeID); };
+        }
+      } else {
+        // Axon-dendrite not computable
+        if (mode === this.SUBGRAPH_AXON_BACKBONE_TERMINALS && m[2].hasOwnProperty('microtubules end')) {
+          splitDendrite({contains: function() { return false; }});
+        } else {
+          delete this.subgraphs[skid];
+          elements.nodes.push(asNode('' + skid));
+          return;
+        }
+      }
+
+      for (var i=1; i<graph.length; ++i) {
+        // ... connected by an undirected edge, in sequence
         elements.edges.push({data: {directed: false,
                                     arrow: 'none',
-                                    id: node_axon.data.id + '_' + node_dend.data.id,
+                                    id: graph[i-1].data.id + '_' + graph[i].data.id,
                                     color: common.color,
-                                    source: node_axon.data.id,
-                                    target: node_dend.data.id,
+                                    source: graph[i-1].data.id,
+                                    target: graph[i].data.id,
                                     weight: 10}});
-      } else {
-        // Not computable
-        delete this.subgraphs[skid];
-        elements.nodes.push(asNode('' + skid));
-        return;
       }
     } else if (mode > 0) {
       // Synapse clustering: mode is the bandwidth
@@ -673,8 +717,7 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
       // Remove clusters of treenodes that lack synapses
       var synapse_treenodes = Object.keys(synapse_map);
       clusterIDs = clusterIDs.filter(function(clusterID) {
-        var count = 0,
-            treenodes = clusters[clusterID];
+        var treenodes = clusters[clusterID];
         for (var k=0; k<synapse_treenodes.length; ++k) {
           if (treenodes[synapse_treenodes[k]]) return true;
         }
@@ -711,7 +754,7 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
           }, {}),
           keepers = Object.keys(roots).reduce(function(o, root) { o[root] = true; return o; }, {}),
           simple = ap.arbor.simplify(keepers);
-      
+
       simple.nodesArray().forEach(function(node) {
         // Create a node and a part
         var clusterID = roots[node],
@@ -719,11 +762,11 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
         if (undefined === clusterID) {
           // Branch point
           source_id = skid + '_' + node;
-          subnodes.push({data: $.extend({}, common, {id: source_id, label: '', branch: true})});
+          subnodes[source_id] = createNode(source_id, '', true);
         } else {
           source_id = skid + '_' + clusterID;
           parts[source_id] = function(treenodeID) { return clusters[clusterID][treenodeID]; };
-          subnodes.push({data: $.extend({}, common, {id: source_id, label: name + ' [' + clusterID + ']'})});
+          subnodes[source_id] = createNode(source_id, name + ' [' + clusterID + ']');
         }
         // Add undirected edges: one less than nodes
         var paren = simple.edges[node];
@@ -750,13 +793,31 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
 
     // ... and connected to all other nodes: preparing data
     // m[1] is the array of connectors as returned in json
+    var upstream = {},
+        downstream = {};
     m[1].forEach(function(row) {
-      if (!models[row[5]]) return; // other skeleton is not in the graph
+      // Accumulate connection into the subnode for later use in e.g. grow command
       var treenodeID = row[0],
-          connectorID = row[2],
+          node_id = findPartID(treenodeID),
+          other_skid = row[5],
           presynaptic = 0 === row[6],
-          sourceSkid = presynaptic ? skid : row[5],
-          targetSkid = presynaptic ? row[5] : skid,
+          ob = presynaptic ? downstream : upstream,
+          map = ob[node_id];
+      if (null === node_id) {
+        console.log("Oops: could not find a partID for treenode ", treenodeID);
+        return;
+      }
+      if (!map) {
+        map = {};
+        ob[node_id] = map;
+      }
+      var n_synapses = map[other_skid];
+      map[other_skid] = n_synapses ? n_synapses + 1 : 1;
+      // Accumulate synapses for an edge with another node in the graph
+      if (!models[other_skid]) return; // other skeleton is not in the graph
+      var connectorID = row[2],
+          sourceSkid = presynaptic ? skid : other_skid,
+          targetSkid = presynaptic ? other_skid : skid,
           node_id = findPartID(treenodeID),
           connector = subedges[connectorID];
       if (!connector) {
@@ -776,10 +837,18 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
         connector.post[node_id] = count ? count + 1 : 1;
       }
     }, this);
+
+    // Assign partners to each subnode
+    Object.keys(upstream).forEach(function(id) {
+      subnodes[id].data.upstream_skids = upstream[id];
+    });
+    Object.keys(downstream).forEach(function(id) {
+      subnodes[id].data.downstream_skids = downstream[id];
+    });
   }).bind(this));
 
   // Append all new nodes from the subgraphs
-  elements.nodes = elements.nodes.concat(subnodes);
+  elements.nodes = elements.nodes.concat(Object.keys(subnodes).map(function(id) { return subnodes[id]; }));
 
   // Add up connectors to create edges for subgraph nodes
   var cedges = {};
@@ -1271,51 +1340,193 @@ GroupGraph.prototype.exportGML = function() {
   saveAs(blob, "graph.gml");
 };
 
+// Find skeletons to grow from groups or single skeleton nodes
+// and skeletons to append from subnodes
+GroupGraph.prototype._findSkeletonsToGrow = function() {
+  var n_circles = Number($('#n_circles_of_hell' + this.widgetID).val()),
+      min_downstream = Number($('#n_circles_min_downstream' + this.widgetID).val()),
+      min_upstream = Number($('#n_circles_min_upstream' + this.widgetID).val());
+
+  var skids = {},
+      split_partners = {},
+      splits = [],
+      find = function(node, min, map_name) {
+        if (-1 === min) return; // none
+        var map = node.data(map_name);
+        if (map) {
+          var partners = {};
+          Object.keys(map).forEach(function(skid) {
+            if (map[skid] >= min) {
+              partners[skid] = true;
+              split_partners[skid] = true;
+            }
+          });
+          splits.push([node.id(), partners, node.data('skeletons')[0].id]);
+        }
+      };
+  this.cy.nodes((function(i, node) {
+    if (node.selected() && node.visible()) {
+			node.data("skeletons").forEach(function(skeleton) {
+        if (this.subgraphs[skeleton.id]) {
+          find(node, min_downstream, 'downstream_skids');
+          find(node, min_upstream, 'upstream_skids');
+        } else {
+				  skids[skeleton.id] = true;
+        }
+			}, this);
+    }
+  }).bind(this));
+
+  return {skids: skids,
+          split_partners: split_partners,
+          splits: splits,
+          n_circles: n_circles,
+          min_downstream: min_downstream,
+          min_upstream: min_upstream};
+};
+
 GroupGraph.prototype.growGraph = function() {
-  this.grow('circlesofhell', 1);
+  var s = this._findSkeletonsToGrow(),
+      accum = $.extend({}, s.split_partners);
+
+  var grow = function(skids, n_circles, callback) {
+        requestQueue.register(django_url + project.id + "/graph/circlesofhell",
+            "POST",
+            {skeleton_ids: skids,
+             n_circles: n_circles,
+             min_pre: s.min_upstream,
+             min_post: s.min_downstream},
+            function(status, text) {
+              if (200 !== status) return;
+              var json = $.parseJSON(text);
+              if (json.error) return alert(json.error);
+              callback(skids.concat(json[0]));
+            });
+      },
+      append = (function(skids) {
+        var color = new THREE.Color().setHex(0xffae56),
+            models = skids.reduce(function(m, skid) {
+              var model = new SelectionTable.prototype.SkeletonModel(skid, "", color);
+              model.selected = true;
+              m[skid] = model;
+              return m;
+            }, {});
+        this.append(models);
+      }).bind(this),
+      rest = function(skids, n_circles) {
+        if (0 === s.n_circles -1) append(Object.keys(skids));
+        else grow(Object.keys(skids), n_circles, append);
+      },
+      skids = Object.keys(s.skids);
+
+  // If there are any non-split skeletons, grow these first by one, then load the rest
+  if (skids.length > 0) {
+    grow(skids, 1, function(ids) {
+      var unique = $.extend({}, s.split_partners);
+      ids.forEach(function(id) { unique[id] = true; });
+      rest(unique, s.n_circles -1);
+    });
+  } else if (s.splits.length > 0) {
+    // Otherwise directly just grow the partners of the split nodes by n_circles -1
+    rest(s.split_partners, s.n_circles -1);
+  } else {
+    growlAlert("Information", "No partners found.");
+  }
 };
 
 GroupGraph.prototype.growPaths = function() {
-  this.grow('directedpaths', 2);
-};
+  var s = this._findSkeletonsToGrow();
 
-GroupGraph.prototype.grow = function(subURL, minimum) {
-  var skeleton_ids = this.getSelectedSkeletons();
-  if (skeleton_ids.length < minimum) {
-    growlAlert("Information", "Need at least " + minimum + " skeletons selected!");
-    return;
-  }
+  // Paths:
+  // 1. skids to skids
+  // 2. skids to split_partners with hops -1
+  // 3. split_partners to split_partners with hops -2
 
-  var n_circles = $('#n_circles_of_hell' + this.widgetID).val(),
-      min_pre = $('#n_circles_min_pre' + this.widgetID).val(),
-      min_post = $('#n_circles_min_post' + this.widgetID).val();
+  var new_skids = {},
+      errors = [],
+      min = Math.max(s.min_upstream, s.min_downstream);
 
-  var self = this;
-  requestQueue.register(django_url + project.id + "/graph/" + subURL,
-      "POST",
-      {skeleton_ids: skeleton_ids,
-       n_circles: n_circles,
-       min_pre: min_pre,
-       min_post: min_post},
-      function(status, text) {
-        if (200 !== status) return;
-        var json = $.parseJSON(text);
-        if (json.error) {
-          alert(json.error);
-          return;
+
+  // Will grow in both directions, therefore use the max as the min synapse count
+  var findPaths = function(skids, n_hops, process, continuation) {
+    requestQueue.register(django_url + project.id + "/graph/directedpaths", "POST",
+        {skeleton_ids: skids,
+         n_circles: n_hops,
+         min_pre: min,
+         min_post: min},
+         function(status, text) {
+           if (200 !== status) return;
+           var json = $.parseJSON(text);
+           if (json.error) errors.push(json.error);
+           else process(json);
+           continuation();
+         });
+  };
+
+  var end = (function() {
+    var skids = Object.keys(new_skids);
+    if (0 === skids.length) return growlAlert("Information", "No paths found.");
+    skids = skids.filter(function(skid) { return !this.hasSkeleton(skid); }, this);
+    if (0 === skids.length) return growlAlert("Information", "No other paths found.");
+    this.append(skids.reduce(function(o, skid) {
+      o[skid] = new SelectionTable.prototype.SkeletonModel(skid, "", new THREE.Color().setHex(0xffae56));
+      return o;
+    }, {}));
+  }).bind(this);
+
+  var step3 = function() {
+    // 3. split_partners to split_partners with hops -2
+    if (s.n_circles -2 < 1) return end();
+    var skids = Object.keys(s.split_partners);
+    if (skids.length < 2) return end();
+    findPaths(skids, s.n_circles -2,
+        function(json) {
+          var origins = s.splits.reduce(function(o, e) {
+            Object.keys(e[1]).forEach(function(skid) { o[skid] = e[0]; });
+            return o;
+          }, {});
+          for (var i=0; i<json.length; ++i) {
+            var path = json[i],
+                first = path[0],
+                last = path[path.length -1];
+            if (origins[first] == origins[last]) continue;
+            for (var j=0; j<path.length; ++j) new_skids[path[j]] = true;
+          }
+        },
+        end);
+  };
+
+  var step2 = function() {
+    // 2. skids to split partners with hops -1
+    if (s.n_circles -1 < 1) return step3();
+    var skids = Object.keys(s.skids),
+        split_skids = Object.keys(s.split_partners);
+    if (skids.length < 1 || split_skids.length < 1) return step3();
+    findPaths(skids.concat(split_skids), s.n_circles -1,
+        function(json) {
+          for (var i=0; i<json.length; ++i) {
+            var path = json[i],
+                first = path[0],
+                last = path[path.length -1];
+            if (  (s.skids[first] && s.split_partners[last])
+               || (s.skids[last] && s.split_partners[first])) {
+              for (var j=0; j<path.length; ++j) new_skids[path[j]] = true;
+            }
+          }
+        },
+        step3);
+  };
+
+  // 1. skids to skids
+  var skids = Object.keys(s.skids);
+  if (skids.length < 2) step2();
+  else findPaths(skids, s.n_circles,
+      function(json) {
+        for (var i=0; i<json.length; ++i) {
+          for (var j=0, p=json[i]; j<p.length; ++j) new_skids[p[j]] = true;
         }
-        if (0 === json.length) {
-          growlAlert("Information", "No further skeletons found, with parameters min_pre=" + min_pre + ", min_post=" + min_post);
-          return;
-        }
-        var color = new THREE.Color().setHex(0xffae56);
-        self.append(json[0].reduce(function(m, skid) {
-          var model = new SelectionTable.prototype.SkeletonModel(skid, json[1][skid], color);
-          model.selected = true;
-          m[skid] = model;
-          return m;
-        }, {}));
-      });
+      },
+      step2);
 };
 
 GroupGraph.prototype.hideSelected = function() {
@@ -1428,8 +1639,10 @@ GroupGraph.prototype.colorBy = function(mode, select) {
 
   this.setState('color_mode', mode);
 
-  this.cy.nodes().off({'select': this.color_circles_of_hell,
-                       'unselect': this.color_circles_of_hell});
+  this.cy.nodes().off({'select': this.color_circles_of_hell_upstream,
+                       'unselect': this.color_circles_of_hell_upstream});
+  this.cy.nodes().off({'select': this.color_circles_of_hell_downstream,
+                       'unselect': this.color_circles_of_hell_downstream});
 
   if ('source' === mode) {
     // Color by the color given in the SkeletonModel
@@ -1527,17 +1740,20 @@ GroupGraph.prototype.colorBy = function(mode, select) {
     }
     $.unblockUI();
 
-  } else if ('circles_of_hell' === mode) {
-    this.cy.nodes().on({'select': this.color_circles_of_hell,
-                        'unselect': this.color_circles_of_hell});
-    this.color_circles_of_hell();
+  } else if (0 === mode.indexOf('circles_of_hell_')) {
+    var fnName = 'color_circles_of_hell_' + mode.substring(16);
+    this.cy.nodes().on({'select': this[fnName],
+                        'unselect': this[fnName]});
+    this[fnName]();
   }
 };
 
-GroupGraph.prototype.colorCirclesOfHell = function() {
+/** upstream: true when coloring circles upstream of node. False when coloring downstream. */
+GroupGraph.prototype.colorCirclesOfHell = function(upstream) {
+  // Make all nodes white when deselecting
   var selected = this.cy.nodes().toArray().filter(function(node) { return node.selected(); });
   if (1 !== selected.length) {
-    growlAlert("Info", "Need 1 (and only 1) selected node!");
+    if (0 !== selected.length) growlAlert("Info", "Need 1 (and only 1) selected node!");
     this.cy.nodes().data('color', '#fff');
     return;
   }
@@ -1561,24 +1777,28 @@ GroupGraph.prototype.colorCirclesOfHell = function() {
     n = 0;
     Object.keys(current).forEach(function(id1) {
       var k = indices[id1];
-      // Downstream:
-      m.AdjM[k].forEach(function(count, i) {
-        if (0 === count) return;
-        var id2 = m.ids[i];
-        if (consumed[id2]) return;
-        next[id2] = true;
-        consumed[id2] = true;
-        n += 1;
-      });
-      // Upstream:
-      m.AdjM.forEach(function(row, i) {
-        if (0 === row[k]) return;
-        var id2 = m.ids[i];
-        if (consumed[id2]) return;
-        next[id2] = true;
-        consumed[id2] = true;
-        n += 1;
-      });
+      if (upstream) {
+        // Upstream:
+        m.AdjM.forEach(function(row, i) {
+          if (0 === row[k]) return;
+          var id2 = m.ids[i];
+          if (consumed[id2]) return;
+          next[id2] = true;
+          consumed[id2] = true;
+          n += 1;
+        });
+      } else {
+        // Downstream:
+        var ud = m.AdjM[k]; // Uint32Array lacks forEach
+        for (var i=0; i<ud.length; ++i) {
+          if (0 === ud[i]) continue; // no synapses
+          var id2 = m.ids[i];
+          if (consumed[id2]) continue;
+          next[id2] = true;
+          consumed[id2] = true;
+          n += 1;
+        }
+      }
     });
     if (0 === n) break;
     n_consumed += n;
@@ -1819,7 +2039,7 @@ GroupGraph.prototype._exportSVG = function() {
   // Fix edge arrowheads if necessary
   for (var k=0; k<edges.length; ++k) {
     var edge = edges[k];
-    if (1 === edge.length) continue;
+    if (1 === edge.length) continue; // undirected edge
     // Fix the style
     var path = edge[2],
         attr = path.attributes;
@@ -1841,10 +2061,10 @@ GroupGraph.prototype._exportSVG = function() {
   // and one for the contour), add a fill value to the contour
   // and delete the other.
   // Also add the text-anchor: middle to the text.
-  for (; i<children.length; i+=3) {
+  for (; i<children.length;) {
     // The second one is the contour
     var child = children[i+1],
-      path = child.pathSegList;
+        path = child.pathSegList;
     // Find out the type
     var commands = {};
     for (var k=0; k<path.length; ++k) {
@@ -1862,9 +2082,17 @@ GroupGraph.prototype._exportSVG = function() {
     }
     // Set the fill value
     child.attributes.fill.value = children[i].attributes.fill.value;
-    // Fix text anchor
-    children[i+2].style.textAnchor = 'middle';
+    // Mark the first circle for removal
     remove.push(children[i]);
+    // Fix text anchor if present
+    var c = children[i+2];
+    if (c && 'text' === c.nodeName) {
+      c.style.textAnchor = 'middle';
+      i += 3;
+    } else {
+      // Node without text label (branch node in synapse clustering)
+      i += 2;
+    }
   }
 
 
@@ -2219,7 +2447,7 @@ GroupGraph.prototype.computeRisk = function(edges, inputs, callback) {
             return;
           }
 
-          var lca = ap.arbor.lowestCommonAncestor(edge_synapses),
+          var lca = ap.arbor.nearestCommonAncestor(edge_synapses),
               sub_nodes = ap.arbor.subArbor(lca).nodes(),
               lost_inputs = Object.keys(ap.inputs).reduce(function(sum, node) {
                 return undefined === sub_nodes[node] ? sum : sum + ap.inputs[node];
@@ -2316,8 +2544,11 @@ GroupGraph.prototype.quantificationDialog = function() {
 };
 
 GroupGraph.prototype.split = function(mode) {
-  this.getSelectedSkeletons().forEach(function(skid) {
-    this.subgraphs[skid] = mode;
+  var sel = this.getSelectedSkeletons();
+  if (0 === sel.length) return growlAlert("Information", "Select one or more nodes first!");
+  sel.forEach(function(skid) {
+    if (undefined === mode) delete this.subgraphs[skid];
+    else this.subgraphs[skid] = mode;
   }, this);
   this.update();
 };
@@ -2326,12 +2557,16 @@ GroupGraph.prototype.splitAxonAndDendrite = function() {
   this.split(this.SUBGRAPH_AXON_DENDRITE);
 };
 
+GroupGraph.prototype.splitAxonAndTwoPartDendrite = function() {
+  this.split(this.SUBGRAPH_AXON_BACKBONE_TERMINALS);
+};
+
 GroupGraph.prototype.splitBySynapseClustering = function() {
   var skids = this.getSelectedSkeletons(),
       bandwidth = 5000;
   for (var i=0; i<skids.length; ++i) {
     var p = this.subgraphs[skids[i]];
-    if (p) {
+    if (p && p > 0) {
       bandwidth = p;
       break;
     }
@@ -2347,4 +2582,8 @@ GroupGraph.prototype.splitBySynapseClustering = function() {
       console.log(e);
     }
   }
+};
+
+GroupGraph.prototype.unsplit = function() {
+  this.split(); // without argument
 };

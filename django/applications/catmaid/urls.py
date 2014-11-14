@@ -1,9 +1,8 @@
-from django.conf.urls import patterns, include, url
-from django.conf import settings
+from django.conf.urls import patterns, url
 from django.contrib.auth.decorators import login_required
 from django.views.generic import TemplateView
 
-from catmaid.views import *
+from catmaid.views import CatmaidView, ExportWidgetView
 
 # A regular expression matching floating point and integer numbers
 num = r'[-+]?[0-9]*\.?[0-9]+'
@@ -15,7 +14,8 @@ wordlist= r'\w+(,\w+)*'
 
 # Add the main index.html page at the root:
 urlpatterns = patterns('',
-    (r'^$', HomepageView.as_view())
+    url(r'^$', CatmaidView.as_view(template_name='catmaid/index.html'),
+        name="home")
 )
 
 # Authentication and permissions
@@ -27,6 +27,7 @@ urlpatterns += patterns('catmaid.control.authentication',
     (r'^permissions$', 'user_project_permissions'),
     (r'^classinstance/(?P<ci_id>\d+)/permissions$',
             'get_object_permissions'),
+    (r'^register$', 'register'),
 )
 
 # Users
@@ -132,6 +133,7 @@ urlpatterns += patterns('catmaid.control.connector',
     (r'^(?P<project_id>\d+)/connector/table/list$', 'list_connector'),
     (r'^(?P<project_id>\d+)/connector/list/graphedge$', 'graphedge_list'),
     (r'^(?P<project_id>\d+)/connector/list/one_to_many$', 'one_to_many_synapses'),
+    (r'^(?P<project_id>\d+)/connector/list/completed$', 'list_completed'),
     (r'^(?P<project_id>\d+)/connector/skeletons$', 'connector_skeletons'),
     (r'^(?P<project_id>\d+)/connector/edgetimes$', 'connector_associated_edgetimes'),
 )
@@ -187,6 +189,7 @@ urlpatterns += patterns('catmaid.control.skeleton',
             'get_skeleton_permissions'),
     (r'^(?P<project_id>\d+)/skeleton/join_interpolated$', 'join_skeletons_interpolated'),
     (r'^(?P<project_id>\d+)/skeleton/annotationlist$', 'annotation_list'),
+    (r'^(?P<project_id>\d+)/skeleton/list$', 'list'),
 )
 
 # Skeleton export
@@ -372,7 +375,7 @@ urlpatterns += patterns('catmaid.control.clustering',
 
 # Front-end tests
 urlpatterns += patterns('',
-    url(r'^tests$', login_required(TemplateView.as_view(template_name="catmaid/tests.html")), name="frontend_tests"),
+    url(r'^tests$', login_required(CatmaidView.as_view(template_name="catmaid/tests.html")), name="frontend_tests"),
 )
 
 # Collection of various parts of the CATMAID API. These methods are usually
