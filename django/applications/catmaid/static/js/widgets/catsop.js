@@ -269,11 +269,7 @@ CatsopWidget.prototype.updateSegments = function () {
       .data(segmap.nodes)
     .enter().append("g")
       .attr("class", "node")
-      .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; })
-    .call(d3.behavior.drag()
-      .origin(function (d) { return d; })
-      .on("dragstart", function() { this.parentNode.appendChild(this); })
-      .on("drag", dragmove));
+      .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
 
   var segmentNodes = node.filter(function (d) { return typeof d.mask === 'undefined'; });
   var sliceNodes = node.filter(function (d) { return typeof d.mask !== 'undefined'; });
@@ -353,6 +349,20 @@ CatsopWidget.prototype.updateSegments = function () {
       .attr("xlink:href", function (d) { return d.mask; })
     .append("title")
       .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
+  sliceNodes
+    .append('polygon')
+      .attr('transform', function (d) {
+        return 'translate(' + (d.breadth > 0 ? d.dx + 10 : -10) + ',' + d.dy / 2 + ')'
+            + (d.breadth > 0 ? ' rotate(180)' : ''); })
+      .attr('points', '0,0 10,-15 10,15')
+      .attr('fill', '#FFF')
+      .attr('stroke', '#000')
+      .on('click', function (d) {
+        self.activateSegment(
+            d.segment_summaries
+                .filter(function (ss) { return d.breadth === 0 ? !ss.direction : ss.direction; })
+                .map(function (ss) { return ss.segment_id; }));
+      });
 
   var segmentTypes = ['End', 'Continuation', 'Branch'];
   // Segment nodes
