@@ -143,10 +143,6 @@ CatsopWidget.SegmentGraph = function() {
     }
 
     function initializeNodeDepth() {
-      var ky = d3.min(nodesByBreadth, function(nodes) {
-        return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, graphValue);
-      });
-
       var heightScale = nodesByBreadth
           .filter(function (ns) { return sliceNode(ns[0]); })
           .reduce(function (minScale, nodes) {
@@ -154,6 +150,11 @@ CatsopWidget.SegmentGraph = function() {
               .reduce(function (sum, n) { return sum + nodePadding + n.box[3] - n.box[1]; }, 0);
             return Math.min(heightScale, minScale);
           }, 1);
+
+      var ky = d3.min(nodesByBreadth, function(nodes) {
+        return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, graphValue);
+      });
+      ky = Math.min(ky, heightScale); // Prevent links being larger than slices.
 
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
@@ -246,12 +247,16 @@ CatsopWidget.SegmentGraph = function() {
       // Center links for slice nodes (first and last column)
       if (sliceNode(node)) ty = sy = node.dy / 2;
       node.sourceLinks.forEach(function(link) {
-        link.sy = sy;
-        if (!sliceNode(node)) sy += link.dy;
+        if (!sliceNode(node)) {
+          link.sy = sy;
+          sy += link.dy;
+        } else link.sy = sy - link.dy / 2;
       });
       node.targetLinks.forEach(function(link) {
-        link.ty = ty;
-        if (!sliceNode(node)) ty += link.dy;
+        if (!sliceNode(node)) {
+          link.ty = ty;
+          ty += link.dy;
+        } else link.ty = ty - link.dy / 2;
       });
     });
 
