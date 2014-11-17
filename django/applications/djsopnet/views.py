@@ -17,6 +17,7 @@ from django.templatetags.static import static
 
 from catmaid.models import *
 from catmaid.control.stack import get_stack_info
+from catmaid.control.authentication import requires_user_role
 from models import *
 
 from celery.task.control import inspect
@@ -986,6 +987,25 @@ def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
         block_ids = [block.id for block in blocks]
 
         return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), content_type='text/json')
+    except:
+        return error_response()
+
+@requires_user_role(UserRole.Annotate)
+def constrain_segment(request, project_id=None, stack_id=None, segment_hash=None):
+    try:
+        segment_id = hash_to_id(segment_hash)
+
+        segment = get_object_or_404(Segment, pk=segment_id)
+        constraint = Constraint(project_id=project_id, user=request.user, relation='Equal', value=1.0)
+        constraint.save()
+        csr = ConstraintSegmentRelation(constraint=constraint, segment=segment, coefficient=1.0)
+        csr.save()
+
+        BlockConstraintRelation.objects.bulk_create([
+            BlockConstraintRelation(constraint=constraint, block_id=sbr.block_id)
+            for sbr in segment.segmentblockrelation_set.all()])
+
+        return HttpResponse(json.dumps({'ok': True, 'constraint_id': constraint.id}), content_type='text/json')
     except:
         return error_response()
 
