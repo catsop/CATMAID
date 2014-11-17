@@ -346,8 +346,10 @@ CatsopWidget.prototype.updateSegments = function () {
       .attr("class", function (d) { return 'slice-hash-' + d.hash; });
   sliceNodes
     .append("image")
-      .attr("height", function (d) { return d.dy; })
-      .attr("width", seggraph.nodeWidths()[0])
+      .attr("x", 3) // Offset and shrink slice mask slightly to not overlap stroke.
+      .attr("y", 3)
+      .attr("height", function (d) { return d.dy - 6; })
+      .attr("width", seggraph.nodeWidths()[0] - 6)
       .attr("xlink:href", function (d) { return d.mask; })
     .append("title")
       .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
