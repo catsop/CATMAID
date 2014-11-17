@@ -400,12 +400,18 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
       }).bind(this)));
 };
 
-CatsopWidget.prototype.activateSegment = function (hash) {
-  this.activeSegmentHash = hash;
+/**
+ * Retrieve a segment from the backend and display it in a segment graph.
+ *
+ * hashes may be a segment hash or an array of hashes for conflicting segments
+ * in the same section.
+ */
+CatsopWidget.prototype.activateSegment = function (hashes) {
+  this.activeSegmentHash = Array.isArray(hashes) ? hashes[0] : hashes;
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/segment_and_conflicts',
       'POST',
-      {hash: hash},
+      {hash: Array.isArray(hashes) ? hashes.join(',') : hashes},
       jsonResponseHandler((function (json) {
         this.sliceRows = json.slices;
         this.segmentRows = json.segments;

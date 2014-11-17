@@ -770,18 +770,19 @@ def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
 
 def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
     """
-    Retrieve a segment, its slices, their first-order conflict slices, and
-    segments involving these slices in the same section.
+    Retrieve a segment (or set of co-section conflicting segments), its slices,
+    their first-order conflict slices, and segments involving these slices in
+    the same section.
     """
     s = get_object_or_404(Stack, pk=stack_id)
     try:
-        segment_id = hash_to_id(request.POST.get('hash'))
+        segment_id = ','.join([str(hash_to_id(x)) for x in safe_split(request.POST.get('hash'), 'segment hashes')])
 
         cursor = connection.cursor()
         cursor.execute(('''
                 WITH req_seg_slices AS (
                     SELECT slice_id FROM djsopnet_segmentslice
-                      WHERE segment_id = %(segment_id)s)
+                      WHERE segment_id IN (%(segment_id)s))
                 ''' % {'segment_id': segment_id}) + \
                 _slice_select_query('''
                         SELECT ss2.slice_id
@@ -790,7 +791,7 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
                                 ON (ss1.segment_id = ss1_seg.id
                                     AND ss1_seg.section_inf = (
                                         SELECT section_inf FROM djsopnet_segment
-                                        WHERE id = %(segment_id)s))
+                                        WHERE id IN (%(segment_id)s) LIMIT 1))
                             JOIN djsopnet_segmentslice ss2
                                 ON (ss2.segment_id = ss1.segment_id)
                             WHERE ss1.slice_id IN
