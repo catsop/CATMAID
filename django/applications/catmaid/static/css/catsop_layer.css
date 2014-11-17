@@ -44,6 +44,12 @@
 	fill: #CCC;
 	fill-opacity: .9;
 	shape-rendering: crispEdges;
+	stroke: #000;
+}
+
+.segment-graph .segment-node.active rect {
+	stroke: #FF0;
+	stroke-width: 5;
 }
 
 .segment-graph .segment-node.in_solution rect {
@@ -64,6 +70,10 @@
 
 .segment-graph .slice-node rect.highlight {
 	stroke: #00F;
+}
+
+.segment-graph .slice-node.active rect {
+	stroke: #FF0;
 }
 
 .segment-graph .slice-node.in_solution rect.highlight {

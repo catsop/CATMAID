@@ -275,8 +275,11 @@ CatsopWidget.prototype.updateSegments = function () {
       .on("dragstart", function() { this.parentNode.appendChild(this); })
       .on("drag", dragmove));
 
+  var segmentNodes = node.filter(function (d) { return typeof d.mask === 'undefined'; });
+  var sliceNodes = node.filter(function (d) { return typeof d.mask !== 'undefined'; });
+
   // Segment nodes
-  node.filter(function (d) { return typeof d.mask === 'undefined'; })
+  segmentNodes
       .attr("class", function (d) {
         return d.linkPartners().map(function (d) {
             return ('slice-hash-' + d.hash);
@@ -305,12 +308,11 @@ CatsopWidget.prototype.updateSegments = function () {
     .append("rect")
       .attr("height", function (d) { return d.dy; })
       .attr("width", seggraph.nodeWidths()[1])
-      .style("stroke", function (d) { return d3.rgb(d.color).darker(2); })
     .append("title")
       .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
 
   // Slice nodes
-  node.filter(function (d) { return typeof d.mask !== 'undefined'; })
+  sliceNodes
       .classed('slice-node', true)
       .on('mouseover', function (d) {
           d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
@@ -318,11 +320,31 @@ CatsopWidget.prototype.updateSegments = function () {
       .on('mouseout', function (d) {
           d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
         })
+      .on('click', function (d) {
+          var $this = d3.select(this);
+          if ($this.classed('active')) {
+            $this.classed('active', false);
+          } else {
+            var thisSlice = d;
+            $this.classed('active', true);
+            sliceNodes
+                .filter(function (d) { return thisSlice.conflicts.split(',').indexOf(d.hash) >= 0; })
+                .classed('active', false);
+          }
+          // Set active segments based on intersection of active slices.
+          segmentNodes.classed('active', false);
+          d3.selectAll($(sliceNodes
+            .filter(function () { return d3.select(this).classed('active'); })
+            .data()
+            .reduce(function (selector, d) {
+              return selector + '[class~="slice-hash-' + d.hash + '"]';
+            }, ''))).classed('active', true);
+        })
     .append("rect")
       .attr("height", function (d) { return d.dy; })
       .attr("width", seggraph.nodeWidths()[0])
       .attr("class", function (d) { return 'slice-hash-' + d.hash; });
-  node.filter(function(d) { return typeof d.mask !== 'undefined'; })
+  sliceNodes
     .append("image")
       .attr("height", function (d) { return d.dy; })
       .attr("width", seggraph.nodeWidths()[0])
@@ -332,7 +354,7 @@ CatsopWidget.prototype.updateSegments = function () {
 
   var segmentTypes = ['End', 'Continuation', 'Branch'];
   // Segment nodes
-  node.filter(function (d) { return typeof d.mask === 'undefined'; })
+  segmentNodes
     .append("text")
       .attr("x", function (d) { return d.dx / 2; })
       .attr("y", function (d) { return d.dy / 2; })
