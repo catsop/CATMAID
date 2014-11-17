@@ -277,11 +277,16 @@ CatsopWidget.prototype.updateSegments = function () {
 
   // Segment nodes
   node.filter(function (d) { return typeof d.mask === 'undefined'; })
-      .classed('segment-node', true)
+      .attr("class", function (d) {
+        return d.linkPartners().map(function (d) {
+            return ('slice-hash-' + d.hash);
+          }).concat([
+          'node',
+          'segment-node',
+          'seg-hash-' + d.hash
+        ]).join(' ');})
       .on('mouseover', function (d) {
-          d.sourceLinks.map(function (l) {return l.target;})
-            .concat(d.targetLinks.map(function (l) {return l.source;}))
-            .forEach(function (d) {
+          d.linkPartners().forEach(function (d) {
               $('.slice-hash-' + d.hash).addClass('highlight');
               d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
             });
@@ -291,9 +296,7 @@ CatsopWidget.prototype.updateSegments = function () {
           d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', true);
         })
       .on('mouseout', function (d) {
-          d.sourceLinks.map(function (l) {return l.target;})
-            .concat(d.targetLinks.map(function (l) {return l.source;}))
-            .forEach(function (d) {
+          d.linkPartners().forEach(function (d) {
               $('.slice-hash-' + d.hash).removeClass('highlight');
               d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
             });
@@ -302,7 +305,6 @@ CatsopWidget.prototype.updateSegments = function () {
     .append("rect")
       .attr("height", function (d) { return d.dy; })
       .attr("width", seggraph.nodeWidths()[1])
-      .style("fill", function (d) { return d.color = d.in_solution ? '#0F0' : '#CCC'; })
       .style("stroke", function (d) { return d3.rgb(d.color).darker(2); })
     .append("title")
       .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
@@ -338,6 +340,8 @@ CatsopWidget.prototype.updateSegments = function () {
       .attr("text-anchor", "middle")
       .attr("transform", null)
       .text(function(d) { return segmentTypes[d.type]; });
+
+  node.classed('in_solution', function (d) { return d.in_solution; });
 };
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {

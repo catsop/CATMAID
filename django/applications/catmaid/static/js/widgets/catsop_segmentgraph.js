@@ -94,6 +94,10 @@ CatsopWidget.SegmentGraph = function() {
     nodes.forEach(function(node) {
       node.sourceLinks = [];
       node.targetLinks = [];
+      node.linkPartners = function () {
+        return this.sourceLinks.map(function (l) {return l.target;})
+            .concat(this.targetLinks.map(function (l) {return l.source;}));
+      };
     });
     links.forEach(function(link) {
       var source = link.source,

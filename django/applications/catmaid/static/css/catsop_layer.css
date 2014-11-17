@@ -41,20 +41,33 @@
 
 .segment-graph .segment-node rect {
 	cursor: move;
+	fill: #CCC;
 	fill-opacity: .9;
 	shape-rendering: crispEdges;
 }
 
+.segment-graph .segment-node.in_solution rect {
+	fill: #0F0;
+}
+
 .segment-graph .slice-node rect {
-	fill: #000000;
+	fill: #000;
 	fill-opacity: 1;
-	stroke: #000000;
+	stroke: #000;
 	stroke-width: 5;
 	stroke-opacity: 1;
 }
 
+.segment-graph .slice-node.in_solution rect {
+	stroke: #0F0;
+}
+
 .segment-graph .slice-node rect.highlight {
-	stroke: #0000FF;
+	stroke: #00F;
+}
+
+.segment-graph .slice-node.in_solution rect.highlight {
+	stroke: #0FF;
 }
 
 .segment-graph .node text {
