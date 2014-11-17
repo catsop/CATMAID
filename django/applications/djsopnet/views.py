@@ -769,7 +769,10 @@ def retrieve_segments_by_blocks(request, project_id = None, stack_id = None):
         return error_response()
 
 def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
-    """Retrieve a segment, its slices, and their first-order conflict slices."""
+    """
+    Retrieve a segment, its slices, their first-order conflict slices, and
+    segments involving these slices in the same section.
+    """
     s = get_object_or_404(Stack, pk=stack_id)
     try:
         segment_id = hash_to_id(request.POST.get('hash'))
@@ -781,14 +784,24 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
                       WHERE segment_id = %(segment_id)s)
                 ''' % {'segment_id': segment_id}) + \
                 _slice_select_query('''
-                        SELECT slice_id FROM req_seg_slices
-                        UNION SELECT scs_cbr_a.slice_a_id AS slice_id
-                          FROM djsopnet_sliceconflictset scs_cbr_a, req_seg_slices
-                          WHERE scs_cbr_a.slice_b_id = req_seg_slices.slice_id
-                        UNION SELECT scs_cbr_b.slice_b_id AS slice_id
-                          FROM djsopnet_sliceconflictset scs_cbr_b, req_seg_slices
-                          WHERE scs_cbr_b.slice_a_id = req_seg_slices.slice_id
-                        '''))
+                        SELECT ss2.slice_id
+                            FROM djsopnet_segmentslice ss1
+                            JOIN djsopnet_segment ss1_seg
+                                ON (ss1.segment_id = ss1_seg.id
+                                    AND ss1_seg.section_inf = (
+                                        SELECT section_inf FROM djsopnet_segment
+                                        WHERE id = %(segment_id)s))
+                            JOIN djsopnet_segmentslice ss2
+                                ON (ss2.segment_id = ss1.segment_id)
+                            WHERE ss1.slice_id IN
+                                (SELECT slice_id FROM req_seg_slices
+                                UNION SELECT scs_a.slice_a_id AS slice_id
+                                  FROM djsopnet_sliceconflictset scs_a, req_seg_slices
+                                  WHERE scs_a.slice_b_id = req_seg_slices.slice_id
+                                UNION SELECT scs_b.slice_b_id AS slice_id
+                                  FROM djsopnet_sliceconflictset scs_b, req_seg_slices
+                                  WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
+                        ''' % {'segment_id': segment_id}))
 
         slices = _slicecursor_to_namedtuple(cursor)
 
