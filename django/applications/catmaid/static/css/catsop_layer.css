@@ -56,6 +56,10 @@
 	fill: #0F0;
 }
 
+.segment-graph .segment-node.constrained rect {
+	fill: #F0F;
+}
+
 .segment-graph .slice-node rect {
 	fill: #000;
 	fill-opacity: 1;

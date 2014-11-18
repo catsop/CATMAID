@@ -2800,6 +2800,44 @@ var WindowMaker = new function()
     var container = createContainer('catsop-results' + CW.widgetID);
     content.style.backgroundColor = "#ffffff";
 
+    var containerID = $(container).attr('id');
+    var bar = document.createElement('div');
+    bar.setAttribute('id', 'catsop_widget_buttons' + CW.widgetID);
+    bar.setAttribute('class', 'buttonpanel');
+
+    var titles = document.createElement('ul');
+    bar.appendChild(titles);
+    var tabs = ['Graph', 'Block', 'Slices', 'Segments'].reduce(function(o, name) {
+          titles.appendChild($('<li><a href="#' + containerID + '_buttons_' + name + '">' + name + '</a></li>')[0]);
+          var div = document.createElement('div');
+          div.setAttribute('id', containerID + '_buttons_' + name);
+          bar.appendChild(div);
+          o[name] = div;
+          return o;
+    }, {});
+
+    appendToTab(tabs['Graph'],
+      [['Refresh', CW.refreshSegments.bind(CW)],
+       ['Recenter', CW.moveToActiveSegment.bind(CW)]]);
+
+    appendToTab(tabs['Block'],
+      [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
+       ['Refresh Location', CW.refreshLocation.bind(CW)]]);
+
+    CW.tableContainers = ['slices', 'segments'].reduce(function(containers, entity) {
+        var $container = $(tabs[entity.charAt(0).toUpperCase() + entity.slice(1)]);
+        var $entity = $('<div />').appendTo($container);
+        $entity
+            .attr('id', containerID + '-' + entity)
+            .append('<table id="' + containerID + '-' + entity + '-table" />');
+        containers[entity] = $entity;
+        return containers;
+    }, {});
+
+    $(container).append(bar);
+    $(bar).tabs();
+    $(container).append('<div id="segmap' + CW.widgetID + '" class="segment-graph" />');
+
     content.appendChild(container);
 
     addListener(win, container, undefined, CW.destroy.bind(CW));

@@ -52,35 +52,10 @@ CatsopWidget.prototype = {};
 $.extend(CatsopWidget.prototype, new InstanceRegistry());
 
 CatsopWidget.prototype.init = function (container) {
+  this.container = container;
   this.stack = project.focusedStack;
   openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
 
-  var $container = $(container);
-  $container.append('<h3>Segmentation for block: <span id="' + $container.attr('id') +
-      '-block-id" /></h3>');
-  $container.append(
-      $('<input type="button" value="Refresh Location" />').click((function () {
-        this.refreshLocation();
-      }).bind(this)));
-
-  this.tableContainers = ['slices', 'segments'].reduce(function(containers, entity) {
-        $container.append('<h4>' + entity + '</h4>');
-        var $collapser = $('<a href="#">Hide</a>').appendTo($container);
-        var $entity = $('<div />').appendTo($container);
-        $entity
-            .attr('id', $container.attr('id') + '-' + entity)
-            .append('<table id="' + $container.attr('id') + '-' + entity + '-table" />');
-        containers[entity] = $entity;
-        $collapser.click(function () {
-          $entity.toggle();
-          $(this).text($entity.is(':visible') ? 'Hide' : 'Show');
-        });
-        return containers;
-      }, {});
-
-  $container.append('<div id="segmap' + this.widgetID + '" class="segment-graph" />');
-
-  this.container = $container.get()[0];
   this.refreshLocation();
 };
 
@@ -154,6 +129,10 @@ CatsopWidget.prototype.updateSlices = function () {
   });
 };
 
+CatsopWidget.prototype.refreshSegments = function () {
+  this.activateSegment(this.activeSegmentHash);
+};
+
 CatsopWidget.prototype.updateSegments = function () {
   var $table = $('#' + this.tableContainers.segments.attr('id') + '-table');
   $table.empty();
@@ -182,6 +161,7 @@ CatsopWidget.prototype.updateSegments = function () {
   var segmap = {nodes: [], links: []};
   var self = this;
   var activeSegment = this.segmentRows.filter(function (seg) {return seg.hash === self.activeSegmentHash;})[0];
+  this.activeSegment = activeSegment;
   this.moveToObject(activeSegment);
 
   this.segmentRows.filter(function (seg) {
@@ -213,7 +193,8 @@ CatsopWidget.prototype.updateSegments = function () {
   });
 
   var graphWidth = this.container.clientWidth,
-      graphHeight = this.container.clientHeight;
+      graphHeight = this.container.clientHeight -
+          $('#catsop_widget_buttons' + this.widgetID)[0].clientHeight - 5;
   var margin = {top: 0.04, right: 0.04, bottom: 0.05, left: 0.05},
       width = 1 - margin.left - margin.right,
       height = 1 - margin.top - margin.bottom;
@@ -301,6 +282,7 @@ CatsopWidget.prototype.updateSegments = function () {
             });
           d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', false);
         })
+      .on('dblclick', function (d) { self.constrainSegment(d.hash); })
     .append("rect")
       .attr("height", function (d) { return d.dy; })
       .attr("width", seggraph.nodeWidths()[1])
@@ -376,6 +358,8 @@ CatsopWidget.prototype.updateSegments = function () {
       .text(function(d) { return segmentTypes[d.type]; });
 
   node.classed('in_solution', function (d) { return d.in_solution; });
+
+  this.seggraph = seggraph;
 };
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {
@@ -430,6 +414,16 @@ CatsopWidget.prototype.activateSegment = function (hashes) {
       }).bind(this)));
 };
 
+CatsopWidget.prototype.constrainSegment = function (hash) {
+  requestQueue.register(
+      [django_url + 'sopnet', project.id, 'stack', this.stack.getId(), 'segment', hash, 'constrain'].join('/'),
+      'POST',
+      {},
+      jsonResponseHandler((function (json) {
+        d3.selectAll($('[class~="seg-hash-' + hash + '"]')).classed('constrained', true);
+      }).bind(this)));
+};
+
 CatsopWidget.prototype.getSliceRowByHash = function (hash) {
   return this.sliceRows.filter(function (slice) { return slice.hash === hash; })[0];
 };
@@ -437,6 +431,10 @@ CatsopWidget.prototype.getSliceRowByHash = function (hash) {
 CatsopWidget.prototype.moveToSlice = function (rowIndex) {
   var slice = this.sliceRows[rowIndex];
   this.moveToObject(slice);
+};
+
+CatsopWidget.prototype.moveToActiveSegment = function() {
+  this.moveToObject(this.activeSegment);
 };
 
 /**
