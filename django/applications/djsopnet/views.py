@@ -7,6 +7,8 @@ from numpy import int64, uint64
 from collections import namedtuple
 from pgmagick import Image, Blob, Color, CompositeOperator
 
+import pysopnet
+
 from django.http import HttpResponse
 
 from django.shortcuts import get_object_or_404
@@ -987,6 +989,81 @@ def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
         block_ids = [block.id for block in blocks]
 
         return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), content_type='text/json')
+    except:
+        return error_response()
+
+@requires_user_role(UserRole.Annotate)
+def create_segment_for_slices(request, project_id=None, stack_id=None):
+    """Creates a segment joining a specified set of slices. Ends must specify section infimum."""
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
+        if len(slice_ids) == 0:
+            return HttpResponseBadRequest(json.dumps({'error': 'Must specify at least one slices for a segment'}), content_type='application/json')
+
+        slices = Slice.objects.filter(stack=s, id__in=slice_ids)
+        if len(slices) != len(slice_ids):
+            return HttpResponseBadRequest(json.dumps({'error': 'Segment referes to non-existent slices'}), content_type='application/json')
+
+        sections = [x.section for x in slices]
+        section_span = max(sections) - min(sections)
+        if section_span > 1:
+            return HttpResponseBadRequest(json.dumps({'error': 'Slices must be in adjacent sections'}))
+        if section_span == 0 and len(slices) > 1:
+            return HttpResponseBadRequest(json.dumps({'error': 'End segments must contain exactly one slice'}), content_type='application/json')
+        if len(slices) > 3:
+            return HttpResponseBadRequest(json.dumps({'error': 'SOPNET only supports branches of 1:2 slices'}), content_type='application/json')
+
+        # Set segment section_inf
+        #   If continuation or branch, should be min(sections)
+        #   If an end, should be request param, otherwise 400
+        section_inf = min(sections)
+        if len(slices) == 1:
+            section_inf = request.POST.get('section_inf', None)
+            if section_inf is None:
+                return HttpResponseBadRequest(json.dumps({'error': 'End segments must specify section infimum'}), content_type='application/json')
+
+        # Set segment extents extrema of slice extents
+        min_x = min([x.min_x for x in slices])
+        min_y = min([x.min_y for x in slices])
+        max_x = min([x.max_x for x in slices])
+        max_y = min([x.max_y for x in slices])
+
+        # Set segment centroid as center of extents (not identical to Sopnet's method)
+        ctr_x = (min_x + max_x) / 2
+        ctr_y = (min_y + max_y) / 2
+
+        # Get segment hash from SOPNET
+        leftSliceHashes = pysopnet.SliceHashVector()
+        leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_inf])
+        rightSliceHashes = pysopnet.SliceHashVector()
+        rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_inf])
+        segment_hash = pysopnet.segmentHashValue(leftSliceHashes, rightSliceHashes)
+        segment_id = hash_to_id(segment_hash)
+        if Segment.objects.filter(id=segment_id).exists():
+            return HttpResponse(json.dumps(
+                    {'error': 'Segment already exists with hash: %s id: %s' % (segment_hash, segment_id)}),
+                    status=409, content_type='application/json')
+
+        type = len(slices) - 1
+        segment = Segment(id=segment_id, stack=s, section_inf=section_inf,
+                type=type, ctr_x=ctr_x, ctr_y=ctr_y,
+                min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y)
+        segment.save()
+
+        # Associate slices to segment
+        SegmentSlice.objects.bulk_create([
+            SegmentSlice(segment=segment, slice=slice, direction=(slice.section == section_inf))
+            for slice in slices])
+
+        # Associate segment to blocks
+        slice_block_relations = SliceBlockRelation.objects.filter(slice__in=slices)
+        block_ids = frozenset([sbr.block_id for sbr in slice_block_relations])
+        SegmentBlockRelation.objects.bulk_create([
+            SegmentBlockRelation(segment=segment, block_id=block_id)
+            for block_id in block_ids])
+
+        return generate_segment_response(segment)
     except:
         return error_response()
 

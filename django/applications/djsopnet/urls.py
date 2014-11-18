@@ -43,6 +43,7 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/solutions_by_core_and_segments$', 'retrieve_segment_solutions'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_feature_names$', 'set_feature_names'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/feature_names$', 'retrieve_feature_names'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/segment/create_for_slices$', 'create_segment_for_slices'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/segment/(?P<segment_hash>\d+)/constrain$', 'constrain_segment'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/user_constraints_by_blocks$', 'retrieve_user_constraints_by_blocks'),
 
