@@ -709,18 +709,6 @@ var WindowMaker = new function()
           return o;
     }, {});
 
-    var appendToTab = function(tab, elems) {
-      elems.forEach(function(e) {
-        switch (e.length) {
-          case 1: tab.appendChild(e[0]); break;
-          case 2: appendButton(tab, e[0], e[1]); break;
-          case 3: appendButton(tab, e[0], e[1], e[2]); break;
-          case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
-          case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
-        }
-      });
-    };
-
     var select_source = SkeletonListSources.createSelect(WA);
 
     appendToTab(tabs['Main'],
@@ -1092,16 +1080,6 @@ var WindowMaker = new function()
           o[name] = div;
           return o;
     }, {});
-
-    var appendToTab = function(tab, elems) {
-      elems.forEach(function(e) {
-        switch (e.length) {
-          case 1: tab.appendChild(e[0]); break;
-          case 2: appendButton(tab, e[0], e[1]); break;
-          case 3: appendButton(tab, e[0], e[1], e[2]); break;
-        }
-      });
-    };
 
     appendToTab(tabs['Main'],
         [[document.createTextNode('From')],
@@ -1789,6 +1767,17 @@ var WindowMaker = new function()
     return nf;
   };
 
+  var appendToTab = function(tab, elems) {
+    elems.forEach(function(e) {
+      switch (e.length) {
+        case 1: tab.appendChild(e[0]); break;
+        case 2: appendButton(tab, e[0], e[1]); break;
+        case 3: appendButton(tab, e[0], e[1], e[2]); break;
+        case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
+        case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
+      }
+    });
+  };
 
   var createSkeletonAnalyticsWindow = function()
   {
