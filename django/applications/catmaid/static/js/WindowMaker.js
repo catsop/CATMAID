@@ -2818,7 +2818,8 @@ var WindowMaker = new function()
 
     appendToTab(tabs['Graph'],
       [['Refresh', CW.refreshSegments.bind(CW)],
-       ['Recenter', CW.moveToActiveSegment.bind(CW)]]);
+       ['Recenter', CW.moveToActiveSegment.bind(CW)],
+       ['Create Segment for Selected Slices', CW.createSegmentForSlices.bind(CW)]]);
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],

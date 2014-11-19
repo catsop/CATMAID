@@ -360,6 +360,7 @@ CatsopWidget.prototype.updateSegments = function () {
   node.classed('in_solution', function (d) { return d.in_solution; });
 
   this.seggraph = seggraph;
+  this.node = node;
 };
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {
@@ -412,6 +413,20 @@ CatsopWidget.prototype.activateSegment = function (hashes) {
         this.updateSlices();
         this.updateSegments();
       }).bind(this)));
+};
+
+CatsopWidget.prototype.createSegmentForSlices = function () {
+  var hashes = this.node
+      .filter(function (d) { return typeof d.mask !== 'undefined' && this.classList.contains('active'); })
+      .data()
+      .map(function (d) { return d.hash; })
+      .join(',');
+
+  requestQueue.register(
+      [django_url + 'sopnet', project.id, 'stack', this.stack.getId(), 'segment', 'create_for_slices'].join('/'),
+      'POST',
+      {hash: hashes},
+      jsonResponseHandler(this.refreshSegments.bind(this)));
 };
 
 CatsopWidget.prototype.constrainSegment = function (hash) {
