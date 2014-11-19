@@ -82,6 +82,63 @@ var WindowMaker = new function()
     win.focus();
   };
 
+  var appendButton = function(div, title, onclickFn, attr) {
+    var b = document.createElement('input');
+    if (attr) Object.keys(attr).forEach(function(key) { b.setAttribute(key, attr[key]); });
+    b.setAttribute('type', 'button');
+    b.setAttribute('value', title);
+    b.onclick = onclickFn;
+    div.appendChild(b);
+    return b;
+  };
+
+  var appendSelect = function(div, name, entries) {
+    var select = document.createElement('select');
+    select.setAttribute("id", div.id + "_" + name);
+    entries.forEach(function(title, i) {
+      var option = document.createElement("option");
+      option.text = title;
+      option.value = i;
+      select.appendChild(option);
+    });
+    div.appendChild(select);
+    return select;
+  };
+
+  var appendCheckbox = function(div, title, value, onclickFn, left) {
+    var cb = document.createElement('input');
+    cb.setAttribute('type', 'checkbox');
+    cb.checked = value ? true : false;
+    cb.onclick = onclickFn;
+    var elems = [cb, document.createTextNode(title)];
+    if (left) elems.reverse();
+    elems.forEach(function(elem) { div.appendChild(elem); });
+    return cb;
+  };
+
+  var appendNumericField = function(div, label, value, postlabel, onchangeFn, length) {
+    var nf = document.createElement('input');
+    nf.setAttribute('type', 'text');
+    nf.setAttribute('value', value);
+    if (length) nf.setAttribute('size', length);
+    if (onchangeFn) nf.onchange = onchangeFn;
+    if (label) div.appendChild(document.createTextNode(label));
+    div.appendChild(nf);
+    if (postlabel) div.appendChild(document.createTextNode(postlabel));
+    return nf;
+  };
+
+  var appendToTab = function(tab, elems) {
+    elems.forEach(function(e) {
+      switch (e.length) {
+        case 1: tab.appendChild(e[0]); break;
+        case 2: appendButton(tab, e[0], e[1]); break;
+        case 3: appendButton(tab, e[0], e[1], e[2]); break;
+        case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
+        case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
+      }
+    });
+  };
 
   var createConnectorSelectionWindow = function()
   {
@@ -1719,64 +1776,6 @@ var WindowMaker = new function()
     CT.init( project.getId() );
 
     return win;
-  };
-
-  var appendSelect = function(div, name, entries) {
-    var select = document.createElement('select');
-    select.setAttribute("id", div.id + "_" + name);
-    entries.forEach(function(title, i) {
-      var option = document.createElement("option");
-      option.text = title;
-      option.value = i;
-      select.appendChild(option);
-    });
-    div.appendChild(select);
-    return select;
-  };
-
-  var appendButton = function(div, title, onclickFn, attr) {
-    var b = document.createElement('input');
-    if (attr) Object.keys(attr).forEach(function(key) { b.setAttribute(key, attr[key]); });
-    b.setAttribute('type', 'button');
-    b.setAttribute('value', title);
-    b.onclick = onclickFn;
-    div.appendChild(b);
-    return b;
-  };
-
-  var appendCheckbox = function(div, title, value, onclickFn, left) {
-    var cb = document.createElement('input');
-    cb.setAttribute('type', 'checkbox');
-    cb.checked = value ? true : false;
-    cb.onclick = onclickFn;
-    var elems = [cb, document.createTextNode(title)];
-    if (left) elems.reverse();
-    elems.forEach(function(elem) { div.appendChild(elem); });
-    return cb;
-  };
-
-  var appendNumericField = function(div, label, value, postlabel, onchangeFn, length) {
-    var nf = document.createElement('input');
-    nf.setAttribute('type', 'text');
-    nf.setAttribute('value', value);
-    if (length) nf.setAttribute('size', length);
-    if (onchangeFn) nf.onchange = onchangeFn;
-    if (label) div.appendChild(document.createTextNode(label));
-    div.appendChild(nf);
-    if (postlabel) div.appendChild(document.createTextNode(postlabel));
-    return nf;
-  };
-
-  var appendToTab = function(tab, elems) {
-    elems.forEach(function(e) {
-      switch (e.length) {
-        case 1: tab.appendChild(e[0]); break;
-        case 2: appendButton(tab, e[0], e[1]); break;
-        case 3: appendButton(tab, e[0], e[1], e[2]); break;
-        case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
-        case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
-      }
-    });
   };
 
   var createSkeletonAnalyticsWindow = function()
