@@ -56,7 +56,7 @@ CatsopWidget.prototype.init = function (container) {
   this.stack = project.focusedStack;
   openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
 
-  this.refreshLocation();
+  this.loadSegmentsAtLocation();
 };
 
 CatsopWidget.prototype.initLayers = function (offsetStack) {
@@ -78,7 +78,7 @@ CatsopWidget.prototype.destroy = function () {
   }).bind(this));
 };
 
-CatsopWidget.prototype.refreshLocation = function () {
+CatsopWidget.prototype.loadBlockAtLocation = function () {
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/block_at_location',
       'GET',

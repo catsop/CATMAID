@@ -2824,7 +2824,7 @@ var WindowMaker = new function()
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
-       ['Refresh Location', CW.refreshLocation.bind(CW)]]);
+       ['Load Slices for Block at Current Location', CW.loadBlockAtLocation.bind(CW)]]);
 
     CW.tableContainers = ['slices', 'segments'].reduce(function(containers, entity) {
         var $container = $(tabs[entity.charAt(0).toUpperCase() + entity.slice(1)]);
