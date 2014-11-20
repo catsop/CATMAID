@@ -583,6 +583,32 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
     except:
         return error_response()
 
+def retrieve_slices_by_location(request, project_id=None, stack_id=None):
+    """Retrieve slices and their conflicts for a given location in stack coordinates."""
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        x = int(float(request.POST.get('x', None)))
+        y = int(float(request.POST.get('y', None)))
+        z = int(float(request.POST.get('z', None)))
+
+        cursor = connection.cursor()
+        cursor.execute(_slice_select_query('''
+                SELECT s.id AS slice_id
+                  FROM djsopnet_slice s
+                  WHERE s.section = %(z)s
+                    AND s.min_x <= %(x)s
+                    AND s.max_x >= %(x)s
+                    AND s.min_y <= %(y)s
+                    AND s.max_y >= %(y)s
+                ''' % {'z': z, 'x': x, 'y': y}))
+
+        slices = _slicecursor_to_namedtuple(cursor)
+
+        return generate_slices_response(slices=slices,
+                with_conflicts=True, with_solutions=True)
+    except:
+        return error_response()
+
 def store_conflict_set(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
 

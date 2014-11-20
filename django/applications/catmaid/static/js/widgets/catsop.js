@@ -133,6 +133,21 @@ CatsopWidget.prototype.refreshSegments = function () {
   this.activateSegment(this.activeSegmentHash);
 };
 
+CatsopWidget.prototype.loadSegmentsAtLocation = function () {
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+          '/slices/by_location',
+      'POST',
+      {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+      jsonResponseHandler((function (json) {
+        var segments = json.slices.reduce(function (segments, s) {
+          return segments.concat(s.segment_summaries
+              .filter(function (ss) { return ss.direction; })
+              .map(function (ss) { return ss.segment_id; }));
+        }, []);
+        this.activateSegment(segments);
+      }).bind(this)));
+};
+
 CatsopWidget.prototype.updateSegments = function () {
   var $table = $('#' + this.tableContainers.segments.attr('id') + '-table');
   $table.empty();
