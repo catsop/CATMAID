@@ -61,6 +61,7 @@ class Command(BaseCommand):
             SELECT sol.segment_id
             FROM djsopnet_segment seg
             JOIN djsopnet_segmentsolution sol ON (sol.segment_id = seg.id)
+            JOIN djsopnet_solutionprecedence sp ON (sol.solution_id = sp.solution_id)
             WHERE seg.stack_id = %s
             ORDER BY sol.segment_ID ASC
             ''' % settings.SOPNET_RAW_STACK_ID)
