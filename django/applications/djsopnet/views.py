@@ -1113,6 +1113,33 @@ def constrain_segment(request, project_id=None, stack_id=None, segment_hash=None
             BlockConstraintRelation(constraint=constraint, block_id=sbr.block_id)
             for sbr in segment.segmentblockrelation_set.all()])
 
+        # Mark explicitly conflicting segments (segments with slices in conflict
+        # sets with the constrained segment, or segments in the same section
+        # with slices in common with the constrained segment) as mistakes being
+        # corrected. The latter condition is needed to mark end segments, which
+        # may not involve a conflicting slice.
+        cursor = connection.cursor()
+        cursor.execute('''
+            WITH req_seg_slices AS (
+                SELECT slice_id, direction FROM djsopnet_segmentslice
+                  WHERE segment_id = %(segment_id)s)
+            INSERT INTO djsopnet_correction (constraint_id, mistake_id)
+            SELECT c.id, conflict.id FROM (VALUES (%(constraint_id)s)) AS c (id),
+                (SELECT DISTINCT ssol.id AS id FROM djsopnet_solutionprecedence sp
+                    JOIN djsopnet_segmentsolution ssol
+                      ON (sp.solution_id = ssol.solution_id AND ssol.segment_id <> %(segment_id)s)
+                    JOIN djsopnet_segmentslice ss ON (ssol.segment_id = ss.segment_id)
+                    WHERE ss.slice_id IN (
+                            SELECT scs_a.slice_a_id AS slice_id
+                              FROM djsopnet_sliceconflictset scs_a, req_seg_slices
+                              WHERE scs_a.slice_b_id = req_seg_slices.slice_id
+                            UNION SELECT scs_b.slice_b_id AS slice_id
+                              FROM djsopnet_sliceconflictset scs_b, req_seg_slices
+                              WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
+                      OR ((ss.slice_id, ss.direction) IN (SELECT * FROM req_seg_slices)))
+                    AS conflict
+            ''' % {'segment_id': segment_id, 'constraint_id': constraint.id})
+
         return HttpResponse(json.dumps({'ok': True, 'constraint_id': constraint.id}), content_type='text/json')
     except:
         return error_response()
