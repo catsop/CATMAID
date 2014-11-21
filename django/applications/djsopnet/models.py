@@ -53,8 +53,9 @@ class Slice(models.Model):
 
     def _get_in_solution(self):
         return 0 < len(list(SegmentSolution.objects.raw('''
-            SELECT ssol.id AS id, ssol.core_id AS core_id, ssol.segment_id AS segment_id
+            SELECT ssol.id AS id, ssol.solution_id AS solution_id, ssol.segment_id AS segment_id
             FROM djsopnet_segmentsolution ssol
+            JOIN djsopnet_solutionprecedence sp ON (sp.solution_id = ssol.solution_id)
             JOIN djsopnet_segmentslice ss ON (ss.segment_id = ssol.segment_id)
             WHERE ss.slice_id = %s
             ''', [self.id])))
@@ -88,7 +89,12 @@ class Segment(models.Model):
     type = models.IntegerField(db_index=True)
 
     def _get_in_solution(self):
-        return SegmentSolution.objects.filter(segment_id=self.id).exists()
+        return 0 < len(list(SegmentSolution.objects.raw('''
+            SELECT ssol.id AS id, ssol.solution_id AS solution_id, ssol.segment_id AS segment_id
+            FROM djsopnet_segmentsolution ssol
+            JOIN djsopnet_solutionprecedence sp ON (sp.solution_id = ssol.solution_id)
+            WHERE ssol.segment_id = %s
+            ''', [self.id])))
     in_solution = property(_get_in_solution)
 
 class SegmentSlice(models.Model):
@@ -154,12 +160,20 @@ class Core(models.Model):
     class Meta:
         unique_together = ('stack', 'coordinate_x', 'coordinate_y', 'coordinate_z')
 
-class SegmentSolution(models.Model):
+class Solution(models.Model):
     core = models.ForeignKey(Core)
+    creation_time = models.DateTimeField(default=datetime.now)
+
+class SolutionPrecedence(models.Model):
+    core = models.ForeignKey(Core, unique=True)
+    solution = models.OneToOneField(Solution)
+
+class SegmentSolution(models.Model):
+    solution = models.ForeignKey(Solution)
     segment = models.ForeignKey(Segment)
 
     class Meta:
-        unique_together = ('core', 'segment')
+        unique_together = ('solution', 'segment')
 
 class SegmentFeatures(models.Model):
     segment = models.OneToOneField(Segment)
@@ -235,3 +249,10 @@ class ConstraintSegmentRelation(models.Model):
     constraint = models.ForeignKey(Constraint)
     segment = models.ForeignKey(Segment)
     coefficient = models.FloatField(default=1.0)
+
+class Correction(models.Model):
+    constraint = models.ForeignKey(Constraint)
+    mistake = models.ForeignKey(SegmentSolution)
+
+    class Meta:
+        unique_together = ('constraint', 'mistake')

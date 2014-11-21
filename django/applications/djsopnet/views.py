@@ -519,7 +519,12 @@ def _slice_select_query(slice_id_query):
             LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
             LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
             JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
-            LEFT JOIN djsopnet_segmentsolution ssol ON (ssol.segment_id = ss.segment_id)
+            LEFT JOIN
+              (SELECT ssol.segment_id, ssol.solution_id, sp.core_id
+                  FROM djsopnet_segmentsolution ssol
+                  JOIN djsopnet_solutionprecedence sp ON sp.solution_id = ssol.solution_id)
+              AS ssol
+                ON (ssol.segment_id = ss.segment_id)
             GROUP BY s.id
             ''' % slice_id_query
 
