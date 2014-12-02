@@ -410,6 +410,10 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
       }).bind(this)));
 };
 
+CatsopWidget.prototype.showSliceSolutionOverlay = function () {
+  this.layers.forEach(function (layer) { layer.showOverlay(); });
+};
+
 /**
  * Retrieve a segment from the backend and display it in a segment graph.
  *

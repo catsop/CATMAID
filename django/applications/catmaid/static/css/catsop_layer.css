@@ -16,6 +16,7 @@
 }
 
 .catsop-layer .slice-mask.active {
+	display: inline;
 	background-color: #FF0;
 	z-index: 5;
 }

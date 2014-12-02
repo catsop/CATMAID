@@ -511,7 +511,8 @@ def _slice_select_query(slice_id_query):
               ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
               ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
               ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
-              ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids
+              ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids,
+              ARRAY_AGG(DISTINCT ssol.assembly_id) AS in_solution_assembly_ids
             FROM djsopnet_slice s
             JOIN (%s) AS slice_id_query
               ON (slice_id_query.slice_id = s.id)
@@ -519,7 +520,7 @@ def _slice_select_query(slice_id_query):
             LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
             JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
             LEFT JOIN
-              (SELECT ssol.segment_id, ssol.solution_id, sp.core_id
+              (SELECT ssol.segment_id, ssol.solution_id, ssol.assembly_id, sp.core_id
                   FROM djsopnet_segmentsolution ssol
                   JOIN djsopnet_solutionprecedence sp ON sp.solution_id = ssol.solution_id)
               AS ssol
@@ -545,7 +546,7 @@ def _slicecursor_to_namedtuple(cursor):
         segment_map = {'f1': 'segment_id', 'f2': 'direction'}
         rowdict.update({
                 'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
-                'in_solution': any(rowdict['in_solution_core_ids']),
+                'in_solution': rowdict['in_solution_assembly_ids'] if any(rowdict['in_solution_core_ids']) else False,
                 'segment_summaries': [
                     {segment_map[k]: v for k,v in summary.items()}
                     for summary in json.loads(rowdict['segment_summaries'])
@@ -605,6 +606,36 @@ def retrieve_slices_by_location(request, project_id=None, stack_id=None):
                     AND s.min_y <= %(y)s
                     AND s.max_y >= %(y)s
                 ''' % {'z': z, 'x': x, 'y': y}))
+
+        slices = _slicecursor_to_namedtuple(cursor)
+
+        return generate_slices_response(slices=slices,
+                with_conflicts=True, with_solutions=True)
+    except:
+        return error_response()
+
+def retrieve_slices_by_bounding_box(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
+    try:
+        min_x = int(float(request.POST.get('min_x', None)))
+        min_y = int(float(request.POST.get('min_y', None)))
+        max_x = int(float(request.POST.get('max_x', None)))
+        max_y = int(float(request.POST.get('max_y', None)))
+        z = int(float(request.POST.get('z', None)))
+
+        cursor = connection.cursor()
+        cursor.execute(_slice_select_query('''
+                SELECT s.id AS slice_id
+                  FROM djsopnet_segmentsolution ssol
+                  JOIN djsopnet_solutionprecedence sp ON (sp.solution_id = ssol.solution_id)
+                  JOIN djsopnet_segmentslice ss ON (ss.segment_id = ssol.segment_id)
+                  JOIN djsopnet_slice s ON (s.id = ss.slice_id)
+                  WHERE s.section = %(z)s
+                    AND s.min_x <= %(max_x)s
+                    AND s.max_x >= %(min_x)s
+                    AND s.min_y <= %(max_y)s
+                    AND s.max_y >= %(min_y)s
+                ''' % {'z': z, 'max_x': max_x, 'min_x': min_x, 'max_y': max_y, 'min_y': min_y}))
 
         slices = _slicecursor_to_namedtuple(cursor)
 

@@ -64,6 +64,12 @@ CatsopResultsLayer.prototype.clearSlices = function () {
 };
 
 CatsopResultsLayer.prototype.addSlice = function (slice, status) {
+  if (slice.hash in this.slices) {
+    var $sliceImg = this.slices[slice.hash].$img;
+    $sliceImg.addClass(status);
+    return $sliceImg;
+  }
+
   var $sliceImg = $('<img class="slice-mask slice-hash-' + slice.hash + '" />')
       .hide()
       .css('-webkit-mask-box-image', 'url("' +
@@ -80,4 +86,34 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
     height: slice.box[3] - slice.box[1],
     $img: $sliceImg};
   this.redraw();
+  return $sliceImg;
 };
+
+CatsopResultsLayer.prototype.showOverlay = function () {
+  var boundingBox = this.stack.getFieldOfViewInPixel();
+  var self = this;
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+          '/slices/by_bounding_box',
+      'POST',
+      {
+          min_x: boundingBox.worldLeft,
+          min_y: boundingBox.worldTop,
+          max_x: boundingBox.worldLeft + boundingBox.stackDivWidth,
+          max_y: boundingBox.worldTop + boundingBox.stackDivHeight,
+          z: this.stack.z
+      },
+      jsonResponseHandler((function (json) {
+        var czer = new Colorizer();
+        json.slices.forEach(function (slice) {
+          var sliceImg = self.addSlice(slice, 'active');
+          if (!(slice.in_solution in CatsopResultsLayer.assemblyColors)){
+            CatsopResultsLayer.assemblyColors[slice.in_solution] = czer.pickColor().getStyle();
+          }
+          console.log(slice.in_solution);
+
+          sliceImg.css('background-color', CatsopResultsLayer.assemblyColors[slice.in_solution]);
+        });
+      })));
+};
+
+CatsopResultsLayer.assemblyColors = {};
