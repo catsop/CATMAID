@@ -971,18 +971,23 @@ def create_project_config(project_id, raw_stack_id, membrane_stack_id):
         'catmaid_raw_stack_id': raw_stack_id,
         'catmaid_membrane_stack_id': membrane_stack_id,
     }
-    if hasattr(settings, 'SOPNET_BACKEND_TYPE'):
-        config['backend_type'] = settings.SOPNET_BACKEND_TYPE
-    if hasattr(settings, 'SOPNET_CATMAID_HOST'):
-        config['catmaid_host'] = settings.SOPNET_CATMAID_HOST
-    if hasattr(settings, 'SOPNET_BLOCK_SIZE'):
-        config['block_size'] = settings.SOPNET_BLOCK_SIZE
-    if hasattr(settings, 'SOPNET_VOLUME_SIZE'):
-        config['volume_size'] = settings.SOPNET_VOLUME_SIZE
-    if hasattr(settings, 'SOPNET_CORE_SIZE'):
-        config['core_size'] = settings.SOPNET_CORE_SIZE
-    if hasattr(settings, 'SOPNET_LOGLEVEL'):
-        config['loglevel'] = settings.SOPNET_LOGLEVEL
+
+    bi = BlockInfo.objects.get(stack_id=raw_stack_id)
+
+    config['block_size'] = [bi.block_dim_x, bi.block_dim_y, bi.block_dim_z]
+    config['core_size'] = [bi.core_dim_x, bi.core_dim_y, bi.core_dim_z]
+    config['volume_size'] = [bi.block_dim_x*bi.num_x,
+                             bi.block_dim_y*bi.num_y,
+                             bi.block_dim_z*bi.num_z]
+
+    optional_params = [
+            'backend_type', 'catmaid_host', 'component_dir', 'loglevel',
+            'postgresql_database', 'postgresql_host', 'postgresql_port',
+            'postgresql_user', 'postgresql_password']
+    for param_name in optional_params:
+        settings_attr = 'SOPNET_%s' % param_name.upper()
+        if hasattr(settings, settings_attr):
+            config[param_name] = getattr(settings, settings_attr)
 
     return config
 
