@@ -939,3 +939,39 @@ Stack.SCALE_BAR_UNITS = new Array(
 			"mm",
 			"m" );
 
+function OffsetStack(offsetX, offsetY, offsetZ) {
+	// Return a constructor wrapping the Stack constructor
+	return function () {
+		Stack.apply(this, arguments);
+		this.offsetX = offsetX;
+		this.offsetY = offsetY;
+		this.offsetZ = offsetZ;
+
+		// Update stack window title to show offset
+		this.getWindow().setTitle(this.getWindow().getTitle() +
+				' (Offset ' + [offsetX, offsetY, offsetZ].join(', ') + ')');
+
+		// Override stack moves to be offset
+		this.origMoveToAfterBeforeMoves = this.moveToAfterBeforeMoves;
+		this.moveToAfterBeforeMoves = function(zp, yp, xp, sp, completionCallback, layersWithBeforeMove) {
+			if (layersWithBeforeMove.length === 0) // Only apply the offset on a non-recursing call.
+				this.origMoveToAfterBeforeMoves(
+					zp + this.offsetZ * this.resolution.z,
+					yp + this.offsetY * this.resolution.y,
+					xp + this.offsetX * this.resolution.x,
+					sp, completionCallback, layersWithBeforeMove);
+					else this.origMoveToAfterBeforeMoves(zp, yp, xp, sp, completionCallback, layersWithBeforeMove);
+		};
+
+		// Since offset stacks are only useful when open at the same time as
+		// a non-offset stack, override the stack equality method so that
+		// Project will allow both to be open.
+		this.isEqual = function (otherStack) {
+			if (this.id !== otherStack.id) return false;
+			if (typeof otherStack.offsetX === 'undefined') return false;
+			return this.offsetX === otherStack.offsetX &&
+					this.offsetY === otherStack.offsetY &&
+					this.offsetZ === otherStack.offsetZ;
+		};
+	};
+}
