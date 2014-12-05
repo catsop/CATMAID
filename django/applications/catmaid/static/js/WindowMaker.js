@@ -378,6 +378,20 @@ var WindowMaker = new function()
     collapse.appendChild(document.createTextNode('Only branches and tagged nodes'));
     buttons.appendChild(collapse);
 
+    var collapseNotABranch = document.createElement('label');
+    var collapseNotABranchInput = document.createElement('input');
+    collapseNotABranchInput.setAttribute('type', 'checkbox');
+    if (ND.collapseNotABranch) {
+      collapseNotABranchInput.setAttribute('checked', 'checked');
+    }
+    collapseNotABranchInput.onchange = function() {
+      ND.setCollapseNotABranch(this.checked);
+      ND.update();
+    };
+    collapseNotABranch.appendChild(collapseNotABranchInput);
+    collapseNotABranch.appendChild(document.createTextNode('Collapse \"not a branch\" nodes'));
+    buttons.appendChild(collapseNotABranch);
+
     var naming = document.createElement('label');
     var namingInput = document.createElement('input');
     namingInput.setAttribute('type', 'checkbox');
@@ -570,6 +584,7 @@ var WindowMaker = new function()
             '<th>pre</th>' +
             '<th>post</th>' +
             '<th>text</th>' +
+            '<th>meta</th>' +
             '<th>property  </th>' +
           '</tr>' +
         '</thead>' +
@@ -581,7 +596,8 @@ var WindowMaker = new function()
             '<td><input type="checkbox" id="selection-table-show-all' + ST.widgetID + '" checked /></td>' +
             '<td><input type="checkbox" id="selection-table-show-all-pre' + ST.widgetID + '" checked /></td>' +
             '<td><input type="checkbox" id="selection-table-show-all-post' + ST.widgetID + '" checked /></td>' +
-            '<td></td>' +
+            '<td><input type="checkbox" id="selection-table-show-all-text' + ST.widgetID + '" /></td>' +
+            '<td><input type="checkbox" id="selection-table-show-all-meta' + ST.widgetID + '" checked /></td>' +
             '<td><input type="button" id="selection-table-sort-by-color' + ST.widgetID + '" value="Sort by color" /></td>' +
           '</tr>' +
         '</tbody>';
@@ -683,10 +699,11 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Main', 'Display', 'Shading'].reduce(function(o, name) {
-          titles.appendChild($('<li><a href="#' + name + WA.widgetID + '">' + name + '</a></li>')[0]);
+    var tabs = ['Main', 'View', 'Shading', 'Skeleton filters', 'View settings', 'Shading parameters', 'Export'].reduce(function(o, name) {
+          var id = name.replace(/ /, '') + WA.widgetID;
+          titles.appendChild($('<li><a href="#' + id + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
-          div.setAttribute('id', name + WA.widgetID);
+          div.setAttribute('id', id);
           bar.appendChild(div);
           o[name] = div;
           return o;
@@ -698,6 +715,8 @@ var WindowMaker = new function()
           case 1: tab.appendChild(e[0]); break;
           case 2: appendButton(tab, e[0], e[1]); break;
           case 3: appendButton(tab, e[0], e[1], e[2]); break;
+          case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
+          case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
         }
       });
     };
@@ -711,58 +730,116 @@ var WindowMaker = new function()
           ['Append', WA.loadSource.bind(WA)],
           ['Clear', WA.clear.bind(WA)],
           ['Refresh', WA.updateSkeletons.bind(WA)],
-          ['Options', WA.configureParameters.bind(WA)],
+          [document.createTextNode(' - ')],
+          ['Spatial select', WA.spatialSelect.bind(WA)],
         ]);
 
-    var follow_active = document.createElement('input');
-    follow_active.setAttribute('type', 'checkbox');
-    follow_active.checked = false;
-    follow_active.onclick = function() {
-      WA.setFollowActive(this.checked);
-    };
+    var storedViewsSelect = document.createElement('select');
 
-    appendToTab(tabs['Display'],
+    appendToTab(tabs['View'],
         [
           ['Center active', WA.look_at_active_node.bind(WA)],
-          [follow_active],
-          [document.createTextNode('Follow active')],
+          ['Follow active', false, function() { WA.setFollowActive(this.checked); }, false],
           ['XY', WA.XYView.bind(WA)],
           ['XZ', WA.XZView.bind(WA)],
           ['ZY', WA.ZYView.bind(WA)],
           ['ZX', WA.ZXView.bind(WA)],
+          [storedViewsSelect],
+          ['Save view', storeView],
           ['Restrict connectors', WA.toggleConnectors.bind(WA)],
           ['Fullscreen', WA.fullscreenWebGL.bind(WA)],
-          ['Refresh', WA.updateSkeletons.bind(WA)], // repeated on purpose
+          ['Refresh active skeleton', WA.updateActiveSkeleton.bind(WA)],
+          ['Orthographic mode', false, function() { WA.updateCameraView(this.checked); }, false],
         ]);
+
+    // Wait for the 3D viewer to have initialized to get existing views
+    var initInterval = window.setInterval(function() {
+      if (WA.initialized) {
+        window.clearInterval(initInterval);
+        updateAvailableViews();
+      }
+    }, 200);
+
+    // Change view if the drop down is changed or clicked
+    storedViewsSelect.onchange = function() {
+      if (-1 === this.selectedIndex || 0 === WA.getStoredViews().length) {
+        return;
+      }
+      var name = this.options[this.selectedIndex].value;
+      WA.activateView(name);
+    };
+    storedViewsSelect.onclick = storedViewsSelect.onchange;
+    // Update the list when the element is focused
+    storedViewsSelect.onfocus = updateAvailableViews;
+
+    function storeView()
+    {
+      WA.storeCurrentView(null, function() {
+        updateAvailableViews();
+        storedViewsSelect.selectedIndex = storedViewsSelect.options.length - 1;
+      });
+    };
+
+    function updateAvailableViews()
+    {
+      // Get currently selected view
+      var lastIdx = storedViewsSelect.selectedIndex;
+      var lastView = -1 === lastIdx ? -1 : storedViewsSelect[lastIdx].value;
+      // Re-populate the view
+      $(storedViewsSelect).empty();
+      var views = WA.getStoredViews();
+      if (views.length > 0) {
+        views.forEach(function(name, i) {
+          storedViewsSelect.options.add(new Option(name, name));
+        });
+        // Select view that was selected before
+        var newIndex = -1;
+        for (var i=0; i<views.length; ++i) {
+          var view = storedViewsSelect.options[i].value;
+          if (view === lastView) {
+            newIndex = i;
+            break;
+          }
+        }
+        storedViewsSelect.selectedIndex = newIndex;
+      } else {
+        storedViewsSelect.options.add(new Option("(None)", -1));
+        storedViewsSelect.selectedIndex = 0;
+      }
+    };
     
     var shadingMenu = document.createElement('select');
     shadingMenu.setAttribute("id", "skeletons_shading" + WA.widgetID);
-    $('<option/>', {value : 'none', text: 'None', selected: true}).appendTo(shadingMenu);
-    $('<option/>', {value : 'active_node_split', text: 'Active node split'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'downstream_amount', text: 'Downstream cable'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'betweenness_centrality', text: 'Betweenness centrality'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'slab_centrality', text: 'Slab centrality'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'flow_centrality', text: 'Flow centrality'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'centrifugal flow_centrality', text: 'Centrifugal flow centrality'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'centripetal flow_centrality', text: 'Centripetal flow centrality'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'distance_to_root', text: 'Distance to root'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'partitions', text: 'Principal branch length'}).appendTo(shadingMenu);
-    $('<option/>', {value : 'strahler', text: 'Strahler analysis'}).appendTo(shadingMenu);
+    [['none', 'None'],
+     ['active_node_split', 'Active node split'],
+     ['near_active_node', 'Near active node'],
+     ['downstream_amount', 'Downstream cable'],
+     ['betweenness_centrality', 'Betweenness centrality'],
+     ['slab_centrality', 'Slab centrality'],
+     ['flow_centrality', 'Flow centrality'],
+     ['centrifugal flow_centrality', 'Centrifugal flow centrality'],
+     ['centripetal flow_centrality', 'Centripetal flow centrality'],
+     ['distance_to_root', 'Distance to root'],
+     ['partitions', 'Principal branch length'],
+     ['strahler', 'Strahler analysis']
+    ].forEach(function(e) {
+       shadingMenu.options.add(new Option(e[1], e[0]));
+     });
+    shadingMenu.selectedIndex = 0;
     shadingMenu.onchange = WA.set_shading_method.bind(WA);
-
-    var invert = document.createElement('input');
-    invert.setAttribute('type', 'checkbox');
-    invert.checked = false;
-    invert.onclick = WA.toggleInvertShading.bind(WA);
 
     var colorMenu = document.createElement('select');
     colorMenu.setAttribute('id', 'webglapp_color_menu' + WA.widgetID);
-    $('<option/>', {value : 'none', text: 'Source', selected: true}).appendTo(colorMenu);
-    $('<option/>', {value : 'creator', text: 'By Creator'}).appendTo(colorMenu);
-    $('<option/>', {value : 'all-reviewed', text: 'All Reviewed'}).appendTo(colorMenu);
-    $('<option/>', {value : 'own-reviewed', text: 'Own Reviewed'}).appendTo(colorMenu);
-    $('<option/>', {value : 'axon-and-dendrite', text: 'Axon and dendrite'}).appendTo(colorMenu);
-    $('<option/>', {value : 'downstream-of-tag', text: 'Downstream of tag'}).appendTo(colorMenu);
+    [['none', 'Source'],
+     ['creator', 'By Creator'],
+     ['all-reviewed', 'All Reviewed'],
+     ['own-reviewed', 'Own Reviewed'],
+     ['axon-and-dendrite', 'Axon and dendrite'],
+     ['downstream-of-tag', 'Downstream of tag']
+    ].forEach(function(e) {
+       colorMenu.options.add(new Option(e[1], e[0]));
+    });
+    colorMenu.selectedIndex = 0;
     colorMenu.onchange = WA.updateColorMethod.bind(WA, colorMenu);
 
     var synColors = document.createElement('select');
@@ -776,13 +853,60 @@ var WindowMaker = new function()
         [
           [document.createTextNode('Shading: ')],
           [shadingMenu],
-          [document.createTextNode(' Inv: ')],
-          [invert],
+          [' Inv:', false, WA.toggleInvertShading.bind(WA), true],
           [document.createTextNode(' Color:')],
           [colorMenu],
           [document.createTextNode(' Synapse color:')],
           [synColors],
           ['User colormap', WA.toggle_usercolormap_dialog.bind(WA)],
+        ]);
+
+    var adjustFn = function(param_name) {
+      return function() {
+        WA.options[param_name] = this.checked;
+        WA.adjustStaticContent();
+      };
+    };
+    var o = WebGLApplication.prototype.OPTIONS;
+
+    appendToTab(tabs['View settings'],
+        [
+          ['Meshes ', false, function() { WA.options.show_meshes = this.checked; WA.adjustContent()}, false],
+          [WA.createMeshColorButton()],
+          ['Active node', true, function() { WA.options.show_active_node = this.checked; WA.adjustContent(); }, false],
+          ['Black background -', true, adjustFn('show_background'), false],
+          ['Floor -', true, adjustFn('show_floor'), false],
+          ['Bounding box -', true, adjustFn('show_box'), false],
+          ['Z plane -', false, adjustFn('show_zplane'), false],
+          ['Missing sections', false, adjustFn('show_missing_sections'), false],
+          [' with height: ', o.missing_section_height, ' % - ', function() {
+              WA.options.missing_section_height = Math.max(0, Math.min(this.value, 100));
+              WA.adjustStaticContent();
+            }, 10],
+          ['Line width ', o.skeleton_line_width, null, function() { WA.updateSkeletonLineWidth(this.value); }, 10],
+        ]);
+
+    appendToTab(tabs['Skeleton filters'],
+        [
+          ['Smooth ', o.smooth_skeletons, function() { WA.options.smooth_skeletons = this.checked; WA.updateSkeletons(); }, false],
+          [' with sigma ', o.smooth_skeletons_sigma, ' nm -', function() { WA.updateSmoothSkeletonsSigma(this.value); }, 10],
+          ['Resample ', o.resample_skeletons, function() { WA.options.resample_skeletons = this.checked; WA.updateSkeletons(); }, false],
+          [' with delta ', o.resampling_delta, ' nm -', function() { WA.updateResampleDelta(this.value); }, 10],
+          ['Lean mode (no synapses, no tags)', o.lean_mode, function() { WA.options.lean_mode = this.checked; WA.updateSkeletons();}, false],
+        ]);
+
+    appendToTab(tabs['Shading parameters'],
+        [
+          ['Synapse clustering bandwidth ', o.synapse_clustering_bandwidth, ' nm - ', function() { WA.updateSynapseClusteringBandwidth(this.value); }, 8],
+          ['Near active node ', o.distance_to_active_node, ' nm', function() {
+            WA.updateActiveNodeNeighborhoodRadius(this.value); }, 8]
+        ]);
+
+    appendToTab(tabs['Export'],
+        [
+          ['Export PNG', WA.exportPNG.bind(WA)],
+          ['Export SVG', WA.exportSVG.bind(WA)],
+          ['Export catalog SVG', WA.exportCatalogSVG.bind(WA)],
         ]);
 
     content.appendChild( bar );
@@ -1641,6 +1765,30 @@ var WindowMaker = new function()
     div.appendChild(b);
     return b;
   };
+
+  var appendCheckbox = function(div, title, value, onclickFn, left) {
+    var cb = document.createElement('input');
+    cb.setAttribute('type', 'checkbox');
+    cb.checked = value ? true : false;
+    cb.onclick = onclickFn;
+    var elems = [cb, document.createTextNode(title)];
+    if (left) elems.reverse();
+    elems.forEach(function(elem) { div.appendChild(elem); });
+    return cb;
+  };
+
+  var appendNumericField = function(div, label, value, postlabel, onchangeFn, length) {
+    var nf = document.createElement('input');
+    nf.setAttribute('type', 'text');
+    nf.setAttribute('value', value);
+    if (length) nf.setAttribute('size', length);
+    if (onchangeFn) nf.onchange = onchangeFn;
+    if (label) div.appendChild(document.createTextNode(label));
+    div.appendChild(nf);
+    if (postlabel) div.appendChild(document.createTextNode(postlabel));
+    return nf;
+  };
+
 
   var createSkeletonAnalyticsWindow = function()
   {

@@ -12,6 +12,38 @@ if (!window.console) {
   window.console.log = function() {};
 }
 
+// Attach a general error handler
+window.onerror = function(msg, url, lineno, colno, err)
+{
+  var info = 'An error occured in CATMAID and the current action can\'t be ' +
+      'completed. You can try to reload the widget or tool you just used.';
+  var detail = 'Error: ' + msg + ' URL: ' + url + ' Line: ' + lineno +
+      ' Column: ' + colno + ' Stacktrace: ' + (err ? err.stack : 'N/A');
+
+  // Log the error detail to the console
+  console.log(detail);
+
+  // Log the error object, if available
+  if (err) {
+    console.log('Error object:')
+    console.log(err)
+  } else {
+    console.log('No error object was provided');
+  }
+
+  // Use alert() to inform the user, if the error function isn't available for
+  // some reason
+  if (error) {
+    error(info, detail);
+  } else {
+    alert(info + ' Detail: ' + detail);
+  }
+
+  // Return true to indicate the exception is handled and doesn't need to be
+  // shown to the user.
+  return true;
+};
+
 var global_bottom = 29;
 var statusBar; //!< global statusBar
 var slider_trace_z;
@@ -494,7 +526,7 @@ function updateProjectListFromCache() {
  * queue an open-project-stack-request to the request queue
  * freeze the window to wait for an answer
  */
-function openProjectStack( pid, sid, completionCallback )
+function openProjectStack( pid, sid, completionCallback, stackConstructor )
 {
 	if ( project && project.id != pid )
 	{
@@ -508,10 +540,13 @@ function openProjectStack( pid, sid, completionCallback )
 		{ },
 		function(args)
 		{
-			handle_openProjectStack.apply(this, arguments);
+			// Convert arguments to array and append stackConstructor
+			var stack = handle_openProjectStack.apply(
+					this,
+					Array.prototype.slice.call(arguments).concat(stackConstructor));
 			if (completionCallback)
 			{
-				completionCallback();
+				completionCallback(stack);
 			}
 		});
 	return;
@@ -523,8 +558,9 @@ function openProjectStack( pid, sid, completionCallback )
  *
  * free the window
  */
-function handle_openProjectStack( status, text, xml )
+function handle_openProjectStack( status, text, xml, stackConstructor )
 {
+	var stack = null;
 	if ( status == 200 && text )
 	{
 		var e = eval( "(" + text + ")" );
@@ -552,7 +588,8 @@ function handle_openProjectStack( status, text, xml )
 				labelupload = e.labelupload_url;
 			}
 
-			var stack = new Stack(
+			if (typeof stackConstructor === 'undefined') stackConstructor = Stack;
+			stack = new stackConstructor(
 					project,
 					e.sid,
 					e.stitle,
@@ -573,17 +610,17 @@ function handle_openProjectStack( status, text, xml )
 
 			var tilesource = getTileSource( e.tile_source_type, e.image_base,
 					e.file_extension );
-			var tilelayername = "TileLayer";
 			var tilelayer = new TileLayer(
-					tilelayername,
+					"Image data",
 					stack,
 					e.tile_width,
 					e.tile_height,
 					tilesource,
 					true,
-					1);
+					1,
+					true);
 
-			stack.addLayer( tilelayername, tilelayer );
+			stack.addLayer( "TileLayer", tilelayer );
 
 			$.each(e.overlay, function(key, value) {
 				var tilesource = getTileSource( value.tile_source_type,
@@ -598,7 +635,8 @@ function handle_openProjectStack( status, text, xml )
 								value.tile_height,
 								tilesource,
 								layer_visibility,
-								value.default_opacity / 100 );
+								value.default_opacity / 100,
+								false);
 				stack.addLayer( value.title, tilelayer2 );
 			});
 
@@ -684,7 +722,7 @@ function handle_openProjectStack( status, text, xml )
 		}
 	}
 	ui.releaseEvents();
-	return;
+	return stack;
 }
 
 /**
@@ -1019,7 +1057,7 @@ var realInit = function()
 		if ( isNaN( y ) ) y = undefined;
 		if ( values[ "x" ] ) x = parseInt( values[ "x" ] );
 		if ( isNaN( x ) ) x = undefined;
-		if ( values[ "s" ] ) s = parseInt( values[ "s" ] );
+		if ( values[ "s" ] ) s = parseFloat( values[ "s" ] );
         if ( isNaN( s ) ) s = undefined;
         if ( values[ "active_skeleton_id" ] ) init_active_skeleton = parseInt( values[ "active_skeleton_id" ] );
         if ( values[ "active_node_id" ] ) init_active_node_id = parseInt( values[ "active_node_id" ] );
@@ -1057,7 +1095,7 @@ var realInit = function()
 				}
 				sids.push( sid );
 				if ( values[ "s" + i ] )
-					ss.push( parseInt( values[ "s" + i ] ) );
+					ss.push( parseFloat( values[ "s" + i ] ) );
 				else
 					ss.push( NaN );
 				if ( isNaN( sids[ i ] ) || isNaN( ss[ i ] ) )

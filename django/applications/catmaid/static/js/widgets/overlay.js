@@ -380,7 +380,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createViewMouseMoveFn = function(stack,
       worldY = wc.worldTop + ((m.offsetY / stack.scale) * stack.resolution.y);
       coords.lastX = worldX;
       coords.lastY = worldY;
-      statusBar.printCoords('['+worldX+', '+worldY+', '+project.coordinates.z+']');
+      statusBar.printCoords('['+[worldX, worldY, project.coordinates.z].map(Math.round).join(', ')+']');
       coords.offsetXPhysical = worldX;
       coords.offsetYPhysical = worldY;
     }
@@ -528,6 +528,60 @@ SkeletonAnnotations.SVGOverlay.prototype.findNodeWithinRadius = function (x, y, 
     }
   }
   return nearestnode;
+};
+
+/** Find the point along the edge from node to node.parent nearest (x, y, z),
+ *  optionally exluding a radius around the nodes. */
+SkeletonAnnotations.SVGOverlay.prototype.pointEdgeDistanceSq = function (x, y, z, node, exclusion) {
+  var a, b, p, ab, ap, r, ablen;
+
+  exclusion = exclusion || 0;
+
+  a = new THREE.Vector3(this.pix2physX(node.x),
+                        this.pix2physY(node.y),
+                        this.pix2physZ(node.z));
+  b = new THREE.Vector3(this.pix2physX(node.parent.x),
+                        this.pix2physY(node.parent.y),
+                        this.pix2physZ(node.parent.z));
+  p = new THREE.Vector3(x, y, z);
+  ab = new THREE.Vector3().subVectors(b, a);
+  ablen = ab.lengthSq();
+  if (ablen === 0) return {point: a, distsq: p.distanceToSquared(a)};
+  ap = new THREE.Vector3().subVectors(p, a);
+  r = ab.dot(ap)/ablen;
+  exclusion *= exclusion/ablen;
+
+  // If r is not in [0, 1], the point nearest the line through the node and
+  // its parent lies beyond the edge between them, so clamp the point to the
+  // edge excluding a radius near the nodes.
+  if (r < 0) r = exclusion;
+  else if (r > 1) r = 1 - exclusion;
+
+  a.lerp(b, r);
+  return  {point: a, distsq: p.distanceToSquared(a)};
+};
+
+/** Find the point nearest physical coordinates (x, y, z) nearest the
+ *  specified skeleton */
+SkeletonAnnotations.SVGOverlay.prototype.findNearestSkeletonPoint = function (x, y, z, skeleton_id) {
+  var tmp, mindistsq = Infinity, nearestnode = null, nearestpoint = null, node, parent;
+  var phys_radius = (30.0 / this.stack.scale) * Math.max(this.stack.resolution.x, this.stack.resolution.y);
+
+  for (var nodeid in this.nodes) {
+    if (this.nodes.hasOwnProperty(nodeid)) {
+      node = this.nodes[nodeid];
+
+      if (node.skeleton_id === skeleton_id && node.parent !== null) {
+        tmp = this.pointEdgeDistanceSq(x, y, z, node, phys_radius);
+        if (tmp.distsq < mindistsq) {
+          mindistsq = tmp.distsq;
+          nearestnode = node;
+          nearestpoint = tmp.point;
+        }
+      }
+    }
+  }
+  return {node: nearestnode, point: nearestpoint};
 };
 
 /** Remove and hide all node labels. */
@@ -911,7 +965,7 @@ SkeletonAnnotations.SVGOverlay.prototype.createInterpolatedNodeFn = function () 
 };
 
 /** Create a node and activate it. */
-SkeletonAnnotations.SVGOverlay.prototype.createNode = function (parentID, phys_x, phys_y, phys_z, radius, confidence, pos_x, pos_y, pos_z) {
+SkeletonAnnotations.SVGOverlay.prototype.createNode = function (parentID, phys_x, phys_y, phys_z, radius, confidence, pos_x, pos_y, pos_z, afterCreate) {
   if (!parentID) { parentID = -1; }
 
   // Check if we want the newly create node to be a model of an existing empty neuron
@@ -956,6 +1010,9 @@ SkeletonAnnotations.SVGOverlay.prototype.createNode = function (parentID, phys_x
         if (active_node_z !== null && Math.abs(active_node_z - nn.z) > self.stack.resolution.z) {
           growlAlert('BEWARE', 'Node added beyond one section from its parent node!');
         }
+
+        // Invoke callback if necessary
+        if (afterCreate) afterCreate(self, nn);
       });
 };
 
@@ -1221,15 +1278,32 @@ SkeletonAnnotations.SVGOverlay.prototype.whenclicked = function (e) {
 
   // e.metaKey should correspond to the command key on Mac OS
   if (e.ctrlKey || e.metaKey) {
-    // ctrl-click deselects the current active node
-    if (null !== atn.id) {
-      statusBar.replaceLast("Deactivated node #" + atn.id);
-    }
-    SkeletonAnnotations.clearTopbar(this.stack.getId());
-    this.activateNode(null);
-    if (!e.shiftKey) {
+    if (e.altKey && null !== atn.id && SkeletonAnnotations.TYPE_NODE === atn.type) {
+      // Insert a treenode along an edge on the active skeleton
+      var insertion = this.findNearestSkeletonPoint(phys_x, phys_y, phys_z, atn.skeleton_id);
+      this.createNode(insertion.node.parent.id, insertion.point.x, insertion.point.y, phys_z,
+        -1, 5, this.phys2pixX(insertion.point.x), this.phys2pixY(insertion.point.y), this.phys2pixZ(phys_z),
+        // Callback after creating the new node to make it the parent of the node it was inserted before
+        function (self, nn) {
+          self.submit(
+            django_url + project.id + '/treenode/' + insertion.node.id + '/parent',
+            {parent_id: nn.id},
+            function(json) {
+              self.updateNodes();
+            });
+        });
       e.stopPropagation();
-    } // else, a node under the mouse will be removed
+    } else {
+      // ctrl-click deselects the current active node
+      if (null !== atn.id) {
+        statusBar.replaceLast("Deactivated node #" + atn.id);
+      }
+      SkeletonAnnotations.clearTopbar(this.stack.getId());
+      this.activateNode(null);
+      if (!e.shiftKey) {
+        e.stopPropagation();
+      } // else, a node under the mouse will be removed
+    }
   } else if (e.shiftKey) {
     if (null === atn.id) {
       if (SkeletonAnnotations.currentmode === SkeletonAnnotations.MODES.SKELETON) {
@@ -1438,26 +1512,46 @@ SkeletonAnnotations.SVGOverlay.prototype.goToPreviousBranchOrRootNode = function
 
 SkeletonAnnotations.SVGOverlay.prototype.goToNextBranchOrEndNode = function(treenode_id, e) {
   if (this.isIDNull(treenode_id)) return;
-  var self = this;
-  this.submit(
-      django_url + project.id + "/node/next_branch_or_end",
-      {tnid: treenode_id,
-       shift: e.shiftKey ? 1 : 0,
-       alt: e.altKey ? 1 : 0},
-      function(json) {
-        // json is a tuple:
-        // json[0]: treenode id
-        // json[1], [2], [3]: x, y, z in calibrated world units
-        if (treenode_id === json[0]) {
-          // Already at a branch or end node
-          growlAlert('Already there', 'You are already at a branch or end node');
-        } else {
-          self.moveTo(json[3], json[2], json[1],
-            function() {
-              self.selectNode(json[0]);
-            });
-        }
-      });
+  if (e.shiftKey) {
+    this.cycleThroughBranches(treenode_id, e.altKey ? 1 : 2);
+  } else {
+    var self = this;
+    this.submit(
+        django_url + project.id + "/node/next_branch_or_end",
+        {tnid: treenode_id},
+        function(json) {
+          // json is an array of branches
+          // each branch is a tuple:
+          // [child head of branch, first node of interest, first branch or leaf]
+          // each node is a tuple:
+          // node[0]: treenode id
+          // node[1], [2], [3]: x, y, z in calibrated world units
+          if (json.length === 0) {
+            // Already at a branch or end node
+            growlAlert('Already there', 'You are at an end node');
+          } else {
+            self.nextBranches = {tnid: treenode_id, branches: json};
+            self.cycleThroughBranches(null, e.altKey ? 1 : 2);
+          }
+        });
+  }
+};
+
+SkeletonAnnotations.SVGOverlay.prototype.cycleThroughBranches = function (treenode_id, node_index) {
+  if (typeof this.nextBranches === 'undefined') return;
+
+  var currentBranch = this.nextBranches.branches.map(function (branch) {
+    return branch.some(function (node) { return node[0] === treenode_id; });
+  }).indexOf(true);
+
+  // Cycle through branches. If treenode_id was not in the branch nodes (such as
+  // when first selecting a branch), currentBranch will be -1, so the following
+  // line will make it 0 and still produce the desired behavior.
+  currentBranch = (currentBranch + 1) % this.nextBranches.branches.length;
+
+  var branch = this.nextBranches.branches[currentBranch];
+  var node = branch[node_index];
+  this.moveTo(node[3], node[2], node[1], this.selectNode.bind(this, node[0]));
 };
 
 /** Checks first if the parent is loaded,
@@ -1474,6 +1568,31 @@ SkeletonAnnotations.SVGOverlay.prototype.goToParentNode = function(treenode_id) 
     return;
   }
   this.moveToAndSelectNode(node.parent_id);
+};
+
+SkeletonAnnotations.SVGOverlay.prototype.goToChildNode = function (treenode_id, e) {
+  if (this.isIDNull(treenode_id)) return;
+  // If the existing nextBranches was fetched for this treenode, reuse it to
+  // prevent repeated queries when quickly alternating between child and parent.
+  if (e.shiftKey ||
+      typeof this.nextBranches !== 'undefined' && this.nextBranches.tnid === treenode_id) {
+        this.cycleThroughBranches(treenode_id, 0);
+  } else {
+    var self = this;
+    this.submit(
+        django_url + project.id + "/node/next_branch_or_end",
+        {tnid: treenode_id},
+        function(json) {
+          // See goToNextBranchOrEndNode for JSON schema description.
+          if (json.length === 0) {
+            // Already at a branch or end node
+            growlAlert('Already there', 'You are at an end node');
+          } else {
+            self.nextBranches = {tnid: treenode_id, branches: json};
+            self.cycleThroughBranches(null, 0);
+          }
+        });
+  }
 };
 
 /**

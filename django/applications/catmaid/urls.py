@@ -165,6 +165,7 @@ urlpatterns += patterns('catmaid.control.treenode',
     (r'^(?P<project_id>\d+)/treenode/create/interpolated$', 'create_interpolated_treenode'),
     (r'^(?P<project_id>\d+)/treenode/delete$', 'delete_treenode'),
     (r'^(?P<project_id>\d+)/treenode/info$', 'treenode_info'),
+    (r'^(?P<project_id>\d+)/treenode/(?P<treenode_id>\d+)/parent$', 'update_parent'),
     (r'^(?P<project_id>\d+)/treenode/(?P<treenode_id>\d+)/radius$', 'update_radius'),
 )
 
@@ -206,6 +207,8 @@ urlpatterns += patterns('catmaid.control.skeletonexport',
     (r'^(?P<project_id>\d+)/skeleton/(?P<skeleton_id>\d+)/reviewed-nodes$', 'export_skeleton_reviews'),
     (r'^(?P<project_id>\d+)/skeletons/measure$', 'measure_skeletons'),
     (r'^(?P<project_id>\d+)/skeleton/connectors-by-partner$', 'skeleton_connectors_by_partner'),
+    (r'^(?P<project_id>\d+)/skeletons/within-spatial-distance$', 'within_spatial_distance'),
+    (r'^(?P<project_id>\d+)/skeletons/partners-by-connector$', 'partners_by_connector'),
 )
 
 # Skeleton group access
@@ -413,4 +416,11 @@ urlpatterns += patterns('catmaid.control',
     # Treenode table
     (r'^(?P<project_id>\d+)/treenode/table/list$', 'treenodetable.list_treenode_table'),
     (r'^(?P<project_id>\d+)/treenode/table/update$', 'treenodetable.update_treenode_table'),
+)
+
+# Patterns for FlyTEM access
+urlpatterns += patterns('catmaid.control.flytem',
+    (r'^flytem/projects$', 'project.projects'),
+    (r'^flytem/(?P<project_id>.+)/stack/(?P<stack_id>.+)/info$', 'stack.stack_info'),
+    (r'^flytem/(?P<project_id>.+)/stacks$', 'stack.stacks'),
 )

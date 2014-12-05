@@ -1,4 +1,4 @@
-.. _administering
+.. _administering:
 
 Administering a CATMAID instance
 ================================
@@ -83,6 +83,8 @@ thing. Those, however, don't ask for a password, but require a
 ``.pgpass`` file (see `PostgreSQL documentation
 <http://www.postgresql.org/docs/current/static/libpq-pgpass.html>`_).
 
+.. _performance-tuning:
+
 Performance tuning
 ------------------
 
@@ -120,6 +122,12 @@ Webserver
   to disk, especially if multiple users use CATMAID, can be a real performance
   hit.
 
+* Make use of the `SPDY <https://http://en.wikipedia.org/wiki/SPDY>`_ protocol.
+  Modern browsers and webservers support it and it only requires you to set up
+  SSL/TLS as an additional step before activating it. Through multiplexing,
+  compression and prioritization much better use of single connections. Requests
+  can be answered more quickly and CATMAID will feel more responsive.
+
 * A cache server like Varnish can be beneficial on the machine that serves the
   image data. If multiple users load the same image data, it will reduce the
   number of times image data has to be loaded from the hard drive.
@@ -128,7 +136,7 @@ Webserver
 
 * The webserver should mark image tiles to not expire so that they can be cached
   by a client. If the image data is public, one could let the webserver also set
-  the ``Cache-Control: public`` header for the images..
+  the ``Cache-Control: public`` header for the images.
 
 Database management system
 ^^^^^^^^^^^^^^^^^^^^^^^^^^

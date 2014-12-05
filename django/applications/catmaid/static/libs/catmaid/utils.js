@@ -163,7 +163,8 @@ SkeletonSourceManager.prototype.updateGUI = function() {
 	$("[id^='skeleton-source-select-']").each(function(index, select) {
 		var ipush = this.id.indexOf('-push-');
 		var name = (-1 === ipush ? this.id.substring(23) : this.id.substring(23, ipush)).replace(/-/g, ' ');
-		var selected = select.options[select.selectedIndex].value;
+		var selectedIndex = select.selectedIndex === -1 ? 0 : select.selectedIndex;
+		var selected = select.options[selectedIndex].value;
 		select.options.length = select.options[0].value === 'None' ? 1 : 0; // preserve manually added initial void entry when present in push selects
 		select.selectedIndex = 0;
 		options().forEach(function(option, i) {
@@ -1168,4 +1169,209 @@ SVGUtil.insertXYScatterPlot = function(
       .attr("dy", ".35em")
       .style("text-anchor", "left")
       .text(function(d) { return d.name; });
+};
+
+/**
+ * Simplify style representations of a SVG element. All style tags are replaced
+ * by classes, which refer to the same style properties. An object containing
+ * the styles as keys and the class names as values is returned.
+ */
+SVGUtil.classifyStyles = function(svg, precision, attrsToRemove)
+{
+  var styleCount = 0;
+  var foundStyles = {};
+
+  // Iterate all elements that have a style attribute
+  SVGUtil.map(svg, function(node) {
+    if (node.nodeType !== 1 || !node.hasAttribute("style")) {
+      return;
+    }
+
+    // Replace style with class
+    var style = node.getAttribute('style');
+    node.removeAttribute('style');
+    var cls = foundStyles[style];
+    if (!cls) {
+      styleCount++;
+      cls = "style" + styleCount;
+      foundStyles[style] = cls;
+    }
+    var existingClasses = node.getAttribute('class');
+    if (existingClasses) {
+      cls = existingClasses + " " + cls;
+    }
+    node.setAttribute('class', cls);
+  });
+
+  return foundStyles;
+};
+
+/**
+ * Reduce the precision of the 'stroke-width' style property to the number of
+ * given decimals.
+ */
+SVGUtil.reduceStylePrecision = function(svg, precision)
+{
+  /**
+   * Change the precision of a style property of a given object.
+   */
+  function changePrecision(e, a, d) {
+    var w = $(e).css(a);
+    if (w.length > 0) {
+      $(e).css(a, parseFloat(w).toFixed(d));
+    }
+  };
+
+  /**
+   * Create a function to update the precision of the stroke-width style
+   * property of an element, if this is requested.
+   */
+  var updatePrecision = (function(p) {
+    if (p) {
+      return function(e) {
+        changePrecision(e, 'stroke-width', p);
+      };
+    } else {
+      return function() {};
+    }
+  })(precision);
+
+  // Iterate all elements that have a style attribute
+  SVGUtil.map(svg, function(node) {
+    if (node.nodeType !== 1 || !node.hasAttribute("style")) {
+      return;
+    }
+
+    // Update precision
+    updatePrecision(node);
+  });
+
+  return svg;
+};
+
+/**
+ * All attributes in the 'properties' list will be discarded from the parsed
+ * styles.
+ */
+SVGUtil.stripStyleProperties = function(svg, properties)
+{
+  if (properties !== undefined) {
+    /**
+     * Remove a style property from the context object.
+     */
+    var removeStyleProperty = function(e, p, val) {
+      // Don't check the type for the value comparison, because it is probably
+      // more robust (here!).
+      if (val === undefined || $(e).css(p) == val) {
+        $(e).css(p, "");
+      }
+    }
+
+    /**
+     * Remove all unwanted styles from an element.
+     */
+    var removeStylesToDiscard = (function(props) {
+      return function(e) {
+        for (var p in props) {
+          removeStyleProperty(e, p, props[p]);
+        }
+      };
+    })(properties);
+
+    // Iterate all elements that have a style attribute
+    SVGUtil.map(svg, function(node) {
+      if (node.nodeType !== 1 || node.hasAttribute("style")) {
+        return;
+      }
+
+      // Discard unwanted styles
+      removeStylesToDiscard(node);
+    });
+  }
+
+  return svg;
+};
+
+/**
+ * Reduce the precision of coordinates used in the given SVG to the number of
+ * decimal digits requested. Currently, only the precision of lines is reduced.
+ */
+SVGUtil.reduceCoordinatePrecision = function(svg, digits)
+{
+  /**
+   * Create a function to read attribute 'attr' of element 'e' and change its
+   * precision
+   */
+  var reducePrecision = (function(nDigits) {
+    return function (e, attr) {
+      e.setAttribute(attr, parseFloat(e.getAttribute(attr)).toFixed(nDigits));
+    };
+  })(digits);
+
+  // Change precision of lines
+  SVGUtil.map(svg, function(node) {
+    if (node.nodeType !== 1 || node.nodeName !== "line") {
+      return;
+    }
+
+    reducePrecision(node, 'x1');
+    reducePrecision(node, 'y1');
+    reducePrecision(node, 'x2');
+    reducePrecision(node, 'y2');
+  });
+
+  return svg;
+};
+
+/**
+ * Execute a function on every element of the given SVG.
+ */
+SVGUtil.map = function(root, fn)
+{
+  for (var node = root; node; ) {
+    // Call mapped function in context of node
+    fn(node);
+
+    // Find next
+    var next = null;
+    // Depth first iteration
+    if (node.hasChildNodes()) {
+      next = node.firstChild;
+    } else {
+      while (!(next = node.nextSibling)) {
+        node = node.parentNode;
+        if (!node) {
+          break;
+        }
+        if (root == node) {
+          break;
+        }
+      }
+    }
+    node = next;
+  }
+}
+
+/**
+ * Adds a CDATA section to the given XML document that contains the given
+ * styles. The XML document is *not* a regular SVG DOM element, but one that can
+ * be created from such an element as following:
+ *
+ * var xml = $.parseXML(new XMLSerializer().serializeToString(svg));
+ */
+SVGUtil.addStyles = function(xml, styles)
+{
+  // Prepend CSS embedded in CDATA section
+  var styleTag = xml.createElement('style');
+  styleTag.setAttribute('type', 'text/css');
+  styleTag.appendChild(xml.createCDATASection(styles));
+
+  // Add style tag to SVG node in XML document (first child if there are
+  // elements already)
+  if (0 === xml.firstChild.childElementCount) {
+    xml.firstChild.appendChild(styleTag);
+  } else {
+    xml.firstChild.insertBefore(styleTag, xml.firstChild.firstChild);
+  }
+  return xml;
 };

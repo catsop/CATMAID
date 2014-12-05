@@ -18,7 +18,7 @@ from catmaid.models import Treenode, Connector, TreenodeConnector, User
 from catmaid.models import Textlabel, TreenodeClassInstance, ClassInstanceClassInstance
 from catmaid.fields import Double3D, Integer3D
 from catmaid.control.common import get_relation_to_id_map, get_class_to_id_map
-from catmaid.control.neuron_annotations import _annotate_entities
+from catmaid.control.neuron_annotations import _annotate_entities, create_annotation_query
 
 
 class TransactionTests(TransactionTestCase):
@@ -2135,6 +2135,40 @@ class ViewPageTests(TestCase):
                 "skeleton_id": 361}
         self.assertEqual(expected_result, parsed_response)
 
+    def test_node_find_end_of_linear_branch(self):
+        self.fake_authentication()
+        treenode_id = 391
+
+        response = self.client.post(
+                '/%d/node/next_branch_or_end' % self.test_project_id, {
+                    'tnid': treenode_id})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        # Response should contain one branch.
+        expected_result = [[[393, 6910.0, 990.0, 0.0],
+                            [393, 6910.0, 990.0, 0.0],
+                            [399, 5670.0, 640.0, 0.0]]]
+        self.assertEqual(expected_result, parsed_response)
+
+    def test_node_find_next_branch(self):
+        self.fake_authentication()
+        treenode_id = 253
+
+        response = self.client.post(
+                '/%d/node/next_branch_or_end' % self.test_project_id, {
+                    'tnid': treenode_id})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        # Response should contain two branches, and the larger branch headed by
+        # node 263 should be first.
+        expected_result = [[[263, 3915.0, 2105.0, 0.0],
+                            [263, 3915.0, 2105.0, 0.0],
+                            [265, 4570.0, 2125.0, 0.0]],
+                           [[255, 3850.0, 1790.0, 0.0],
+                            [255, 3850.0, 1790.0, 0.0],
+                            [261, 2820.0, 1345.0, 0.0]]]
+        self.assertEqual(expected_result, parsed_response)
+
     def test_node_update_single_treenode(self):
         self.fake_authentication()
         treenode_id = 289
@@ -2425,6 +2459,39 @@ class ViewPageTests(TestCase):
         self.assertEqual(expected_result, frozenset(parsed_response))
         # Also check response length to be sure there were no duplicates.
         self.assertEqual(len(expected_result), len(parsed_response))
+
+    def test_annotation_creation(self):
+        self.fake_authentication()
+
+        neuron_ids = [2365, 2381]
+        # Expect entity 2365 and 2381 to be not annotated
+        for nid in neuron_ids:
+            aq = create_annotation_query(self.test_project_id, {'neuron_id': nid})
+            self.assertEqual(len(aq), 0)
+
+        # Annotate both with the same annotation
+        _annotate_entities(self.test_project_id, neuron_ids,
+                {'myannotation': self.test_user_id})
+
+        # Expect entity 2365 and 2381 to be annotated
+        for nid in neuron_ids:
+            aq = create_annotation_query(self.test_project_id, {'neuron_id': nid})
+            self.assertEqual(len(aq), 1)
+            self.assertEqual(aq[0].name, 'myannotation')
+
+        # Annotate both with the pattern annotation
+        _annotate_entities(self.test_project_id, neuron_ids,
+                {'pattern {n9} test-{n}-annotation': self.test_user_id})
+
+        # Expect entity 2365 and 2381 to be annotated
+        aq = create_annotation_query(self.test_project_id, {'neuron_id': 2365}).order_by('name')
+        self.assertEqual(len(aq), 2)
+        self.assertEqual(aq[0].name, 'myannotation')
+        self.assertEqual(aq[1].name, 'pattern 9 test-1-annotation')
+        aq = create_annotation_query(self.test_project_id, {'neuron_id': 2381}).order_by('name')
+        self.assertEqual(len(aq), 2)
+        self.assertEqual(aq[0].name, 'myannotation')
+        self.assertEqual(aq[1].name, 'pattern 10 test-2-annotation')
 
 
 class TreenodeTests(TestCase):

@@ -347,7 +347,7 @@ function TracingTool()
   } ) );
 
   this.addAction( new Action({
-    helpText: "Go to next branch or end point (with alt, stop earlier at node with tag, synapse or low confidence; with shift and at a branch node, move down the other branch)",
+    helpText: "Go to next branch or end point (with alt, stop earlier at node with tag, synapse or low confidence; subsequent shift+V: cycle through other branches)",
     keyShortcuts: { "V": [ 86 ] },
     run: function (e) {
       if (!mayView())
@@ -382,11 +382,22 @@ function TracingTool()
 
   this.addAction( new Action({
     helpText: "Go to the parent of the active node",
-    keyShortcuts: { "P": [ 80 ] },
+    keyShortcuts: { "[": [ 219 ] },
     run: function (e) {
       if (!mayView())
         return false;
       tracingLayer.svgOverlay.goToParentNode(SkeletonAnnotations.getActiveNodeId());
+      return true;
+    }
+  }) );
+
+  this.addAction( new Action({
+    helpText: "Go to the child of the active node (Subsequent shift+]: cycle through children)",
+    keyShortcuts: { "]": [ 221 ] },
+    run: function (e) {
+      if (!mayView())
+        return false;
+      tracingLayer.svgOverlay.goToChildNode(SkeletonAnnotations.getActiveNodeId(), e);
       return true;
     }
   }) );
@@ -725,6 +736,7 @@ function TracingTool()
     result += '<strong>shift-alt-click in space:</strong> create a synapse with the active treenode as postsynaptic.<br />';
     result += '<strong>shift-click in space:</strong> create a post-synaptic node (if there was an active connector)<br />';
     result += '<strong>shift-click on a treenode:</strong> join two skeletons (if there was an active treenode)<br />';
+    result += '<strong>alt-ctrl-click in space:</strong> adds a node along the nearest edge of the active skeleton<br />';
     result += '</p>';
     return result;
   };

@@ -49,13 +49,14 @@ function getTileBaseName3D( stack, pixelPos, adjacent )
  * 
  */
 function TileLayer(
-		tilelayername,
+		displayname,
 		stack,						//!< reference to the parent stack
 		tileWidth,
 		tileHeight,
 		tileSource,
 		visibility,
-		opacity
+		opacity,
+		showOverview
 		)
 {
 	/**
@@ -63,7 +64,7 @@ function TileLayer(
 	 */
 	this.getLayerName = function()
 	{
-		return "Image data";
+		return self.displayname;
 	};
 
 	/**
@@ -122,10 +123,20 @@ function TileLayer(
 		 * we take the zero zoom level and adjust the tile properties.
 		 * This way we let the browser do the zooming work.
 		 */
-		if (zoom < 0) {
+		if (zoom < 0 || zoom % 1 !== 0) {
 			artificialZoom = true;
-			mag = Math.pow(2, -zoom);
-			zoom = 0;
+			/* For nonintegral zoom levels the ceiling is used to select
+			 * source image zoom level. While using the floor would allow
+			 * better image quality, it would requiring dynamically
+			 * increasing the number of tiles to fill the viewport since
+			 * in that case effectiveTileWidth < tileWidth.
+			 */
+			zoom = Math.max(0, Math.ceil(zoom));
+			/* Magnification is positive for digital zoom beyond image
+			 * resolution and negative for non-integral zooms within
+			 * image resolution.
+			 */
+			mag = Math.pow(2, zoom - stack.s);
 		}
 
 		var effectiveTileWidth = tileWidth * mag;
@@ -287,14 +298,20 @@ function TileLayer(
 			};
 		}
 
+		var nextL, nextT, seamRow;
+
 		// update the images sources
 		for ( var i = 0; i < tiles.length; ++i )
 		{
 			var r = fr + i;
+			nextT = t + effectiveTileHeight;
+			seamRow = Math.round(nextT) - nextT > 0;
 			for ( var j = 0; j < tiles[ 0 ].length; ++j )
 			{
 				var c = fc + j;
 				var tile = tiles[ i ][ j ];
+
+				nextL = l + effectiveTileWidth;
 
 				if ( r >= 0 && c >= 0 && r <= LAST_YT && c <= LAST_XT )
 				{
@@ -330,19 +347,31 @@ function TileLayer(
 					tile.style.top = t + "px";
 					tile.style.left = l + "px";
 
-					tile.style.width = effectiveTileWidth + "px";
-					tile.style.height = effectiveTileHeight + "px";
+					// To prevent tile seams when the browser is going to round the
+					// edge of the next column up a pixel, grow the width of this
+					// column slightly to fill the gap
+					if (Math.round(nextL) - nextL > 0) {
+						tile.style.width = Math.ceil(effectiveTileWidth) + "px";
+					} else {
+						tile.style.width = effectiveTileWidth + "px";
+					}
+
+					// As above, prevent tile seams when the next row will round up
+					if (seamRow) {
+						tile.style.height = Math.ceil(effectiveTileHeight) + "px";
+					} else {
+						tile.style.height = effectiveTileHeight + "px";
+					}
 				}
 				else
 				{
 					tile.style.visibility = "hidden";
 				}
 
-				l += effectiveTileWidth;
-
+				l = nextL;
 			}
 			l = left;
-			t += effectiveTileHeight;
+			t = nextT;
 		}
 		
 		
@@ -433,6 +462,7 @@ function TileLayer(
 	// initialise
 	var self = this;
 
+	self.displayname = displayname;
 	self.opacity = opacity; // in the range [0,1]
 	self.visible = visibility;
 	self.tileSource = tileSource;
@@ -450,14 +480,13 @@ function TileLayer(
 	var LAST_XT = Math.floor( ( stack.dimension.x * stack.scale - 1 ) / tileWidth );
 	var LAST_YT = Math.floor( ( stack.dimension.y * stack.scale - 1 ) / tileHeight );
 
-	var overviewLayer;
-	if( tilelayername === "TileLayer" ) {
+	if( showOverview ) {
 		// Initialize the OverviewLayer on the bottom-right with the correct
 		// path to the small thumbnail images depending on the tile source type
 		// This is only run for the TileLayer which usually holds the primary
 		// raw data, and not for additional overlay layers. Overlay layers are
 		// currently not shown with a small image.
-		overviewLayer = tileSource.getOverviewLayer( this );
+		var overviewLayer = tileSource.getOverviewLayer( this );
 	}
 	
 
