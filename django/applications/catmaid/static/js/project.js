@@ -36,7 +36,7 @@ function Project( pid )
 		var opened = false;
 		for ( var i = 0; i < stacks.length; ++i )
 		{
-			if ( stacks[ i ].isEqual( stack ) )
+			if ( stack.isEqual( stacks[ i ] ) )
 			{
 				stack = stacks[ i ];
 				opened = true;
