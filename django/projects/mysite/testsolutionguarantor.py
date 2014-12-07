@@ -2,6 +2,7 @@ import os
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
+from djsopnet.models import BlockInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
 from djsopnet.views import _setup_blocks
 from tests.testsopnet import SopnetTest, print_locations
@@ -23,10 +24,13 @@ sg = ps.SolutionGuarantor()
 
 request = ps.point3(0,0,0)
 
-print "Issuing first request for block (%s,%s,%s)" % (request.x,request.y,request.z)
+bi = BlockInfo.objects.get(stack_id=st.raw_stack_id)
+for i in range(0, bi.num_x/bi.core_dim_x):
+	for j in range(0, bi.num_y/bi.core_dim_y):
+		for k in range(0, bi.num_z/bi.core_dim_z):
+			print "Issuing first request for core (%s,%s,%s)" % (request.x,request.y,request.z)
 
-missing = sg.fill(request, solutionGuarantorParameters, config)
+			missing = sg.fill(request, solutionGuarantorParameters, config)
 
-if len(missing) > 0:
-	raise "There are (at least) the following segments missing: " + str(missing)
-
+			if len(missing) > 0:
+				raise "There are (at least) the following segments missing: " + str(missing)

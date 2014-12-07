@@ -2,6 +2,7 @@ import os
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
+from djsopnet.models import BlockInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
 from djsopnet.views import _setup_blocks
 from tests.testsopnet import SopnetTest, print_locations
@@ -21,9 +22,10 @@ segmentGuarantor = ps.SegmentGuarantor()
 
 segmentGuarantorParameters = ps.SegmentGuarantorParameters()
 
-for i in range(0,4):
-	for j in range(0,4):
-		for k in range(0,2):
+bi = BlockInfo.objects.get(stack_id=st.raw_stack_id)
+for i in range(0, bi.num_x):
+	for j in range(0, bi.num_y):
+		for k in range(0, bi.num_z):
 
 			request = ps.point3(i,j,k)
 
