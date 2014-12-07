@@ -3,28 +3,21 @@ from datetime import datetime
 
 from django.contrib.auth.models import User
 from catmaid.fields import IntegerArrayField, DoubleArrayField
-from catmaid.models import ClassInstance, Stack, UserFocusedModel
+from catmaid.models import ClassInstance, Stack, UserFocusedModel, Treenode
 from djsopnet.fields import *
 
-ASSEMBLY_TYPES = (
-    ('neuron', 'Neuron Slices'),
-    ('synapse', 'Synapse Slices'),
-    ('mitochondrion', 'Mitochondrion Slices'),
-    ('glia', 'Glia Slices'),
-)
+class AssemblyEquivalence(models.Model):
+    skeleton = models.ForeignKey(ClassInstance)
 
 class Assembly(models.Model):
     user = models.ForeignKey(User)
     creation_time = models.DateTimeField(default=datetime.now)
     edition_time = models.DateTimeField(default=datetime.now)
-    assembly_type = models.CharField(max_length=32, choices=ASSEMBLY_TYPES,
-     db_index=True)
-    name = models.CharField(max_length=255)
+    equivalence = models.ForeignKey(AssemblyEquivalence, null=True)
 
 class Slice(models.Model):
     id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)
-    assembly = models.ForeignKey(Assembly, null=True)
     section = models.IntegerField(db_index=True)
 
     # bounding box
@@ -65,10 +58,13 @@ class Slice(models.Model):
         return self.segmentslice_set.values('segment_id', 'direction')
     segment_summaries = property(_get_segment_summaries)
 
+class TreenodeSlice(models.Model):
+    treenode = models.ForeignKey(Treenode)
+    slice = models.ForeignKey(Slice)
+
 class Segment(models.Model):
     id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)
-    assembly = models.ForeignKey(Assembly, null=True)
     # section infimum, or rather, the id of the section closest to z = -infinity to which this segment belongs.
     section_inf = models.IntegerField(db_index=True)
 
@@ -171,6 +167,7 @@ class SolutionPrecedence(models.Model):
 class SegmentSolution(models.Model):
     solution = models.ForeignKey(Solution)
     segment = models.ForeignKey(Segment)
+    assembly = models.ForeignKey(Assembly, null=True)
 
     class Meta:
         unique_together = ('solution', 'segment')

@@ -3,8 +3,9 @@ import math
 import os
 import sys
 
-from numpy import int64, uint64
 from collections import namedtuple
+import networkx as nx
+from numpy import int64, uint64
 from pgmagick import Image, Blob, Color, CompositeOperator
 
 import pysopnet
@@ -63,8 +64,7 @@ def id_to_hash(id_int64):
 
 # --- JSON conversion ---
 def slice_dict(slice, with_conflicts=False, with_solution=False):
-    sd = {'assembly_id' : slice.assembly_id,
-          'hash' : id_to_hash(slice.id),
+    sd = {'hash' : id_to_hash(slice.id),
           'section' : slice.section,
           'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
           'ctr' : [slice.ctr_x, slice.ctr_y],
@@ -85,8 +85,7 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
     return sd
 
 def segment_dict(segment, with_solution=False):
-    sd = {'assembly' : segment.assembly,
-          'hash' : id_to_hash(segment.id),
+    sd = {'hash' : id_to_hash(segment.id),
           'section' : segment.section_inf,
           'box' : [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
           'ctr' : [segment.ctr_x, segment.ctr_y],
@@ -506,7 +505,7 @@ def _slice_select_query(slice_id_query):
     """
     return '''
             SELECT
-              s.id, s.assembly_id, s.section,
+              s.id, s.section,
               s.min_x, s.min_y, s.max_x, s.max_y,
               s.ctr_x, s.ctr_y, s.value, s.size,
               ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
@@ -1162,6 +1161,76 @@ def retrieve_user_constraints_by_blocks(request, project_id = None, stack_id = N
     except:
         return error_response()
 
+# --- Assembly ---
+
+@requires_user_role(UserRole.Annotate)
+def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_id=None):
+    cursor = connection.cursor()
+    # Fetch all segments and the segments to which they are connected in the
+    # core's precedent solution.
+    cursor.execute('''
+        SELECT
+          ssol.segment_id AS segment_id,
+          ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ss2.segment_id)) AS segment_neighbors,
+          ssol.id AS ssol_id
+        FROM djsopnet_segmentsolution ssol
+        JOIN djsopnet_solutionprecedence sp
+          ON (sp.solution_id = ssol.solution_id AND sp.core_id = %s)
+        JOIN djsopnet_segmentslice ss
+          ON (ss.segment_id = ssol.segment_id)
+        JOIN djsopnet_segmentslice ss2
+          ON (ss2.slice_id = ss.slice_id
+              AND ss2.segment_id <> ss.segment_id
+              AND ss2.direction <> ss.direction)
+        JOIN djsopnet_segmentsolution ssol2
+          ON (ssol2.segment_id = ss2.segment_id AND ssol2.solution_id = ssol.solution_id)
+        GROUP BY ssol.segment_id, ssol.id
+        ''' % core_id)
+    segments = cursor.fetchall()
+
+    # Create an undirected graph of segments, connected by slice edges. The
+    # connected components of this graph are assemblies.
+    g = nx.Graph()
+    for segment in segments:
+        g.add_node(segment[0], {'ssol_id': segment[2]})
+        for slice_edge in json.loads(segment[1]):
+            g.add_edge(segment[0], slice_edge)
+
+    assembly_ccs = nx.connected_components(g)
+    assembly_map = []
+    segmentsolution_ids = []
+    for idx, assembly_cc in enumerate(assembly_ccs):
+        for segment in assembly_cc:
+            assembly_map.append(idx)
+            segmentsolution_ids.append(g.node[segment]['ssol_id'])
+
+    # Bulk create the number of assemblies needed.
+    cursor.execute('''
+        INSERT INTO djsopnet_assembly (user_id, creation_time, edition_time)
+        SELECT v.user_id, v.creation_time, v.edition_time
+        FROM (VALUES (%(user_id)s, TIMESTAMP '%(creation_time)s', TIMESTAMP '%(edition_time)s'))
+          AS v (user_id, creation_time, edition_time), generate_series(1, %(num_assemblies)s)
+        RETURNING djsopnet_assembly.id
+        ''' % {'user_id': request.user.id,
+               'creation_time': datetime.now(),
+               'edition_time': datetime.now(),
+               'num_assemblies': len(assembly_ccs)})
+    assemblies = cursor.fetchall();
+    assembly_ids = [assemblies[idx][0] for idx in assembly_map]
+
+    # Bulk assign assemblies to SegmentSolutions.
+    # NOTE: This query can hang Django's debug cursor wrapper. There is nothing
+    # wrong with the query, apart from not being stupid enough for Django's
+    # cursor wrapper. Disable the debug wrapper and it will work correctly.
+    cursor.execute('''
+        UPDATE djsopnet_segmentsolution
+        SET assembly_id = assembly_map.assembly_id
+        FROM (VALUES %s) AS assembly_map (assembly_id, ssol_id)
+        WHERE djsopnet_segmentsolution.id = assembly_map.ssol_id
+        ''' % ','.join(['(%s,%s)' % x for x in zip(assembly_ids, segmentsolution_ids)]))
+
+    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+
 # --- convenience code for debug purposes ---
 def clear_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
@@ -1211,12 +1280,8 @@ def _clear_djsopnet(project_id = None, stack_id = None, delete_slices=True,
     all_segments = Segment.objects.filter(stack = s)
     all_slices = Slice.objects.filter(stack = s)
 
-    all_slice_assembly = {slice.assembly for slice in all_slices}
-    all_segment_assembly = {segment.assembly for segment in all_segments}
-    all_assemblies = all_segment_assembly.union(all_slice_assembly)
-    assembly_ids = {assembly.id for assembly in all_assemblies if assembly is not None}
-
-    Assembly.objects.filter(id__in = assembly_ids).delete()
+    # TODO: Assemblies are no longer cleared, but this function will be
+    # deprecated soon.
 
     if delete_slices:
         SliceConflictSet.objects.filter(id__in = (conflict.id for conflict in all_conflicts)).delete()
