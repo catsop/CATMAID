@@ -20,7 +20,7 @@ class Command(NoArgsCommand):
                         AND ss2.slice_id <> ss1.slice_id)
                   JOIN djsopnet_segmentsolution ssol2
                     ON (ssol2.segment_id = ss2.segment_id)
-                  WHERE ss1.segment_id <> ss2.segment_id AND ssol1.core_id = ssol2.core_id
+                  WHERE ss1.segment_id <> ss2.segment_id AND ssol1.solution_id = ssol2.solution_id
                 ''')
         row = cursor.fetchone()
         if row[0] == 0:
@@ -40,7 +40,7 @@ class Command(NoArgsCommand):
                   JOIN djsopnet_segmentsolution ssol1
                     ON (ssol1.segment_id = ss1.segment_id)
                   JOIN djsopnet_segmentsolution ssol2
-                    ON (ssol2.segment_id = ss2.segment_id AND ssol1.core_id = ssol2.core_id)
+                    ON (ssol2.segment_id = ss2.segment_id AND ssol1.solution_id = ssol2.solution_id)
                   GROUP BY s.id
                     HAVING count(*) > 2
                 ''')
