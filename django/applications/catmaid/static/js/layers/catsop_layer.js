@@ -109,7 +109,6 @@ CatsopResultsLayer.prototype.showOverlay = function () {
           if (!(slice.in_solution in CatsopResultsLayer.assemblyColors)){
             CatsopResultsLayer.assemblyColors[slice.in_solution] = czer.pickColor().getStyle();
           }
-          console.log(slice.in_solution);
 
           sliceImg.css('background-color', CatsopResultsLayer.assemblyColors[slice.in_solution]);
         });
