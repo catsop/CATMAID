@@ -65,8 +65,9 @@ class TreenodeSlice(models.Model):
 class Segment(models.Model):
     id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)
-    # section infimum, or rather, the id of the section closest to z = -infinity to which this segment belongs.
-    section_inf = models.IntegerField(db_index=True)
+    # section supremum, i.e., the larger of the two sections bounding this
+    # inter-section interval
+    section_sup = models.IntegerField(db_index=True)
 
     # bounding box
     min_x = models.IntegerField(db_index=True)

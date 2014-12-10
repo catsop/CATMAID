@@ -86,7 +86,7 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
 
 def segment_dict(segment, with_solution=False):
     sd = {'hash' : id_to_hash(segment.id),
-          'section' : segment.section_inf,
+          'section' : segment.section_sup,
           'box' : [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
           'ctr' : [segment.ctr_x, segment.ctr_y],
           'type' : segment.type}
@@ -744,7 +744,7 @@ def do_insert_segments(stack, dict):
         n = int(dict.get('n'))
         for i in range(n):
             i_str = str(i)
-            section_inf = int(dict.get('sectioninf_' + i_str))
+            section_sup = int(dict.get('sectionsup_' + i_str))
             hash_value = dict.get('hash_' + i_str)
             ctr_x = float(dict.get('cx_' + i_str))
             ctr_y = float(dict.get('cy_' + i_str))
@@ -773,7 +773,7 @@ def do_insert_segments(stack, dict):
                 slice_c_hash = None
 
             segment = Segment(stack = stack, assembly = None,
-                              id = hash_to_id(hash_value), section_inf = section_inf,
+                              id = hash_to_id(hash_value), section_sup = section_sup,
                               min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
                               ctr_x = ctr_x, ctr_y = ctr_y, type = type, direction = direction,
                               slice_a_id = hash_to_id(slice_a_hash),
@@ -853,8 +853,8 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
                             FROM djsopnet_segmentslice ss1
                             JOIN djsopnet_segment ss1_seg
                                 ON (ss1.segment_id = ss1_seg.id
-                                    AND ss1_seg.section_inf = (
-                                        SELECT section_inf FROM djsopnet_segment
+                                    AND ss1_seg.section_sup = (
+                                        SELECT section_sup FROM djsopnet_segment
                                         WHERE id IN (%(segment_id)s) LIMIT 1))
                             JOIN djsopnet_segmentslice ss2
                                 ON (ss2.segment_id = ss1.segment_id)
@@ -1055,7 +1055,7 @@ def retrieve_block_ids_by_segments(request, project_id = None, stack_id = None):
 
 @requires_user_role(UserRole.Annotate)
 def create_segment_for_slices(request, project_id=None, stack_id=None):
-    """Creates a segment joining a specified set of slices. Ends must specify section infimum."""
+    """Creates a segment joining a specified set of slices. Ends must specify section supremum."""
     s = get_object_or_404(Stack, pk=stack_id)
     try:
         slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
@@ -1075,14 +1075,14 @@ def create_segment_for_slices(request, project_id=None, stack_id=None):
         if len(slices) > 3:
             return HttpResponseBadRequest(json.dumps({'error': 'SOPNET only supports branches of 1:2 slices'}), content_type='application/json')
 
-        # Set segment section_inf
+        # Set segment section_sup
         #   If continuation or branch, should be max(sections)
         #   If an end, should be request param, otherwise 400
-        section_inf = max(sections)
+        section_sup = max(sections)
         if len(slices) == 1:
-            section_inf = request.POST.get('section_inf', None)
-            if section_inf is None:
-                return HttpResponseBadRequest(json.dumps({'error': 'End segments must specify section infimum'}), content_type='application/json')
+            section_sup = request.POST.get('section_sup', None)
+            if section_sup is None:
+                return HttpResponseBadRequest(json.dumps({'error': 'End segments must specify section supremum'}), content_type='application/json')
 
         # Set segment extents extrema of slice extents
         min_x = min([x.min_x for x in slices])
@@ -1096,9 +1096,9 @@ def create_segment_for_slices(request, project_id=None, stack_id=None):
 
         # Get segment hash from SOPNET
         leftSliceHashes = pysopnet.SliceHashVector()
-        leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_inf])
+        leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_sup])
         rightSliceHashes = pysopnet.SliceHashVector()
-        rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_inf])
+        rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_sup])
         segment_hash = pysopnet.segmentHashValue(leftSliceHashes, rightSliceHashes)
         segment_id = hash_to_id(segment_hash)
         if Segment.objects.filter(id=segment_id).exists():
@@ -1107,14 +1107,14 @@ def create_segment_for_slices(request, project_id=None, stack_id=None):
                     status=409, content_type='application/json')
 
         type = len(slices) - 1
-        segment = Segment(id=segment_id, stack=s, section_inf=section_inf,
+        segment = Segment(id=segment_id, stack=s, section_sup=section_sup,
                 type=type, ctr_x=ctr_x, ctr_y=ctr_y,
                 min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y)
         segment.save()
 
         # Associate slices to segment
         SegmentSlice.objects.bulk_create([
-            SegmentSlice(segment=segment, slice=slice, direction=(slice.section != section_inf))
+            SegmentSlice(segment=segment, slice=slice, direction=(slice.section != section_sup))
             for slice in slices])
 
         # Associate segment to blocks
