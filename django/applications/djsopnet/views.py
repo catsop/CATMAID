@@ -1076,9 +1076,9 @@ def create_segment_for_slices(request, project_id=None, stack_id=None):
             return HttpResponseBadRequest(json.dumps({'error': 'SOPNET only supports branches of 1:2 slices'}), content_type='application/json')
 
         # Set segment section_inf
-        #   If continuation or branch, should be min(sections)
+        #   If continuation or branch, should be max(sections)
         #   If an end, should be request param, otherwise 400
-        section_inf = min(sections)
+        section_inf = max(sections)
         if len(slices) == 1:
             section_inf = request.POST.get('section_inf', None)
             if section_inf is None:
@@ -1096,9 +1096,9 @@ def create_segment_for_slices(request, project_id=None, stack_id=None):
 
         # Get segment hash from SOPNET
         leftSliceHashes = pysopnet.SliceHashVector()
-        leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_inf])
+        leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_inf])
         rightSliceHashes = pysopnet.SliceHashVector()
-        rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_inf])
+        rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_inf])
         segment_hash = pysopnet.segmentHashValue(leftSliceHashes, rightSliceHashes)
         segment_id = hash_to_id(segment_hash)
         if Segment.objects.filter(id=segment_id).exists():
@@ -1114,7 +1114,7 @@ def create_segment_for_slices(request, project_id=None, stack_id=None):
 
         # Associate slices to segment
         SegmentSlice.objects.bulk_create([
-            SegmentSlice(segment=segment, slice=slice, direction=(slice.section == section_inf))
+            SegmentSlice(segment=segment, slice=slice, direction=(slice.section != section_inf))
             for slice in slices])
 
         # Associate segment to blocks

@@ -475,7 +475,7 @@ CatsopWidget.prototype.moveToActiveSegment = function() {
  * Moves the stack view to any object with section and ctr properties.
  */
 CatsopWidget.prototype.moveToObject = function (obj) {
-  var z = obj.section,
+  var z = obj.section - (('mask' in obj) ? 0 : 1), // For segments, move to the left section
       y = obj.ctr[1],
       x = obj.ctr[0];
   // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
