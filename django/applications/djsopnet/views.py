@@ -1196,6 +1196,12 @@ def retrieve_user_constraints_by_blocks(request, project_id = None, stack_id = N
 
 @requires_user_role(UserRole.Annotate)
 def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_id=None):
+    c = get_object_or_404(Core, id=core_id)
+    if not c.solution_set_flag:
+        return HttpResponse(json.dumps(
+                {'error': 'Solution flag is not set for core'}),
+                status=409, content_type='application/json')
+
     cursor = connection.cursor()
     # Fetch all segments and the segments to which they are connected in the
     # core's precedent solution.
