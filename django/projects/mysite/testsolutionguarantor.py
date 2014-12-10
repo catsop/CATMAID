@@ -22,12 +22,12 @@ solutionGuarantorParameters.setCorePadding(1)
 
 sg = ps.SolutionGuarantor()
 
-request = ps.point3(0,0,0)
-
 bi = BlockInfo.objects.get(stack_id=st.raw_stack_id)
 for i in range(0, bi.num_x/bi.core_dim_x):
 	for j in range(0, bi.num_y/bi.core_dim_y):
 		for k in range(0, bi.num_z/bi.core_dim_z):
+			request = ps.point3(i,j,k)
+
 			print "Issuing first request for core (%s,%s,%s)" % (request.x,request.y,request.z)
 
 			missing = sg.fill(request, solutionGuarantorParameters, config)
