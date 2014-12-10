@@ -13,7 +13,7 @@ class Command(NoArgsCommand):
                 FROM djsopnet_segmentsolution ssol1
                   JOIN djsopnet_segmentslice ss1
                     ON (ss1.segment_id = ssol1.segment_id)
-                  JOIN djsopnet_sliceconflictset scs
+                  JOIN djsopnet_sliceconflict scs
                     ON (ss1.slice_id = scs.slice_a_id OR ss1.slice_id = scs.slice_b_id)
                   JOIN djsopnet_segmentslice ss2
                     ON ((ss2.slice_id = scs.slice_a_id OR ss2.slice_id = scs.slice_b_id)
@@ -56,7 +56,7 @@ class Command(NoArgsCommand):
                 FROM djsopnet_segmentslice ss1
                   JOIN djsopnet_segmentslice ss2
                     ON (ss1.segment_id = ss2.segment_id AND ss1.id <> ss2.id)
-                  JOIN djsopnet_sliceconflictset scs
+                  JOIN djsopnet_sliceconflict scs
                     ON (scs.slice_a_id = ss1.slice_id AND scs.slice_b_id = ss2.slice_id);
                 ''')
         row = cursor.fetchone()

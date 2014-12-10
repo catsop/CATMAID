@@ -217,19 +217,24 @@ class FeatureInfo(models.Model):
     name_ids = IntegerArrayField()
     weights = DoubleArrayField()
 
-class SliceConflictSet(models.Model):
+class SliceConflict(models.Model):
     slice_a = models.ForeignKey(Slice, related_name='conflicts_as_a')
     slice_b = models.ForeignKey(Slice, related_name='conflicts_as_b')
 
     class Meta:
         unique_together = ('slice_a', 'slice_b')
 
+class ConflictClique(models.Model):
+    id = models.BigIntegerField(primary_key=True)
+    maximal_clique = models.BooleanField(default=True)
+    edges = models.ManyToManyField(SliceConflict, db_table='djsopnet_conflictcliqueedge')
+
 class BlockConflictRelation(models.Model):
     block = models.ForeignKey(Block)
-    conflict = models.ForeignKey(SliceConflictSet)
+    slice_conflict = models.ForeignKey(SliceConflict)
 
     class Meta:
-        unique_together = ('block', 'conflict')
+        unique_together = ('block', 'slice_conflict')
 
 class Constraint(UserFocusedModel):
     # the skeleton that defined the constraint

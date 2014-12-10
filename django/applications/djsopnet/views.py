@@ -174,7 +174,7 @@ def generate_block_info_response(block_info, stack):
 def generate_conflict_response(conflicts, stack):
     conflict_dicts = []
     for conflict in conflicts:
-        rel = SliceConflictSet.objects.get(id = conflict)
+        rel = SliceConflict.objects.get(id = conflict)
         conflict_dicts.append({'conflict_hashes' : map(id_to_hash, [rel.slice_a_id, rel.slice_b_id])})
     return HttpResponse(json.dumps({'ok' : True, 'conflict' : conflict_dicts}))
 
@@ -516,8 +516,8 @@ def _slice_select_query(slice_id_query):
             FROM djsopnet_slice s
             JOIN (%s) AS slice_id_query
               ON (slice_id_query.slice_id = s.id)
-            LEFT JOIN djsopnet_sliceconflictset scs_as_a ON (scs_as_a.slice_a_id = s.id)
-            LEFT JOIN djsopnet_sliceconflictset scs_as_b ON (scs_as_b.slice_b_id = s.id)
+            LEFT JOIN djsopnet_sliceconflict scs_as_a ON (scs_as_a.slice_a_id = s.id)
+            LEFT JOIN djsopnet_sliceconflict scs_as_b ON (scs_as_b.slice_b_id = s.id)
             JOIN djsopnet_segmentslice ss ON (ss.slice_id = s.id)
             LEFT JOIN
               (SELECT ssol.segment_id, ssol.solution_id, ssol.assembly_id, sp.core_id
@@ -573,11 +573,11 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
                   WHERE sbr.block_id IN (%(block_ids)s)
                 UNION SELECT scs_cbr_a.slice_a_id AS slice_id
                   FROM djsopnet_blockconflictrelation bcr
-                  JOIN djsopnet_sliceconflictset scs_cbr_a ON (scs_cbr_a.id = bcr.conflict_id)
+                  JOIN djsopnet_sliceconflict scs_cbr_a ON (scs_cbr_a.id = bcr.conflict_id)
                   WHERE bcr.block_id IN (%(block_ids)s)
                 UNION SELECT scs_cbr_b.slice_b_id AS slice_id
                   FROM djsopnet_blockconflictrelation bcr
-                  JOIN djsopnet_sliceconflictset scs_cbr_b ON (scs_cbr_b.id = bcr.conflict_id)
+                  JOIN djsopnet_sliceconflict scs_cbr_b ON (scs_cbr_b.id = bcr.conflict_id)
                   WHERE bcr.block_id IN (%(block_ids)s)
                 ''' % {'block_ids': block_ids}))
 
@@ -670,7 +670,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 
             # no exception, so far. create the conflict set
             slice_order = [0, 1] if id_to_hash(slice_ids[0]) < id_to_hash(slice_ids[1]) else [1, 0]
-            sliceConflict = SliceConflictSet(slice_a_id = slice_ids[slice_order[0]],
+            sliceConflict = SliceConflict(slice_a_id = slice_ids[slice_order[0]],
                     slice_b_id = slice_ids[slice_order[1]])
             sliceConflict.save()
             for block in blocks:
@@ -688,8 +688,8 @@ def retrieve_conflict_sets(request, project_id = None, stack_id = None):
     try:
         slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
 
-        conflict_relations = SliceConflictSet.objects.filter(slice_a__in = slice_ids) | \
-                             SliceConflictSet.objects.filter(slice_b__in = slice_ids)
+        conflict_relations = SliceConflict.objects.filter(slice_a__in = slice_ids) | \
+                             SliceConflict.objects.filter(slice_b__in = slice_ids)
         conflicts = {cr.id for cr in conflict_relations}
 
         return generate_conflict_response(conflicts, s)
@@ -861,10 +861,10 @@ def retrieve_segment_and_conflicts(request, project_id = None, stack_id = None):
                             WHERE ss1.slice_id IN
                                 (SELECT slice_id FROM req_seg_slices
                                 UNION SELECT scs_a.slice_a_id AS slice_id
-                                  FROM djsopnet_sliceconflictset scs_a, req_seg_slices
+                                  FROM djsopnet_sliceconflict scs_a, req_seg_slices
                                   WHERE scs_a.slice_b_id = req_seg_slices.slice_id
                                 UNION SELECT scs_b.slice_b_id AS slice_id
-                                  FROM djsopnet_sliceconflictset scs_b, req_seg_slices
+                                  FROM djsopnet_sliceconflict scs_b, req_seg_slices
                                   WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
                         ''' % {'segment_id': segment_id}))
 
@@ -1161,10 +1161,10 @@ def constrain_segment(request, project_id=None, stack_id=None, segment_hash=None
                     JOIN djsopnet_segmentslice ss ON (ssol.segment_id = ss.segment_id)
                     WHERE ss.slice_id IN (
                             SELECT scs_a.slice_a_id AS slice_id
-                              FROM djsopnet_sliceconflictset scs_a, req_seg_slices
+                              FROM djsopnet_sliceconflict scs_a, req_seg_slices
                               WHERE scs_a.slice_b_id = req_seg_slices.slice_id
                             UNION SELECT scs_b.slice_b_id AS slice_id
-                              FROM djsopnet_sliceconflictset scs_b, req_seg_slices
+                              FROM djsopnet_sliceconflict scs_b, req_seg_slices
                               WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
                       OR ((ss.slice_id, ss.direction) IN (SELECT * FROM req_seg_slices)))
                     AS conflict
