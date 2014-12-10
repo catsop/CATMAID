@@ -40,8 +40,10 @@ class Command(NoArgsCommand):
                   JOIN djsopnet_segmentsolution ssol1
                     ON (ssol1.segment_id = ss1.segment_id)
                   JOIN djsopnet_segmentsolution ssol2
-                    ON (ssol2.segment_id = ss2.segment_id AND ssol1.solution_id = ssol2.solution_id)
-                  GROUP BY s.id
+                    ON (ssol2.segment_id = ss2.segment_id
+                        AND ssol1.id <> ssol2.id
+                        AND ssol1.solution_id = ssol2.solution_id)
+                  GROUP BY s.id, ssol1.solution_id
                     HAVING count(*) > 2
                 ''')
         if cursor.rowcount == 0:
