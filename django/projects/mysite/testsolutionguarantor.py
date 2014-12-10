@@ -19,6 +19,7 @@ config = st.get_configuration()
 
 solutionGuarantorParameters = ps.SolutionGuarantorParameters()
 solutionGuarantorParameters.setCorePadding(1)
+solutionGuarantorParameters.setForceExplanation(True)
 
 sg = ps.SolutionGuarantor()
 
