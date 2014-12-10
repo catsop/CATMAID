@@ -66,3 +66,19 @@ class Command(NoArgsCommand):
             self.stdout.write('OK')
         else:
             self.stdout.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
+
+        self.stdout.write('Check that all slices have exactly two end segments...')
+        cursor = connection.cursor()
+        cursor.execute('''
+                SELECT sl.id, sl.section, count(seg.id) AS num_ends
+                FROM djsopnet_segmentslice ss
+                JOIN djsopnet_slice sl ON sl.id = ss.slice_id
+                JOIN djsopnet_segment seg ON seg.id = ss.segment_id
+                WHERE seg.type = 0
+                GROUP BY sl.id
+                HAVING count(seg.id) <> 2
+                ''')
+        if cursor.rowcount == 0:
+            self.stdout.write('OK')
+        else:
+            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
