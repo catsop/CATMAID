@@ -1306,16 +1306,15 @@ def _clear_djsopnet(project_id = None, stack_id = None, delete_slices=True,
     delete_config = delete_slices and delete_segments
 
     all_blocks = Block.objects.filter(stack = s)
-    all_block_conflict_relations = BlockConflictRelation.objects.filter(block__in = all_blocks)
-    all_conflicts = {bcr.conflict for bcr in all_block_conflict_relations}
     all_segments = Segment.objects.filter(stack = s)
-    all_slices = Slice.objects.filter(stack = s)
 
     # TODO: Assemblies are no longer cleared, but this function will be
     # deprecated soon.
 
     if delete_slices:
-        SliceConflictSet.objects.filter(id__in = (conflict.id for conflict in all_conflicts)).delete()
+        all_block_conflict_relations = BlockConflictRelation.objects.filter(block__in = all_blocks)
+        all_conflicts = {bcr.slice_conflict for bcr in all_block_conflict_relations}
+        SliceConflict.objects.filter(id__in = (conflict.id for conflict in all_conflicts)).delete()
 
     if delete_segments:
         SegmentBlockRelation.objects.filter(block__in = all_blocks).delete()
@@ -1329,8 +1328,7 @@ def _clear_djsopnet(project_id = None, stack_id = None, delete_slices=True,
         all_segments.delete()
 
     if delete_slices:
-        for slice in all_slices:
-            slice.delete()
+        Slice.objects.filter(stack = s).delete()
 
     if delete_config:
         Core.objects.filter(stack = s).delete()
