@@ -220,19 +220,11 @@ def setup_blocks(request, project_id = None, stack_id = None):
 def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
     s = get_object_or_404(Stack, pk=stack_id)
 
-    nx = s.dimension.x / width
-    ny = s.dimension.y / height
-    nz = s.dimension.z / depth
-
-    # If stack size is not equally divisible by block size...
-    if nx * width < s.dimension.x:
-        nx = nx + 1
-
-    if ny * height < s.dimension.y:
-        ny = ny + 1
-
-    if nz * depth < s.dimension.z:
-        nz = nz + 1
+    # The number of blocks is the ceiling of the stack size divided by block dimension
+    def int_ceil(num, den): return ((num - 1) // den) + 1
+    nx = int_ceil(s.dimension.x, width)
+    ny = int_ceil(s.dimension.y, height)
+    nz = int_ceil(s.dimension.z, depth)
 
     try:
         info = BlockInfo.objects.get(stack=s)
