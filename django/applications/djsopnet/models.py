@@ -85,6 +85,8 @@ class Segment(models.Model):
     # 2 - Branch
     type = models.IntegerField(db_index=True)
 
+    cost = models.FloatField(null=True, default=None)
+
     def _get_in_solution(self):
         return 0 < len(list(SegmentSolution.objects.raw('''
             SELECT ssol.id AS id, ssol.solution_id AS solution_id, ssol.segment_id AS segment_id
