@@ -246,22 +246,22 @@ def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
         info.save()
 
     # Create new Blocks
-
+    blocks = []
     for z in range(0, nz):
         for y in range(0, ny):
             for x in range(0, nx):
-                block = Block(stack=s, slices_flag = False, segments_flag = False,
-                              coordinate_x=x, coordinate_y=y, coordinate_z=z)
-                # TODO: figure out how to use bulk_create instead.
-                block.save()
+                blocks.append(Block(stack=s, slices_flag=False, segments_flag=False,
+                                    coordinate_x=x, coordinate_y=y, coordinate_z=z))
+    Block.objects.bulk_create(blocks)
 
     # Create new Cores, round up if number of blocks is not divisible by core size
+    cores = []
     for z in range(0, (nz + coredib - 1)/coredib):
         for y in range(0, (ny + corehib - 1)/corehib):
             for x in range(0, (nx + corewib - 1)/corewib):
-                core = Core(stack=s, solution_set_flag = False,
-                            coordinate_x=x, coordinate_y=y, coordinate_z=z)
-                core.save()
+                cores.append(Core(stack=s, solution_set_flag = False,
+                                  coordinate_x=x, coordinate_y=y, coordinate_z=z))
+    Core.objects.bulk_create(cores)
 
 # Query, agnostic to Model class for Core, Block
 def location_query(model, s, request):
