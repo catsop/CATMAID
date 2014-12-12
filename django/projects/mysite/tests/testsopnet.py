@@ -7,7 +7,7 @@ from catmaid.fields import Double3D, Integer3D
 
 from django.conf import settings
 
-from djsopnet.models import FeatureName, FeatureInfo
+from djsopnet.models import BlockInfo, FeatureName, FeatureInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
 from djsopnet.views import _setup_blocks
 import pysopnet as ps
@@ -119,6 +119,7 @@ class SopnetTest(object):
 		ps.setLogLevel(self.loglevel)
 
 	def get_configuration(self):
+		bi = BlockInfo.objects.get(stack_id=self.raw_stack_id)
 		conf = ps.ProjectConfiguration()
 		conf.setBackendType(ps.BackendType.PostgreSql)
 		conf.setCatmaidProjectId(self.project_id)
@@ -127,7 +128,9 @@ class SopnetTest(object):
 		conf.setCatmaidHost(self.catmaid_host)
 		conf.setComponentDirectory(self.component_dir)
 		conf.setBlockSize(ps.point3(self.block_width, self.block_height, self.block_depth))
-		conf.setVolumeSize(ps.point3(1024, 1024, 20))
+		conf.setVolumeSize(ps.point3(bi.block_dim_x*bi.num_x,
+				bi.block_dim_y*bi.num_y,
+				bi.block_dim_z*bi.num_z))
 		conf.setCoreSize(ps.point3(self.core_width, self.core_height, self.core_depth))
 		conf.setPostgreSqlDatabase(self.postgresql_database)
 		conf.setPostgreSqlHost(self.postgresql_host)
