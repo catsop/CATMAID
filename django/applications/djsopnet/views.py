@@ -332,12 +332,9 @@ def retrieve_cores_by_id(request, project_id = None, stack_id = None):
         return error_response()
 
 def stack_info(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    stack_dict = {'stack_size' : [s.dimension.x, s.dimension.y, s.dimension.z],
-                  'tile_size' : [s.tile_width, s.tile_height],
-                  'file_extension' : s.file_extension,
-                  'image_base' : s.image_base}
-    return HttpResponse(json.dumps(stack_dict), content_type='text/json')
+    # TODO: circumventing user role requirements in CATMAID
+    result=get_stack_info(project_id, stack_id, request.user)
+    return HttpResponse(json.dumps(result, sort_keys=True, indent=4), content_type="text/json")
 
 def block_info(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
