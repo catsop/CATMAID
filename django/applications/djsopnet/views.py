@@ -35,6 +35,7 @@ from StringIO import StringIO
 import traceback
 
 from djsopnet.control.slice import retrieve_slices_for_skeleton
+from djsopnet.control.skeleton_intersection import generate_user_constraints
 
 def safe_split(tosplit, name='data', delim=','):
     """ Tests if $tosplit evaluates to true and if not, raises a value error.
