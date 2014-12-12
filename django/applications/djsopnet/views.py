@@ -70,7 +70,7 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
           'ctr' : [slice.ctr_x, slice.ctr_y],
           'value' : slice.value,
           'size' : slice.size,
-          'mask' : static(str(slice.id) + '.png'),
+          'mask' : static('slicemasks/' + str(slice.id) + '.png'),
           'segment_summaries' : slice.segment_summaries}
 
     for summary in sd['segment_summaries']:
