@@ -196,7 +196,9 @@ class SegmentBlockRelation(models.Model):
 class BlockInfo(models.Model):
     stack = models.OneToOneField(Stack)
 
-    # Block height, width, depth, measured units of pixels
+    scale = models.IntegerField(default=0)
+
+    # Block height, width, depth, measured units of scaled pixels
     block_dim_x = models.IntegerField(default=256)
     block_dim_y = models.IntegerField(default=256)
     block_dim_z = models.IntegerField(default=16)

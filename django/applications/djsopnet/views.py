@@ -200,6 +200,7 @@ def setup_blocks(request, project_id = None, stack_id = None):
     the given stack, if these things don't already exist.
     '''
     try:
+        scale = int(request.GET.get('scale'))
         width = int(request.GET.get('width'))
         height = int(request.GET.get('height'))
         depth = int(request.GET.get('depth'))
@@ -210,28 +211,28 @@ def setup_blocks(request, project_id = None, stack_id = None):
     except TypeError:
         return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), content_type='text/json')
     try:
-        _setup_blocks(stack_id, width, height, depth,
-                corewib, corehib, coredib)
+        _setup_blocks(stack_id, scale, width, height, depth,
+                      corewib, corehib, coredib)
     except ValueError as e:
         return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), content_type='text/json')
 
     return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
 
-def _setup_blocks(stack_id, width, height, depth, corewib, corehib, coredib):
+def _setup_blocks(stack_id, scale, width, height, depth, corewib, corehib, coredib):
     s = get_object_or_404(Stack, pk=stack_id)
 
     # The number of blocks is the ceiling of the stack size divided by block dimension
     def int_ceil(num, den): return ((num - 1) // den) + 1
-    nx = int_ceil(s.dimension.x, width)
-    ny = int_ceil(s.dimension.y, height)
-    nz = int_ceil(s.dimension.z, depth)
+    nx = int_ceil(s.dimension.x, width * 2**scale)
+    ny = int_ceil(s.dimension.y, height * 2**scale)
+    nz = int_ceil(s.dimension.z, depth * 2**scale)
 
     try:
         info = BlockInfo.objects.get(stack=s)
         raise ValueError("already setup")
     except BlockInfo.DoesNotExist:
 
-        info = BlockInfo(stack = s,
+        info = BlockInfo(stack=s, scale=scale,
                          block_dim_y = height, block_dim_x = width, block_dim_z = depth,
                          core_dim_y = corehib, core_dim_x = corewib, core_dim_z = coredib,
                          num_x = nx, num_y = ny, num_z = nz)
@@ -1360,6 +1361,7 @@ def create_project_config(project_id, raw_stack_id, membrane_stack_id):
 
     bi = BlockInfo.objects.get(stack_id=raw_stack_id)
 
+    config['catmaid_stack_scale'] = bi.scale
     config['block_size'] = [bi.block_dim_x, bi.block_dim_y, bi.block_dim_z]
     config['core_size'] = [bi.core_dim_x, bi.core_dim_y, bi.core_dim_z]
     config['volume_size'] = [bi.block_dim_x*bi.num_x,

@@ -80,6 +80,7 @@ class SopnetTest(object):
 
 	def __init__(self, **kwargs):
 		required_params = ['project_id', 'raw_stack_id', 'membrane_stack_id',
+			'stack_scale',
 			'block_width', 'block_height', 'block_depth',
 			'core_width', 'core_height', 'core_depth',
 			'catmaid_host', 'component_dir', 'loglevel',
@@ -110,7 +111,7 @@ class SopnetTest(object):
 		self.log("Setting up Sopnet parameters")
 		for s_id in (self.raw_stack_id, self.membrane_stack_id):
 			try:
-				_setup_blocks(s_id,
+				_setup_blocks(s_id, self.stack_scale,
 						self.block_width, self.block_height,
 						self.block_depth, self.core_width,
 						self.core_height, self.core_depth)
@@ -126,6 +127,7 @@ class SopnetTest(object):
 		conf.setCatmaidRawStackId(self.raw_stack_id)
 		conf.setCatmaidMembraneStackId(self.membrane_stack_id)
 		conf.setCatmaidHost(self.catmaid_host)
+		conf.setCatmaidStackScale(self.stack_scale)
 		conf.setComponentDirectory(self.component_dir)
 		conf.setBlockSize(ps.point3(self.block_width, self.block_height, self.block_depth))
 		conf.setVolumeSize(ps.point3(bi.block_dim_x*bi.num_x,
