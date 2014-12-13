@@ -563,11 +563,11 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
                   WHERE sbr.block_id IN (%(block_ids)s)
                 UNION SELECT scs_cbr_a.slice_a_id AS slice_id
                   FROM djsopnet_blockconflictrelation bcr
-                  JOIN djsopnet_sliceconflict scs_cbr_a ON (scs_cbr_a.id = bcr.conflict_id)
+                  JOIN djsopnet_sliceconflict scs_cbr_a ON (scs_cbr_a.id = bcr.slice_conflict_id)
                   WHERE bcr.block_id IN (%(block_ids)s)
                 UNION SELECT scs_cbr_b.slice_b_id AS slice_id
                   FROM djsopnet_blockconflictrelation bcr
-                  JOIN djsopnet_sliceconflict scs_cbr_b ON (scs_cbr_b.id = bcr.conflict_id)
+                  JOIN djsopnet_sliceconflict scs_cbr_b ON (scs_cbr_b.id = bcr.slice_conflict_id)
                   WHERE bcr.block_id IN (%(block_ids)s)
                 ''' % {'block_ids': block_ids}))
 
