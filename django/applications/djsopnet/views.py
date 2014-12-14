@@ -34,6 +34,11 @@ from djcelery.models import TaskState
 from StringIO import StringIO
 import traceback
 
+from PIL import Image
+import skimage.measure
+import numpy as np
+import subprocess
+
 from djsopnet.control.slice import retrieve_slices_for_skeleton
 from djsopnet.control.skeleton_intersection import generate_user_constraints
 
@@ -1417,3 +1422,97 @@ def test_traceneuron_task(request):
         'success': "Successfully queued trace task.",
         'task_id': async_result.id
     }))
+
+def retrieve_assembly_by_location(request, project_id=None, stack_id=None):
+    """Retrieve assembly id for slice at current location that is in solution.
+
+    TODO: This function need to be refactored when we have pixel-based lookup"""
+    slices = json.loads(retrieve_slices_by_location(request, project_id, stack_id).content)
+    if len(slices['slices']) > 0:
+        return HttpResponse(json.dumps({
+            'assembly_id': [slice['in_solution'][0] for slice in slices['slices'] if isinstance( slice['in_solution'], list )][0]
+            }))
+    else:
+        return HttpResponse(json.dumps({'assembly_id': -1}))
+
+def generate_surface_for_assembly(request, project_id=None, stack_id=None, assembly_id=None ):
+    """ Generates a surface for an assembly using Poisson reconstruction """
+
+    stack = get_object_or_404(Stack, pk=stack_id)
+
+    # retrieve all slices of an assembly in the current solution
+    # (should be confined to one core)
+    from django.db import connection
+    cursor = connection.cursor()
+    cursor.execute('''
+    SELECT
+        s.id AS slice_id,
+        s.section AS section,
+        s.min_x AS min_x,
+        s.min_y AS min_y,
+        ssol.segment_id AS segment_id,
+        ssol.assembly_id AS assembly_id
+    FROM djsopnet_segmentsolution ssol
+    JOIN djsopnet_solutionprecedence sp ON (sp.solution_id = ssol.solution_id)
+    JOIN djsopnet_segmentslice ss ON (ss.segment_id = ssol.segment_id)
+    JOIN djsopnet_slice s ON (s.id = ss.slice_id)
+    WHERE ssol.assembly_id = %(assembly_id)s ''' % {'assembly_id': assembly_id})
+    slices = cursor.fetchall()
+
+    # for a given assembly id, retrieve all the slice information
+    datapoints = []
+    for slice in slices:
+        # load image and extract contours for slices
+        img = np.array( Image.open( os.path.join(settings.SOPNET_COMPONENT_DIR, str(slice[0]) + '.png') ) )
+        # zero out boundary pixels to find connectd contour
+        img[:,0] = img[:,-1] = 0
+        img[0,:] = img[-1,:] = 0
+        # this assumes that at least one contour exists, and if there are
+        # multiple contours, e.g. when the slice has holes, take the first, which
+        # should be the largest one
+        contour = skimage.measure.find_contours(img, 0)[0]
+        x = contour[:,0]
+        y = contour[:,1]
+        for i in range(len(x)):
+            if i == 0:
+                j = len(x) - 1
+            else:
+                j = i - 1
+            # add top-left coordinate to pixel-wise coordinate to define absolute coordinates
+            datapoints.append( 
+                ( stack.resolution.x*(slice[2]+x[i]), 
+                  stack.resolution.y*(slice[3]+y[i]),
+                  stack.resolution.z*slice[1],
+                  -(y[i]-y[j])*stack.resolution.x,
+                  (x[i]-x[j])*stack.resolution.y,
+                  0) )
+
+    # write out to PLY file
+    f = open( os.path.join(settings.SOPNET_SURFACE_DIR, '{0}.ply'.format(assembly_id)), 'w')
+    header = """ply
+    format ascii 1.0
+    comment VCGLIB generated
+    element vertex {0}
+    property float x
+    property float y
+    property float z
+    property float nx
+    property float ny
+    property float nz
+    element face 0
+    property list uchar int vertex_indices
+    end_header
+    """.format(len(datapoints))
+    f.write(header)
+    for i in range(len(datapoints)):
+        f.write("{0} {1} {2} {3} {4} {5}\n".format(*datapoints[i]))
+    f.close()
+
+    # TODO: this should be called in an asynchronous Celery task
+    subprocess.call(  
+        ' '.join([ os.path.join( settings.SOPNET_POISSONRECON_BIN_DIR, 'Linux', 'PoissonRecon'),
+          '--in ' + os.path.join( settings.SOPNET_SURFACE_DIR, '{0}.ply'.format(assembly_id) ),
+          '--out ' + os.path.join( settings.SOPNET_SURFACE_DIR, '{0}-mesh.ply'.format(assembly_id) ) ]),
+          shell = True )
+
+    return HttpResponse(json.dumps({'ok': True}))

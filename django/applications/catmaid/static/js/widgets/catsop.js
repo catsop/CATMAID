@@ -484,3 +484,24 @@ CatsopWidget.prototype.moveToObject = function (obj) {
   x = this.stack.stackToProjectX(z, y, x);
   project.moveTo(z, y, x);
 };
+
+CatsopWidget.prototype.generateSurfaceForAssembly = function () {
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+          '/assembly/by_location',
+      'POST',
+      {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+      jsonResponseHandler((function (json) {
+        console.log(json);
+        if( json.assembly_id !== -1) {
+          requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+                  '/assembly/' + json.assembly_id + '/generate_surface',
+            'POST',
+            {},
+            jsonResponseHandler((function (json) {
+              console.log(json);
+            }).bind(this)));
+        } else {
+          growlAlert("Information", "No assembly found at this location!")
+        }
+      }).bind(this)));
+};

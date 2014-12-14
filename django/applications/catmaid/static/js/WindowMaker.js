@@ -2807,7 +2807,7 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Graph', 'Block', 'Slices', 'Segments'].reduce(function(o, name) {
+    var tabs = ['Graph', 'Block', 'Slices', 'Segments', 'Assembly'].reduce(function(o, name) {
           titles.appendChild($('<li><a href="#' + containerID + '_buttons_' + name + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
           div.setAttribute('id', containerID + '_buttons_' + name);
@@ -2826,6 +2826,10 @@ var WindowMaker = new function()
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
        ['Load Slices for Block at Current Location', CW.loadBlockAtLocation.bind(CW)]]);
+
+    appendToTab(tabs['Assembly'],
+      [['Generate Surface for Assembly at Current Location', CW.generateSurfaceForAssembly.bind(CW)]
+      ]);
 
     CW.tableContainers = ['slices', 'segments'].reduce(function(containers, entity) {
         var $container = $(tabs[entity.charAt(0).toUpperCase() + entity.slice(1)]);
