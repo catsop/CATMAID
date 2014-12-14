@@ -90,16 +90,16 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
 };
 
 CatsopResultsLayer.prototype.showOverlay = function () {
-  var boundingBox = this.stack.getFieldOfViewInPixel();
+  var viewBox = this.stack.createStackViewBox();
   var self = this;
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/slices/by_bounding_box',
       'POST',
       {
-          min_x: boundingBox.worldLeft,
-          min_y: boundingBox.worldTop,
-          max_x: boundingBox.worldLeft + boundingBox.stackDivWidth,
-          max_y: boundingBox.worldTop + boundingBox.stackDivHeight,
+          min_x: viewBox.min.x,
+          min_y: viewBox.min.y,
+          max_x: viewBox.max.x,
+          max_y: viewBox.max.y,
           z: this.stack.z
       },
       jsonResponseHandler((function (json) {
