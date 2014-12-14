@@ -111,11 +111,11 @@ def core_dict(core):
           'box' : core.box}
     return bd
 
-def block_info_dict(block_info, stack):
+def block_info_dict(block_info):
     bid = {'block_size' : [block_info.block_dim_x, block_info.block_dim_y, block_info.block_dim_z],
            'count' : [block_info.num_x, block_info.num_y, block_info.num_z],
            'core_size' : [block_info.core_dim_x, block_info.core_dim_y, block_info.core_dim_z],
-           'stack_size' : [stack.dimension.x, stack.dimension.y, stack.dimension.z]}
+           'scale': block_info.scale}
     return bid
 
 def generate_slice_response(slice):
@@ -166,11 +166,8 @@ def generate_cores_response(cores):
         return HttpResponse(json.dumps({'length' : 0}))
 
 
-def generate_block_info_response(block_info, stack):
-    if block_info:
-        return HttpResponse(json.dumps(block_info_dict(block_info, stack)), content_type = 'text/json')
-    else:
-        return HttpResponse(json.dumps({'id' : None}), content_type = 'text/json')
+def generate_block_info_response(block_info):
+    return HttpResponse(json.dumps(block_info_dict(block_info)), content_type='text/json')
 
 def generate_conflict_response(conflicts, stack):
     conflict_dicts = []
@@ -338,15 +335,9 @@ def stack_info(request, project_id = None, stack_id = None):
     result=get_stack_info(project_id, stack_id, request.user)
     return HttpResponse(json.dumps(result, sort_keys=True, indent=4), content_type="text/json")
 
-def block_info(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        block_info = BlockInfo.objects.get(stack = s)
-        print >> sys.stderr, 'got block info'
-        return generate_block_info_response(block_info, s)
-    except BlockInfo.DoesNotExist:
-        print >> sys.stderr, 'found no stack info for that stack'
-        return generate_block_info_response(None, None)
+def block_info(request, project_id=None, stack_id=None):
+    block_info = get_object_or_404(BlockInfo, stack_id=stack_id)
+    return generate_block_info_response(block_info)
 
 def set_flag(s, request, flag_name, id_field = 'block_id', type = Block):
     id = int(request.GET.get(id_field))
@@ -581,10 +572,11 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
 
 def retrieve_slices_by_location(request, project_id=None, stack_id=None):
     """Retrieve slices and their conflicts for a given location in stack coordinates."""
-    s = get_object_or_404(Stack, pk=stack_id)
+    bi = get_object_or_404(BlockInfo, stack_id=stack_id)
     try:
-        x = int(float(request.POST.get('x', None)))
-        y = int(float(request.POST.get('y', None)))
+        zoom = 2**(-bi.scale)
+        x = int(float(request.POST.get('x', None))) * zoom
+        y = int(float(request.POST.get('y', None))) * zoom
         z = int(float(request.POST.get('z', None)))
 
         cursor = connection.cursor()
@@ -606,12 +598,13 @@ def retrieve_slices_by_location(request, project_id=None, stack_id=None):
         return error_response()
 
 def retrieve_slices_by_bounding_box(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
+    bi = get_object_or_404(BlockInfo, stack_id=stack_id)
     try:
-        min_x = int(float(request.POST.get('min_x', None)))
-        min_y = int(float(request.POST.get('min_y', None)))
-        max_x = int(float(request.POST.get('max_x', None)))
-        max_y = int(float(request.POST.get('max_y', None)))
+        zoom = 2**(-bi.scale)
+        min_x = int(float(request.POST.get('min_x', None))) * zoom
+        min_y = int(float(request.POST.get('min_y', None))) * zoom
+        max_x = int(float(request.POST.get('max_x', None))) * zoom
+        max_y = int(float(request.POST.get('max_y', None))) * zoom
         z = int(float(request.POST.get('z', None)))
 
         cursor = connection.cursor()

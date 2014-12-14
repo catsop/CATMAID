@@ -3,6 +3,7 @@
 var CatsopWidget = function () {
   this.widgetID = this.registerInstance();
   this.block = {};
+  this.blockInfo = {};
   this.sliceRows = [];
   this.sliceColumns = {
     'Hash': (function (s) {return s.hash;}),
@@ -54,9 +55,19 @@ $.extend(CatsopWidget.prototype, new InstanceRegistry());
 CatsopWidget.prototype.init = function (container) {
   this.container = container;
   this.stack = project.focusedStack;
-  openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
 
-  this.loadSegmentsAtLocation();
+  // First load block info, then open offset stack, create CATSOP layers and
+  // load a segment graph for segments at this stack location.
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+          '/block',
+      'GET',
+      {},
+      jsonResponseHandler((function (json) {
+        this.blockInfo = json;
+        openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
+
+        this.loadSegmentsAtLocation();
+      }).bind(this)));
 };
 
 CatsopWidget.prototype.initLayers = function (offsetStack) {
@@ -65,7 +76,7 @@ CatsopWidget.prototype.initLayers = function (offsetStack) {
   project.setFocusedStack(this.stack);
 
   [this.stack, this.offsetStack].forEach((function(s) {
-    var layer = new CatsopResultsLayer(s);
+    var layer = new CatsopResultsLayer(s, this.blockInfo.scale);
     this.layers.push(layer);
     s.addLayer("catsop-layer" + this.widgetID, layer);
     s.redraw();
@@ -475,9 +486,10 @@ CatsopWidget.prototype.moveToActiveSegment = function() {
  * Moves the stack view to any object with section and ctr properties.
  */
 CatsopWidget.prototype.moveToObject = function (obj) {
+  var mag = Math.pow(2, this.blockInfo.scale);
   var z = obj.section - (('mask' in obj) ? 0 : 1), // For segments, move to the left section
-      y = obj.ctr[1],
-      x = obj.ctr[0];
+      y = obj.ctr[1] * mag,
+      x = obj.ctr[0] * mag;
   // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
   z = this.stack.stackToProjectZ(z, y, x);
   y = this.stack.stackToProjectY(z, y, x);

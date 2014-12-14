@@ -1,5 +1,6 @@
-function CatsopResultsLayer (stack) {
+function CatsopResultsLayer (stack, scale) {
   this.stack = stack;
+  this.scale = scale; // CATSOP scale relative to stack (from BlockInfo)
   this.opacity = 0.5;
   this.radius = 3;
 
@@ -33,7 +34,7 @@ CatsopResultsLayer.prototype.resize = function () {
 };
 
 CatsopResultsLayer.prototype.redraw = function (completionCallback) {
-  var mag = Math.pow(2, -this.stack.s);
+  var mag = Math.pow(2, this.scale - this.stack.s);
 
   for (var hash in this.slices) {
     var slice = this.slices[hash];
