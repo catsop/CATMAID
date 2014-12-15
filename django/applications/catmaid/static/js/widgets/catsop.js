@@ -469,6 +469,26 @@ CatsopWidget.prototype.constrainSegment = function (hash) {
       }).bind(this)));
 };
 
+CatsopWidget.prototype.generateAssembliesAtLocation = function () {
+  requestQueue.register(
+      [django_url + 'sopnet', project.id, 'stack', this.stack.getId(), 'core_at_location'].join('/'),
+      'GET',
+      {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+      jsonResponseHandler((function (json) {
+        var core = json;
+        requestQueue.register(
+            [django_url + 'sopnet', project.id, 'stack', this.stack.getId(),
+             'core', core.id, 'generate_assemblies'].join('/'),
+            'POST',
+            {},
+            jsonResponseHandler((function (json) {
+              growlAlert('Success', 'Assemblies generated for core ' + core.id);
+            }))
+        );
+      }).bind(this))
+  );
+};
+
 CatsopWidget.prototype.getSliceRowByHash = function (hash) {
   return this.sliceRows.filter(function (slice) { return slice.hash === hash; })[0];
 };

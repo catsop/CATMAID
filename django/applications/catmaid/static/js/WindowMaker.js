@@ -2807,7 +2807,7 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Graph', 'Block', 'Slices', 'Segments'].reduce(function(o, name) {
+    var tabs = ['Graph', 'Block', 'Slices', 'Segments', 'Solution'].reduce(function(o, name) {
           titles.appendChild($('<li><a href="#' + containerID + '_buttons_' + name + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
           div.setAttribute('id', containerID + '_buttons_' + name);
@@ -2836,6 +2836,9 @@ var WindowMaker = new function()
         containers[entity] = $entity;
         return containers;
     }, {});
+
+    appendToTab(tabs['Solution'],
+      [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)]]);
 
     $(container).append(bar);
     $(bar).tabs();
