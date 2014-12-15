@@ -573,29 +573,45 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id = None, stack_id 
 def retrieve_slices_by_location(request, project_id=None, stack_id=None):
     """Retrieve slices and their conflicts for a given location in stack coordinates."""
     bi = get_object_or_404(BlockInfo, stack_id=stack_id)
-    try:
-        zoom = 2**(-bi.scale)
-        x = int(float(request.POST.get('x', None))) * zoom
-        y = int(float(request.POST.get('y', None))) * zoom
-        z = int(float(request.POST.get('z', None)))
 
-        cursor = connection.cursor()
-        cursor.execute(_slice_select_query('''
-                SELECT s.id AS slice_id
-                  FROM djsopnet_slice s
-                  WHERE s.section = %(z)s
-                    AND s.min_x <= %(x)s
-                    AND s.max_x >= %(x)s
-                    AND s.min_y <= %(y)s
-                    AND s.max_y >= %(y)s
-                ''' % {'z': z, 'x': x, 'y': y}))
+    zoom = 2**(-bi.scale)
+    x = int(float(request.POST.get('x', None))) * zoom
+    y = int(float(request.POST.get('y', None))) * zoom
+    z = int(float(request.POST.get('z', None)))
 
-        slices = _slicecursor_to_namedtuple(cursor)
+    # Find slices whose bounding box intersects the requested location
+    cursor = connection.cursor()
+    cursor.execute('''
+            SELECT s.id, s.min_x, s.min_y
+              FROM djsopnet_slice s
+              WHERE s.section = %(z)s
+                AND s.min_x <= %(x)s
+                AND s.max_x >= %(x)s
+                AND s.min_y <= %(y)s
+                AND s.max_y >= %(y)s
+            ''' % {'z': z, 'x': x, 'y': y})
 
-        return generate_slices_response(slices=slices,
-                with_conflicts=True, with_solutions=True)
-    except:
-        return error_response()
+    # Check masks of the candidate slices to check for intersection
+    candidates = cursor.fetchall()
+    slice_ids = []
+    for [slice_id, min_x, min_y] in candidates:
+        gray_mask_file = os.path.join(settings.SOPNET_COMPONENT_DIR, str(slice_id) + '.png')
+        if not os.path.isfile(gray_mask_file): raise(Http404)
+
+        gray_mask = Image(gray_mask_file)
+        pixel = gray_mask.pixelColor(x - min_x, y - min_y)
+        if pixel.intensity() > 0:
+            slice_ids.append(slice_id)
+
+    # Retrieve data for intersecting slices
+    cursor.execute(_slice_select_query('''
+        SELECT * FROM (VALUES (%s)) AS t (slice_id)
+        ''' % '),('.join(map(str, slice_ids))))
+
+    slices = _slicecursor_to_namedtuple(cursor)
+
+    return generate_slices_response(slices=slices,
+            with_conflicts=True, with_solutions=True)
 
 def retrieve_slices_by_bounding_box(request, project_id=None, stack_id=None):
     bi = get_object_or_404(BlockInfo, stack_id=stack_id)
