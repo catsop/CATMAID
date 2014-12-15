@@ -579,6 +579,20 @@ def retrieve_slices_by_location(request, project_id=None, stack_id=None):
     y = int(float(request.POST.get('y', None))) * zoom
     z = int(float(request.POST.get('z', None)))
 
+    slice_ids = _slice_ids_intersecting_point(x, y, z)
+
+    # Retrieve data for intersecting slices
+    cursor = connection.cursor()
+    cursor.execute(_slice_select_query('''
+        SELECT * FROM (VALUES (%s)) AS t (slice_id)
+        ''' % '),('.join(map(str, slice_ids))))
+
+    slices = _slicecursor_to_namedtuple(cursor)
+
+    return generate_slices_response(slices=slices,
+            with_conflicts=True, with_solutions=True)
+
+def _slice_ids_intersecting_point(x, y, z):
     # Find slices whose bounding box intersects the requested location
     cursor = connection.cursor()
     cursor.execute('''
@@ -603,15 +617,7 @@ def retrieve_slices_by_location(request, project_id=None, stack_id=None):
         if pixel.intensity() > 0:
             slice_ids.append(slice_id)
 
-    # Retrieve data for intersecting slices
-    cursor.execute(_slice_select_query('''
-        SELECT * FROM (VALUES (%s)) AS t (slice_id)
-        ''' % '),('.join(map(str, slice_ids))))
-
-    slices = _slicecursor_to_namedtuple(cursor)
-
-    return generate_slices_response(slices=slices,
-            with_conflicts=True, with_solutions=True)
+    return slice_ids
 
 def retrieve_slices_by_bounding_box(request, project_id=None, stack_id=None):
     bi = get_object_or_404(BlockInfo, stack_id=stack_id)
