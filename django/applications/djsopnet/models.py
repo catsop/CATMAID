@@ -118,7 +118,10 @@ class Block(models.Model):
     @staticmethod
     def size_for_stack(s):
         bi = s.blockinfo
-        return {'x': bi.block_dim_x, 'y': bi.block_dim_y, 'z': bi.block_dim_z}
+        zoom = 2**bi.scale
+        return {'x': zoom * bi.block_dim_x,
+                'y': zoom * bi.block_dim_y,
+                'z': zoom * bi.block_dim_z}
 
     def _get_box(self):
         size = Block.size_for_stack(self.stack)
@@ -144,9 +147,10 @@ class Core(models.Model):
     @staticmethod
     def size_for_stack(s):
         bi = s.blockinfo
-        return {'x': bi.core_dim_x*bi.block_dim_x,
-                'y': bi.core_dim_y*bi.block_dim_y,
-                'z': bi.core_dim_z*bi.block_dim_z}
+        zoom = 2**bi.scale
+        return {'x': zoom * bi.core_dim_x * bi.block_dim_x,
+                'y': zoom * bi.core_dim_y * bi.block_dim_y,
+                'z': zoom * bi.core_dim_z * bi.block_dim_z}
 
     def _get_box(self):
         size = Core.size_for_stack(self.stack)
