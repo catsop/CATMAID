@@ -6,6 +6,7 @@ from catmaid.models import Project, ProjectStack, Stack
 from catmaid.fields import Double3D, Integer3D
 
 from django.conf import settings
+from django.db import connection
 
 from djsopnet.models import BlockInfo, FeatureName, FeatureInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
@@ -152,3 +153,8 @@ class SopnetTest(object):
 
 		fi.weights = weights
 		fi.save()
+
+		cursor = connection.cursor()
+		cursor.execute('''
+			UPDATE djsopnet_segment SET cost = NULL WHERE stack_id = %s
+			''' % self.raw_stack_id)
