@@ -141,3 +141,14 @@ class SopnetTest(object):
 		conf.setPostgreSqlPassword(self.postgresql_password)
 
 		return conf
+
+	def import_weights(self, dat_file):
+		fi = FeatureInfo.objects.get(stack_id=self.raw_stack_id)
+		fo = open(dat_file, 'r')
+
+		weights = map(float, fo.readlines())
+		if len(weights) != fi.size:
+			raise ValueError('Expected %s weights but found %s.' % (fi.size, len(weights)))
+
+		fi.weights = weights
+		fi.save()
