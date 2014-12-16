@@ -469,6 +469,26 @@ CatsopWidget.prototype.constrainSegment = function (hash) {
       }).bind(this)));
 };
 
+CatsopWidget.prototype.solveAtLocation = function () {
+  requestQueue.register(
+      [django_url + 'sopnet', project.id, 'stack', this.stack.getId(), 'core_at_location'].join('/'),
+      'GET',
+      {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+      jsonResponseHandler((function (json) {
+        var core = json;
+        requestQueue.register(
+            [django_url + 'sopnet', project.id, 'stack', this.stack.getId(),
+             'core', core.id, 'solve'].join('/'),
+            'POST',
+            {},
+            jsonResponseHandler((function (json) {
+              growlAlert('Infomation', json.success);
+            }))
+        );
+      }).bind(this))
+  );
+};
+
 CatsopWidget.prototype.generateAssembliesAtLocation = function () {
   requestQueue.register(
       [django_url + 'sopnet', project.id, 'stack', this.stack.getId(), 'core_at_location'].join('/'),

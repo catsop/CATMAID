@@ -2838,7 +2838,8 @@ var WindowMaker = new function()
     }, {});
 
     appendToTab(tabs['Solution'],
-      [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)]]);
+      [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)],
+       ['Solve Current Core', CW.solveAtLocation.bind(CW)]]);
 
     $(container).append(bar);
     $(bar).tabs();

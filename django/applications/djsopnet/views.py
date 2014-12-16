@@ -1419,6 +1419,17 @@ def test_solutionguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
         'task_id': async_result.id
     }))
 
+@requires_user_role(UserRole.Annotate)
+def solve_core(request, project_id=None, stack_id=None, core_id=None):
+    """Solve a core synchronously"""
+    c = get_object_or_404(Core, id=core_id)
+    # SolutionGuarantor does not need to know membrane stack ID
+    config = create_project_config(project_id, stack_id, None)
+    result = SolutionGuarantorTask.apply([config, c.coordinate_x, c.coordinate_y, c.coordinate_z, False])
+    return HttpResponse(json.dumps({
+        'success': result.result
+    }))
+
 def test_solvesubvolume_task(request):
     async_result = SolveSubvolumeTask.delay()
     return HttpResponse(json.dumps({
