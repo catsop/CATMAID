@@ -266,24 +266,23 @@ def location_query(model, s, request):
                       coordinate_z = math.floor(z/size['z']))
 
 def bound_query(model, s, request):
-    xmin = int(request.GET.get('xmin', -1))
-    ymin = int(request.GET.get('ymin', -1))
-    zmin = int(request.GET.get('zmin', -1))
-    width = int(request.GET.get('width', 0))
-    height = int(request.GET.get('height', 0))
-    depth = int(request.GET.get('depth', 0))
+    bi = get_object_or_404(BlockInfo, stack=s)
 
-    xmax = xmin + width
-    ymax = ymin + height
-    zmax = zmin + depth
+    min_x = int(float(request.POST.get('min_x', None)))
+    min_y = int(float(request.POST.get('min_y', None)))
+    min_z = int(float(request.POST.get('min_z', None)))
+    max_x = int(float(request.POST.get('max_x', None)))
+    max_y = int(float(request.POST.get('max_y', None)))
+    max_z = int(float(request.POST.get('max_z', None)))
+
     size = model.size_for_stack(s)
     return model.objects.filter(stack = s,
-                                coordinate_x__gt = math.floor(xmin),
-                                coordinate_y__gt = math.floor(ymin),
-                                coordinate_z__gt = math.floor(zmin),
-                                coordinate_x__lt = math.ceil(xmax),
-                                coordinate_y__lt = math.ceil(ymax),
-                                coordinate_z__lt = math.ceil(zmax))
+                                coordinate_x__gte = math.floor(min_x/size['x']),
+                                coordinate_y__gte = math.floor(min_y/size['y']),
+                                coordinate_z__gte = math.floor(min_z/size['z']),
+                                coordinate_x__lte = math.ceil(max_x/size['x']),
+                                coordinate_y__lte = math.ceil(max_y/size['y']),
+                                coordinate_z__lte = math.ceil(max_z/size['z']))
 
 def block_at_location(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -293,7 +292,7 @@ def block_at_location(request, project_id = None, stack_id = None):
     except Block.DoesNotExist:
         return generate_block_response(None)
 
-def blocks_in_bounding_box(request, project_id = None, stack_id = None):
+def retrieve_blocks_by_bounding_box(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     blocks = bound_query(Block, s, request)
 
@@ -307,7 +306,7 @@ def core_at_location(request, project_id = None, stack_id = None):
     except Core.DoesNotExist:
         return generate_core_response(None)
 
-def cores_in_bounding_box(request, project_id = None, stack_id = None):
+def retrieve_cores_by_bounding_box(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     cores = bound_query(Core, s, request)
     return generate_cores_response(cores)
