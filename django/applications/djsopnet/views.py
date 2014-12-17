@@ -580,13 +580,15 @@ def retrieve_slices_by_location(request, project_id=None, stack_id=None):
 
     slice_ids = _slice_ids_intersecting_point(x, y, z)
 
-    # Retrieve data for intersecting slices
-    cursor = connection.cursor()
-    cursor.execute(_slice_select_query('''
-        SELECT * FROM (VALUES (%s)) AS t (slice_id)
-        ''' % '),('.join(map(str, slice_ids))))
+    slices = []
+    if slice_ids:
+        # Retrieve data for intersecting slices
+        cursor = connection.cursor()
+        cursor.execute(_slice_select_query('''
+            SELECT * FROM (VALUES (%s)) AS t (slice_id)
+            ''' % '),('.join(map(str, slice_ids))))
 
-    slices = _slicecursor_to_namedtuple(cursor)
+        slices = _slicecursor_to_namedtuple(cursor)
 
     return generate_slices_response(slices=slices,
             with_conflicts=True, with_solutions=True)

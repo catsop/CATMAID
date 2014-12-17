@@ -170,7 +170,10 @@ CatsopWidget.prototype.loadSegmentsAtLocation = function () {
               .filter(function (ss) { return ss.direction; })
               .map(function (ss) { return ss.segment_id; }));
         }, []);
-        this.activateSegment(segments);
+        if (segments.length)
+          this.activateSegment(segments);
+        else
+          growlAlert('Information', 'No slices at location');
       }).bind(this)));
 };
 
