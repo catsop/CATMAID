@@ -40,6 +40,30 @@
 	background-color: #0FF;
 }
 
+.catsop-layer .region {
+	position: absolute;
+	border: solid #F00;
+	color: #F00;
+}
+
+.catsop-layer .region h2 {
+	display: inline-block;
+	padding: 0.2em;
+	background-color: #000;
+}
+
+.catsop-layer .region.slices_flag {
+	position: absolute;
+	border: solid #FF0;
+	color: #FF0;
+}
+
+.catsop-layer .region.segments_flag {
+	position: absolute;
+	border: solid #0F0;
+	color: #0F0;
+}
+
 .segment-graph .segment-node rect {
 	cursor: move;
 	fill: #CCC;

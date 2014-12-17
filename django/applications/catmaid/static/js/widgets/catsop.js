@@ -196,7 +196,7 @@ CatsopWidget.prototype.updateSegments = function () {
   $table.dataTable({bDestroy: true});
 
   this.layers.base.forEach(function (layer) {
-    layer.clearSlices();
+    layer.clear();
   });
 
   var segmap = {nodes: [], links: []};
@@ -406,7 +406,7 @@ CatsopWidget.prototype.updateSegments = function () {
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {
   this.layers.base.forEach(function (layer) {
-    layer.clearSlices();
+    layer.clear();
   });
   this.activeSliceIndex = rowIndex;
   this.moveToSlice(rowIndex);

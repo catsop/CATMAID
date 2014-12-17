@@ -63,7 +63,7 @@ CatsopResultsLayer.prototype.unregister = function () {
   this.stack.getView().removeChild(this.view);
 };
 
-CatsopResultsLayer.prototype.clearSlices = function () {
+CatsopResultsLayer.prototype.clear = function () {
   $(this.view).empty();
   this.slices = {};
 };
@@ -145,3 +145,101 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
 };
 
 CatsopResultsLayer.assemblyColors = {};
+
+CatsopResultsLayer.Overlays.Blocks = function (stack, scale) {
+  CatsopResultsLayer.call(this, stack, scale);
+
+  this.z_lim = null;
+  this.regions = {};
+};
+
+CatsopResultsLayer.Overlays.Blocks.prototype = Object.create(CatsopResultsLayer.prototype);
+
+CatsopResultsLayer.Overlays.Blocks.prototype.getLayerName = function () {
+  return "CATSOP blocks";
+};
+
+CatsopResultsLayer.Overlays.Blocks.prototype.redraw = function (completionCallback) {
+  if (this.z_lim === null || this.z_lim.min > this.stack.z || this.z_lim.max <= this.stack.z) {
+    this.z_lim = {min: this.stack.z, max: this.stack.z + 1};
+    this.refresh();
+  }
+
+  var mag = Math.pow(2, this.scale - this.stack.s);
+
+  for (var id in this.regions) {
+    var region = this.regions[id];
+    if (region.z <= this.stack.z && region.z + region.depth > this.stack.z) {
+      region.$div
+          .css('left',  mag * region.x - this.stack.xc)
+          .css('top', mag * region.y - this.stack.yc)
+          .css('width', mag * region.width)
+          .css('height', mag * region.height)
+          .show();
+    } else {
+      region.$div.hide();
+    }
+  }
+
+  if (completionCallback) {
+      completionCallback();
+  }
+};
+
+CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
+  this.clear();
+  var viewBox = this.stack.createStackViewBox();
+  var self = this;
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+          '/blocks/by_bounding_box',
+      'POST',
+      {
+          min_x: viewBox.min.x,
+          min_y: viewBox.min.y,
+          min_z: this.stack.z,
+          max_x: viewBox.max.x,
+          max_y: viewBox.max.y,
+          max_z: this.stack.z
+      },
+      jsonResponseHandler((function (json) {
+        if (json.blocks.length) {
+          var block = json.blocks[0];
+          self.z_lim = {min: block.box[2], max: block.box[5]};
+        } else {
+          self.z_lim = null;
+        }
+
+        json.blocks.forEach(function (block) {
+          self.addRegion(block,
+              (block.slices ? 'slices_flag ' : ' ') + (block.segments ? 'segments_flag' : ''));
+        });
+      })));
+};
+
+CatsopResultsLayer.Overlays.Blocks.prototype.clear = function () {
+  CatsopResultsLayer.prototype.clear.call(this);
+
+  this.regions = {};
+};
+
+CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, statuses) {
+  if (region.id in this.regions) {
+    this.regions[region.id].$div.removeClass().addClass('region').addClass(statuses);
+    return;
+  }
+
+  var $div = $('<div class="region"><h2>' + region.id + '</h2></div>')
+      .hide()
+      .addClass(statuses)
+      .appendTo($(this.view));
+
+  this.regions[region.id] = {
+    x: region.box[0],
+    y: region.box[1],
+    z: region.box[2],
+    width: region.box[3] - region.box[0],
+    height: region.box[4] - region.box[1],
+    depth: region.box[5] - region.box[2],
+    $div: $div};
+  this.redraw();
+};
