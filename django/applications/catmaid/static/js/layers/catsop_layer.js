@@ -151,12 +151,14 @@ CatsopResultsLayer.Overlays.Blocks = function (stack, scale) {
 
   this.z_lim = null;
   this.regions = {};
+  this.regionType = 'blocks';
+  this.regionFlags = ['slices', 'segments'];
 };
 
 CatsopResultsLayer.Overlays.Blocks.prototype = Object.create(CatsopResultsLayer.prototype);
 
 CatsopResultsLayer.Overlays.Blocks.prototype.getLayerName = function () {
-  return "CATSOP blocks";
+  return "CATSOP " + this.regionType;
 };
 
 CatsopResultsLayer.Overlays.Blocks.prototype.redraw = function (completionCallback) {
@@ -191,7 +193,7 @@ CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
   var viewBox = this.stack.createStackViewBox();
   var self = this;
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
-          '/blocks/by_bounding_box',
+          '/' + this.regionType + '/by_bounding_box',
       'POST',
       {
           min_x: viewBox.min.x,
@@ -202,16 +204,17 @@ CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
           max_z: this.stack.z
       },
       jsonResponseHandler((function (json) {
-        if (json.blocks.length) {
-          var block = json.blocks[0];
-          self.z_lim = {min: block.box[2], max: block.box[5]};
+        if (json[self.regionType].length) {
+          var region = json[self.regionType][0];
+          self.z_lim = {min: region.box[2], max: region.box[5]};
         } else {
           self.z_lim = null;
         }
 
-        json.blocks.forEach(function (block) {
-          self.addRegion(block,
-              (block.slices ? 'slices_flag ' : ' ') + (block.segments ? 'segments_flag' : ''));
+        json[self.regionType].forEach(function (region) {
+          self.addRegion(region, self.regionFlags.map(function (flag) {
+                return region[flag] ? flag + '_flag' : '';
+              }).join(' '));
         });
       })));
 };
@@ -243,3 +246,12 @@ CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, statu
     $div: $div};
   this.redraw();
 };
+
+CatsopResultsLayer.Overlays.Cores = function (stack, scale) {
+  CatsopResultsLayer.Overlays.Blocks.call(this, stack, scale);
+
+  this.regionType = 'cores';
+  this.regionFlags = ['solutions'];
+};
+
+CatsopResultsLayer.Overlays.Cores.prototype = Object.create(CatsopResultsLayer.Overlays.Blocks.prototype);

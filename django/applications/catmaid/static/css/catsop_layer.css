@@ -58,7 +58,7 @@
 	color: #FF0;
 }
 
-.catsop-layer .region.segments_flag {
+.catsop-layer .region.segments_flag, .catsop-layer .region.solutions_flag {
 	position: absolute;
 	border: solid #0F0;
 	color: #0F0;
