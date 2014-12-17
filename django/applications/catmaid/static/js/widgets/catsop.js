@@ -87,8 +87,8 @@ CatsopWidget.prototype.initLayers = function (offsetStack) {
 
 CatsopWidget.prototype.destroy = function () {
   [this.stack, this.offsetStack].forEach((function(s) {
-    for (var layerKey in this.layers)
-      s.removeLayer(layerKey);
+    for (var name in this.layers)
+      s.removeLayer(this.getLayerKey(name));
   }).bind(this));
 };
 
