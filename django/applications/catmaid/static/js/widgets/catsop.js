@@ -436,16 +436,23 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
       }).bind(this)));
 };
 
-CatsopWidget.prototype.showSliceSolutionOverlay = function () {
-  var name = 'assemblies';
+CatsopWidget.prototype.toggleOverlay = function (name) {
   this.layers[name] = this.layers[name] || [];
 
-  [this.stack, this.offsetStack].forEach((function(s) {
-    var layer = new CatsopResultsLayer.Overlays.Assemblies(s, this.blockInfo.scale);
-    this.layers[name].push(layer);
-    s.addLayer(this.getLayerKey(name), layer);
-    s.redraw();
-  }).bind(this));
+  if (this.layers[name].length) {
+    [this.stack, this.offsetStack].forEach((function(s) {
+      s.removeLayer(this.getLayerKey(name));
+    }).bind(this));
+
+    this.layers[name] = [];
+  } else {
+    [this.stack, this.offsetStack].forEach((function(s) {
+      var layer = new CatsopResultsLayer.Overlays[name](s, this.blockInfo.scale);
+      this.layers[name].push(layer);
+      s.addLayer(this.getLayerKey(name), layer);
+      s.redraw();
+    }).bind(this));
+  }
 };
 
 /**

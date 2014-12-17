@@ -2807,7 +2807,7 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Graph', 'Block', 'Slices', 'Segments', 'Solution'].reduce(function(o, name) {
+    var tabs = ['Graph', 'Block', 'Slices', 'Segments', 'Solution', 'Overlays'].reduce(function(o, name) {
           titles.appendChild($('<li><a href="#' + containerID + '_buttons_' + name + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
           div.setAttribute('id', containerID + '_buttons_' + name);
@@ -2820,8 +2820,7 @@ var WindowMaker = new function()
       [['Refresh', CW.refresh.bind(CW)],
        ['Recenter', CW.moveToActiveSegment.bind(CW)],
        ['Create Segment for Selected Slices', CW.createSegmentForSlices.bind(CW)],
-       ['Load Current Location', CW.loadSegmentsAtLocation.bind(CW)],
-       ['Show Assembly Overlay', CW.showSliceSolutionOverlay.bind(CW)]]);
+       ['Load Current Location', CW.loadSegmentsAtLocation.bind(CW)]]);
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
@@ -2840,6 +2839,11 @@ var WindowMaker = new function()
     appendToTab(tabs['Solution'],
       [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)],
        ['Solve Current Core', CW.solveAtLocation.bind(CW)]]);
+
+    appendToTab(tabs['Overlays'],
+      Object.keys(CatsopResultsLayer.Overlays).map(function (overlay) {
+        return [overlay, false, CW.toggleOverlay.bind(CW, overlay), false];
+      }));
 
     $(container).append(bar);
     $(bar).tabs();
