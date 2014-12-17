@@ -167,7 +167,7 @@ CatsopResultsLayer.Overlays.Blocks.prototype.redraw = function (completionCallba
     this.refresh();
   }
 
-  var mag = Math.pow(2, this.scale - this.stack.s);
+  var mag = Math.pow(2, -this.stack.s);
 
   for (var id in this.regions) {
     var region = this.regions[id];
