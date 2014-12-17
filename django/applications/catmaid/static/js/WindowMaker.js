@@ -2817,7 +2817,7 @@ var WindowMaker = new function()
     }, {});
 
     appendToTab(tabs['Graph'],
-      [['Refresh', CW.refreshSegments.bind(CW)],
+      [['Refresh', CW.refresh.bind(CW)],
        ['Recenter', CW.moveToActiveSegment.bind(CW)],
        ['Create Segment for Selected Slices', CW.createSegmentForSlices.bind(CW)],
        ['Load Current Location', CW.loadSegmentsAtLocation.bind(CW)],

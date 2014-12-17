@@ -42,7 +42,7 @@ var CatsopWidget = function () {
   };
   this.tableContainers = {};
   this.container = null;
-  this.layers = [];
+  this.layers = {};
   this.activeSliceIndex = null;
   this.activeSegmentHash = null;
   this.stack = null;
@@ -75,18 +75,33 @@ CatsopWidget.prototype.initLayers = function (offsetStack) {
 
   project.setFocusedStack(this.stack);
 
+  var name = 'base';
+  this.layers[name] = [];
   [this.stack, this.offsetStack].forEach((function(s) {
     var layer = new CatsopResultsLayer(s, this.blockInfo.scale);
-    this.layers.push(layer);
-    s.addLayer("catsop-layer" + this.widgetID, layer);
+    this.layers[name].push(layer);
+    s.addLayer(this.getLayerKey(name), layer);
     s.redraw();
   }).bind(this));
 };
 
 CatsopWidget.prototype.destroy = function () {
   [this.stack, this.offsetStack].forEach((function(s) {
-    s.removeLayer("catsop-layer" + this.widgetID);
+    for (var layerKey in this.layers)
+      s.removeLayer(layerKey);
   }).bind(this));
+};
+
+CatsopWidget.prototype.refresh = function () {
+  for (var name in this.layers) {
+    this.layers[name].forEach(function (layer) { layer.refresh(); });
+  }
+
+  this.refreshSegments();
+};
+
+CatsopWidget.prototype.getLayerKey = function (name) {
+  return 'catsop-layer' + this.widgetID + '-' + name;
 };
 
 CatsopWidget.prototype.loadBlockAtLocation = function () {
@@ -180,7 +195,7 @@ CatsopWidget.prototype.updateSegments = function () {
   $tbody.appendTo($table);
   $table.dataTable({bDestroy: true});
 
-  this.layers.forEach(function (layer) {
+  this.layers.base.forEach(function (layer) {
     layer.clearSlices();
   });
 
@@ -201,7 +216,7 @@ CatsopWidget.prototype.updateSegments = function () {
 
   this.sliceRows.forEach(function (slice) {
     slice.name = 'Sli:' + slice.hash;
-    self.layers.forEach(function (layer) {
+    self.layers.base.forEach(function (layer) {
       layer.addSlice(slice, 'hidden');
     });
     segmap.nodes.push(slice);
@@ -390,7 +405,7 @@ CatsopWidget.prototype.updateSegments = function () {
 };
 
 CatsopWidget.prototype.activateSlice = function (rowIndex) {
-  this.layers.forEach(function (layer) {
+  this.layers.base.forEach(function (layer) {
     layer.clearSlices();
   });
   this.activeSliceIndex = rowIndex;
@@ -412,7 +427,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
               .filter(function (s) {return s !== undefined;})
               .forEach(function (conflictSlice) {
                   if (conflictSlice.hash !== slice.hash) {
-                    self.layers.forEach(function (layer) {
+                    self.layers.base.forEach(function (layer) {
                       layer.addSlice(conflictSlice, 'conflict');
                     });
                   }
@@ -422,7 +437,15 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
 };
 
 CatsopWidget.prototype.showSliceSolutionOverlay = function () {
-  this.layers.forEach(function (layer) { layer.showOverlay(); });
+  var name = 'assemblies';
+  this.layers[name] = this.layers[name] || [];
+
+  [this.stack, this.offsetStack].forEach((function(s) {
+    var layer = new CatsopResultsLayer.Overlays.Assemblies(s, this.blockInfo.scale);
+    this.layers[name].push(layer);
+    s.addLayer(this.getLayerKey(name), layer);
+    s.redraw();
+  }).bind(this));
 };
 
 /**

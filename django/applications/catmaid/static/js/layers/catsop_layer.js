@@ -55,6 +55,10 @@ CatsopResultsLayer.prototype.redraw = function (completionCallback) {
   }
 };
 
+CatsopResultsLayer.prototype.refresh = function () {
+  this.redraw();
+};
+
 CatsopResultsLayer.prototype.unregister = function () {
   this.stack.getView().removeChild(this.view);
 };
@@ -90,7 +94,31 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
   return $sliceImg;
 };
 
-CatsopResultsLayer.prototype.showOverlay = function () {
+// Namespace for overlays extending CatsopResultsLayer
+CatsopResultsLayer.Overlays = {};
+
+CatsopResultsLayer.Overlays.Assemblies = function (stack, scale) {
+  CatsopResultsLayer.call(this, stack, scale);
+
+  this.old_z = null;
+};
+
+CatsopResultsLayer.Overlays.Assemblies.prototype = Object.create(CatsopResultsLayer.prototype);
+
+CatsopResultsLayer.Overlays.Assemblies.prototype.getLayerName = function () {
+  return "CATSOP assemblies";
+};
+
+CatsopResultsLayer.Overlays.Assemblies.prototype.redraw = function (completionCallback) {
+  if (this.stack.z != this.old_z) {
+    this.old_z = this.stack.z;
+    this.refresh();
+  }
+
+  CatsopResultsLayer.prototype.redraw.call(this, completionCallback);
+};
+
+CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
   var viewBox = this.stack.createStackViewBox();
   var self = this;
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
