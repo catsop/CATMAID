@@ -223,7 +223,7 @@ def _setup_blocks(stack_id, scale, width, height, depth, corewib, corehib, cored
     def int_ceil(num, den): return ((num - 1) // den) + 1
     nx = int_ceil(s.dimension.x, width * 2**scale)
     ny = int_ceil(s.dimension.y, height * 2**scale)
-    nz = int_ceil(s.dimension.z, depth * 2**scale)
+    nz = int_ceil(s.dimension.z, depth)
 
     try:
         info = BlockInfo.objects.get(stack=s)
