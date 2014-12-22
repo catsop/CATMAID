@@ -121,7 +121,7 @@ class Block(models.Model):
         zoom = 2**bi.scale
         return {'x': zoom * bi.block_dim_x,
                 'y': zoom * bi.block_dim_y,
-                'z': zoom * bi.block_dim_z}
+                'z': bi.block_dim_z}
 
     def _get_box(self):
         size = Block.size_for_stack(self.stack)
@@ -150,7 +150,7 @@ class Core(models.Model):
         zoom = 2**bi.scale
         return {'x': zoom * bi.core_dim_x * bi.block_dim_x,
                 'y': zoom * bi.core_dim_y * bi.block_dim_y,
-                'z': zoom * bi.core_dim_z * bi.block_dim_z}
+                'z': bi.core_dim_z * bi.block_dim_z}
 
     def _get_box(self):
         size = Core.size_for_stack(self.stack)
