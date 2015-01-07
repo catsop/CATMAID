@@ -614,7 +614,7 @@ def _slice_ids_intersecting_point(x, y, z):
         if not os.path.isfile(gray_mask_file): raise(Http404)
 
         gray_mask = Image(gray_mask_file)
-        pixel = gray_mask.pixelColor(x - min_x, y - min_y)
+        pixel = gray_mask.pixelColor(int(x - min_x), int(y - min_y))
         if pixel.intensity() > 0:
             slice_ids.append(slice_id)
 
