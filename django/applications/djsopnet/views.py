@@ -238,18 +238,18 @@ def _setup_blocks(stack_id, scale, width, height, depth, corewib, corehib, cored
 
     # Create new Blocks
     blocks = []
-    for z in range(0, nz):
-        for y in range(0, ny):
-            for x in range(0, nx):
+    for z in xrange(0, nz):
+        for y in xrange(0, ny):
+            for x in xrange(0, nx):
                 blocks.append(Block(stack=s, slices_flag=False, segments_flag=False,
                                     coordinate_x=x, coordinate_y=y, coordinate_z=z))
     Block.objects.bulk_create(blocks)
 
     # Create new Cores, round up if number of blocks is not divisible by core size
     cores = []
-    for z in range(0, (nz + coredib - 1)/coredib):
-        for y in range(0, (ny + corehib - 1)/corehib):
-            for x in range(0, (nx + corewib - 1)/corewib):
+    for z in xrange(0, (nz + coredib - 1)/coredib):
+        for y in xrange(0, (ny + corehib - 1)/corehib):
+            for x in xrange(0, (nx + corewib - 1)/corewib):
                 cores.append(Core(stack=s, solution_set_flag = False,
                                   coordinate_x=x, coordinate_y=y, coordinate_z=z))
     Core.objects.bulk_create(cores)
