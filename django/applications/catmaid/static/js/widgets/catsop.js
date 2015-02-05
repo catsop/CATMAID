@@ -465,6 +465,8 @@ CatsopWidget.prototype.toggleOverlay = function (name) {
  * in the same section.
  */
 CatsopWidget.prototype.activateSegment = function (hashes) {
+  if (hashes == null) return; // Check for undefined or null.
+
   this.activeSegmentHash = Array.isArray(hashes) ? hashes[0] : hashes;
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/segment_and_conflicts',
