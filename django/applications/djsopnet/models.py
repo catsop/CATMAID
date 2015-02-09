@@ -15,6 +15,14 @@ class Assembly(models.Model):
     edition_time = models.DateTimeField(default=datetime.now)
     equivalence = models.ForeignKey(AssemblyEquivalence, null=True)
 
+class AssemblyRelation(models.Model):
+    assembly_a = models.ForeignKey(Assembly, related_name='relations_as_a')
+    assembly_b = models.ForeignKey(Assembly, related_name='relations_as_b')
+    relation = AssemblyRelationEnumField(default='Conflict')
+
+    class Meta:
+        unique_together = ('assembly_a', 'assembly_b', 'relation')
+
 class Slice(models.Model):
     id = models.BigIntegerField(primary_key=True)
     stack = models.ForeignKey(Stack)
