@@ -1,7 +1,6 @@
 from django.db import models
 from datetime import datetime
 
-from django.contrib.auth.models import User
 from catmaid.fields import IntegerArrayField, DoubleArrayField
 from catmaid.models import ClassInstance, Stack, UserFocusedModel, Treenode
 from djsopnet.fields import *
@@ -10,10 +9,8 @@ class AssemblyEquivalence(models.Model):
     skeleton = models.ForeignKey(ClassInstance)
 
 class Assembly(models.Model):
-    user = models.ForeignKey(User)
-    creation_time = models.DateTimeField(default=datetime.now)
-    edition_time = models.DateTimeField(default=datetime.now)
     equivalence = models.ForeignKey(AssemblyEquivalence, null=True)
+    solution = models.ForeignKey('Solution')
 
 class AssemblyRelation(models.Model):
     assembly_a = models.ForeignKey(Assembly, related_name='relations_as_a')

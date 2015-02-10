@@ -1210,6 +1210,14 @@ def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_i
                 status=409, content_type='application/json')
 
     cursor = connection.cursor()
+    # Fetch the core's precedent solution ID.
+    cursor.execute('''
+        SELECT sp.solution_id
+        FROM djsopnet_solutionprecedence sp
+        WHERE sp.core_id = %s LIMIT 1
+        ''' % core_id)
+    solution_id = cursor.fetchone()[0]
+
     # Fetch all segments and the segments to which they are connected in the
     # core's precedent solution.
     cursor.execute('''
@@ -1218,8 +1226,6 @@ def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_i
           ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ss2.segment_id)) AS segment_neighbors,
           ssol.id AS ssol_id
         FROM djsopnet_segmentsolution ssol
-        JOIN djsopnet_solutionprecedence sp
-          ON (sp.solution_id = ssol.solution_id AND sp.core_id = %s)
         JOIN djsopnet_segmentslice ss
           ON (ss.segment_id = ssol.segment_id)
         JOIN djsopnet_segmentslice ss2
@@ -1228,8 +1234,9 @@ def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_i
               AND ss2.direction <> ss.direction)
         JOIN djsopnet_segmentsolution ssol2
           ON (ssol2.segment_id = ss2.segment_id AND ssol2.solution_id = ssol.solution_id)
+        WHERE ssol.solution_id = %s
         GROUP BY ssol.segment_id, ssol.id
-        ''' % core_id)
+        ''' % solution_id)
     segments = cursor.fetchall()
 
     # Create an undirected graph of segments, connected by slice edges. The
@@ -1250,14 +1257,12 @@ def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_i
 
     # Bulk create the number of assemblies needed.
     cursor.execute('''
-        INSERT INTO djsopnet_assembly (user_id, creation_time, edition_time)
-        SELECT v.user_id, v.creation_time, v.edition_time
-        FROM (VALUES (%(user_id)s, TIMESTAMP '%(creation_time)s', TIMESTAMP '%(edition_time)s'))
-          AS v (user_id, creation_time, edition_time), generate_series(1, %(num_assemblies)s)
+        INSERT INTO djsopnet_assembly (solution_id)
+        SELECT v.solution_id
+        FROM (VALUES (%(solution_id)s))
+          AS v (solution_id), generate_series(1, %(num_assemblies)s)
         RETURNING djsopnet_assembly.id
-        ''' % {'user_id': request.user.id,
-               'creation_time': datetime.now(),
-               'edition_time': datetime.now(),
+        ''' % {'solution_id': solution_id,
                'num_assemblies': len(assembly_ccs)})
     assemblies = cursor.fetchall();
     assembly_ids = [assemblies[idx][0] for idx in assembly_map]

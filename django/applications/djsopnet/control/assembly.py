@@ -19,12 +19,9 @@ def generate_compatible_assemblies_between_cores(core_a_id, core_b_id, run_prere
     compatible_query = """
         SELECT ar.assembly_a_id, ar.assembly_b_id, 'Compatible'::assemblyrelation
         FROM djsopnet_assemblyrelation ar
-        JOIN djsopnet_segmentsolution ssol ON ssol.id = (
-            SELECT id FROM djsopnet_segmentsolution
-            WHERE assembly_id = ar.assembly_a_id
-              OR assembly_id = ar.assembly_b_id
-            LIMIT 1)
-        JOIN djsopnet_solutionprecedence sp ON sp.solution_id = ssol.solution_id
+        JOIN djsopnet_assembly a
+          ON (a.id = ar.assembly_a_id OR a.id = ar.assembly_b_id)
+        JOIN djsopnet_solutionprecedence sp ON sp.solution_id = a.solution_id
         WHERE sp.core_id = %s OR sp.core_id = %s
         GROUP BY ar.assembly_a_id, ar.assembly_b_id
         HAVING 'Continuation' = ALL(array_agg(ar.relation));
