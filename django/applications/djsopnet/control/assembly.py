@@ -31,7 +31,7 @@ def generate_compatible_assemblies_between_cores(core_a_id, core_b_id, run_prere
         HAVING 'Continuation' = ANY(array_agg(ar.relation))
           AND NOT 'Conflict' = ANY(array_agg(ar.relation));
         """ % {'core_a_id': core_a_id, 'core_b_id': core_b_id}
-    _generate_assembly_relation_between_cores(core_a_id, core_b_id, compatible_query)
+    _generate_assembly_relation_between_cores(core_a_id, core_b_id, 'Compatible', compatible_query)
 
 def generate_conflicting_assemblies_between_cores(core_a_id, core_b_id):
     """Create relations for conflicting precedent assemblies between cores.
@@ -62,7 +62,7 @@ def generate_conflicting_assemblies_between_cores(core_a_id, core_b_id):
         JOIN djsopnet_solutionprecedence sp2 ON sp2.solution_id = ssol2.solution_id
         WHERE sp1.core_id = %(core_a_id)s AND sp2.core_id = %(core_b_id)s;
         """ % {'core_a_id': core_a_id, 'core_b_id': core_b_id}
-    _generate_assembly_relation_between_cores(core_a_id, core_b_id, conflict_query)
+    _generate_assembly_relation_between_cores(core_a_id, core_b_id, 'Conflict', conflict_query)
 
 def generate_continuing_assemblies_between_cores(core_a_id, core_b_id):
     """Create relations for continuing precedent assemblies between cores.
@@ -83,9 +83,9 @@ def generate_continuing_assemblies_between_cores(core_a_id, core_b_id):
         JOIN djsopnet_solutionprecedence sp2 ON sp2.solution_id = ssol2.solution_id
         WHERE sp1.core_id = %(core_a_id)s AND sp2.core_id = %(core_b_id)s;
         """ % {'core_a_id': core_a_id, 'core_b_id': core_b_id}
-    _generate_assembly_relation_between_cores(core_a_id, core_b_id, continuation_query)
+    _generate_assembly_relation_between_cores(core_a_id, core_b_id, 'Continuation', continuation_query)
 
-def _generate_assembly_relation_between_cores(core_a_id, core_b_id, relationship_query):
+def _generate_assembly_relation_between_cores(core_a_id, core_b_id, relation, relationship_query):
     cursor = connection.cursor()
     tmp_table_name = "djsopnet_assemblyrelation_tmp_%s_%s" % (core_a_id, core_b_id)
     # Find relationships and concurrency-safe upsert to assembly relations.
@@ -101,14 +101,27 @@ def _generate_assembly_relation_between_cores(core_a_id, core_b_id, relationship
 
         LOCK TABLE djsopnet_assemblyrelation IN EXCLUSIVE MODE;
 
+        DELETE FROM djsopnet_assemblyrelation ar
+        WHERE relation = '%(relation)s'::assemblyrelation
+          AND EXISTS (
+            SELECT 1 FROM djsopnet_solution s
+            JOIN djsopnet_assembly a
+              ON (a.solution_id = s.id AND a.id = ar.assembly_a_id)
+            WHERE s.core_id = %(core_a_id)s OR s.core_id = %(core_b_id)s)
+          AND EXISTS (
+            SELECT 1 FROM djsopnet_solution s
+            JOIN djsopnet_assembly a
+              ON (a.solution_id = s.id AND a.id = ar.assembly_b_id)
+            WHERE s.core_id = %(core_a_id)s OR s.core_id = %(core_b_id)s);
+
         INSERT INTO djsopnet_assemblyrelation
           (assembly_a_id, assembly_b_id, relation)
         SELECT t.assembly_a_id, t.assembly_b_id, t.relation
-        FROM %(tmp_table_name)s AS t
-        LEFT OUTER JOIN djsopnet_assemblyrelation a
-          ON ((a.assembly_a_id, a.assembly_b_id, a.relation) =
-              (t.assembly_a_id, t.assembly_b_id, t.relation))
-        WHERE a.id IS NULL;
+        FROM %(tmp_table_name)s AS t;
 
         COMMIT;
-        """ % {'relationship_query': relationship_query, 'tmp_table_name': tmp_table_name})
+        """ % {'core_a_id': core_a_id,
+                'core_b_id': core_b_id,
+                'relation': relation,
+                'relationship_query': relationship_query,
+                'tmp_table_name': tmp_table_name})
