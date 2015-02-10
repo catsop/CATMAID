@@ -3,17 +3,21 @@ import networkx as nx
 
 from django.db import connection
 
-def find_compatible_assemblies_between_cores(core_a_id, core_b_id):
-    """Returns an array of assembly ID tuples, where for each tuple the
-    members are assembly IDs for precedent solutions from core_a and core_b,
-    respectively, and the two assemblies in the tuple have at least one
-    continuation and no conflicts.
+def generate_compatible_assemblies_between_cores(core_a_id, core_b_id, run_prerequisites=True):
+    """Create relations for compatible precedent assemblies between cores.
 
-    Continuations and conflicts for this core pair should be generated first.
+    Compatible assemblies have at least one continuation and no conflicts.
+
+    If run_prerequisites is false, continuations and conflicts for this core
+    pair should be generated first.
     """
-    cursor = connection.cursor()
-    cursor.execute("""
-        SELECT ar.assembly_a_id, ar.assembly_b_id, array_agg(ar.relation)
+    if run_prerequisites:
+        generate_conflicting_assemblies_between_cores(core_a_id, core_b_id)
+        generate_continuing_assemblies_between_cores(core_a_id, core_b_id)
+
+    # Find compatibility and concurrency-safe upsert to assembly relations.
+    compatible_query = """
+        SELECT ar.assembly_a_id, ar.assembly_b_id, 'Compatible'::assemblyrelation
         FROM djsopnet_assemblyrelation ar
         JOIN djsopnet_segmentsolution ssol ON ssol.id = (
             SELECT id FROM djsopnet_segmentsolution
@@ -23,11 +27,9 @@ def find_compatible_assemblies_between_cores(core_a_id, core_b_id):
         JOIN djsopnet_solutionprecedence sp ON sp.solution_id = ssol.solution_id
         WHERE sp.core_id = %s OR sp.core_id = %s
         GROUP BY ar.assembly_a_id, ar.assembly_b_id
-        HAVING 'Continuation' = ALL(array_agg(ar.relation))
-        """ % (core_a_id, core_b_id))
-    compatible = frozenset(cursor.fetchall())
-
-    return compatible
+        HAVING 'Continuation' = ALL(array_agg(ar.relation));
+        """ % (core_a_id, core_b_id)
+    _generate_assembly_relation_between_cores(core_a_id, core_b_id, compatible_query)
 
 def generate_conflicting_assemblies_between_cores(core_a_id, core_b_id):
     """Create relations for conflicting precedent assemblies between cores.

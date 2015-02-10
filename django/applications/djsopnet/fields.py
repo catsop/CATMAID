@@ -23,6 +23,7 @@ class AssemblyRelationEnumField(EnumField):
     description = 'enumerated relation type for assembly graph undirected edges'
 
     enum_choices = (
+        ('Compatible', 'Assemblies are connected and not conflicting'),
         ('Conflict', 'Assemblies have conflicting, exclusive segments'),
         ('Continuation', 'Assemblies share slices'))
 
