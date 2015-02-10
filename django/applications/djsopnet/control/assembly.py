@@ -3,6 +3,66 @@ import networkx as nx
 
 from django.db import connection
 
+def generate_assembly_equivalences(stack_id):
+    """Mark assembly equivalences for compatible assemblies in the stack."""
+    stack_id = int(stack_id)
+    # Fetch all assemblies and the assemblies with which they are compatible
+    # in the precedent solutions.
+    cursor = connection.cursor()
+    cursor.execute("""
+        SELECT
+          a.id,
+          ARRAY_TO_JSON(ARRAY_CAT(
+              ARRAY_AGG(DISTINCT ar.assembly_a_id),
+              ARRAY_AGG(DISTINCT ar.assembly_b_id)))
+        FROM djsopnet_solutionprecedence sp
+        JOIN djsopnet_core c ON (c.id = sp.core_id AND c.stack_id = %s)
+        JOIN djsopnet_assembly a ON (a.solution_id = sp.solution_id)
+        JOIN djsopnet_assemblyrelation ar
+          ON (ar.assembly_a_id = a.id OR ar.assembly_b_id = a.id)
+            AND ar.relation = 'Compatible'
+        GROUP BY a.id
+        """ % stack_id)
+    assemblies = cursor.fetchall()
+
+    # Create an undirected graph of assemblies, connected by compatibility. The
+    # connected components of this graph are assembly equivalences.
+    g = nx.Graph()
+    for assembly in assemblies:
+        g.add_node(assembly[0])
+        for compatibility in json.loads(assembly[1]):
+            g.add_edge(assembly[0], compatibility)
+
+    equivalence_ccs = nx.connected_components(g)
+    equivalence_map = []
+    assembly_ids = []
+    for idx, equivalence_cc in enumerate(equivalence_ccs):
+        for assembly in equivalence_cc:
+            equivalence_map.append(idx)
+            assembly_ids.append(assembly)
+
+    # Bulk create the number of assembly equivalences needed.
+    cursor.execute('''
+        INSERT INTO djsopnet_assemblyequivalence (skeleton_id)
+        SELECT v.skeleton_id
+        FROM (VALUES (NULL::integer))
+          AS v (skeleton_id), generate_series(1, %(num_equivalences)s)
+        RETURNING djsopnet_assemblyequivalence.id
+        ''' % {'num_equivalences': len(equivalence_ccs)})
+    equivalences = cursor.fetchall();
+    equivalence_ids = [equivalences[idx][0] for idx in equivalence_map]
+
+    # Bulk assign equivalences to assemblies.
+    # NOTE: This query can hang Django's debug cursor wrapper. There is nothing
+    # wrong with the query, apart from not being stupid enough for Django's
+    # cursor wrapper. Disable the debug wrapper and it will work correctly.
+    cursor.execute('''
+        UPDATE djsopnet_assembly
+        SET equivalence_id = equivalence_map.equivalence_id
+        FROM (VALUES %s) AS equivalence_map (equivalence_id, assembly_id)
+        WHERE djsopnet_assembly.id = equivalence_map.assembly_id
+        ''' % ','.join(['(%s,%s)' % x for x in zip(equivalence_ids, assembly_ids)]))
+
 def generate_compatible_assemblies_between_cores(core_a_id, core_b_id, run_prerequisites=True):
     """Create relations for compatible precedent assemblies between cores.
 
