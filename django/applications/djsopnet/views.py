@@ -427,8 +427,7 @@ def do_insert_slices(stack, req_dict):
             slice = Slice(stack = stack,
                   assembly = None, id = hash_to_id(hash_value), section = section,
                   min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
-                  ctr_x = ctr_x, ctr_y = ctr_y, value = value,
-                  shape_x = [], shape_y = [], size = size)
+                  ctr_x = ctr_x, ctr_y = ctr_y, value = value, size = size)
             try:
                 slice.save()
             except IntegritryError:

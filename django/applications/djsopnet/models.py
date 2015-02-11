@@ -38,11 +38,7 @@ class Slice(models.Model):
     # MSER-applied value
     value = models.FloatField()
 
-    # Geometry
-    shape_x = IntegerArrayField(null=True)
-    shape_y = IntegerArrayField(null=True)
-
-    size = models.IntegerField(db_index=True)
+    size = models.IntegerField()
 
     def _get_conflict_slice_ids(self):
         return list(self.conflicts_as_a.values_list('slice_b_id', flat=True)) \
@@ -75,10 +71,10 @@ class Segment(models.Model):
     section_sup = models.IntegerField(db_index=True)
 
     # bounding box
-    min_x = models.IntegerField(db_index=True)
-    min_y = models.IntegerField(db_index=True)
-    max_x = models.IntegerField(db_index=True)
-    max_y = models.IntegerField(db_index=True)
+    min_x = models.IntegerField()
+    min_y = models.IntegerField()
+    max_x = models.IntegerField()
+    max_y = models.IntegerField()
 
     # centroid
     ctr_x = models.FloatField()
@@ -88,7 +84,7 @@ class Segment(models.Model):
     # 0 - End
     # 1 - Continuation
     # 2 - Branch
-    type = models.IntegerField(db_index=True)
+    type = models.IntegerField()
 
     cost = models.FloatField(null=True, default=None)
 
