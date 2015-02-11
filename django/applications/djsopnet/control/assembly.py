@@ -3,11 +3,43 @@ import json
 import networkx as nx
 
 from django.db import connection
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 
-from catmaid.models import ProjectStack, Stack
-from djsopnet.models import BlockInfo
+from catmaid.control.authentication import requires_user_role
+from catmaid.control.skeleton import _import_skeleton
+from catmaid.models import ProjectStack, Stack, UserRole
+from djsopnet.models import AssemblyEquivalence, BlockInfo
 
-def map_assembly_equivalence_to_skeleton(equivalence_id, project_id):
+@requires_user_role(UserRole.Annotate)
+def map_assembly_equivalence_to_skeleton(request, project_id, stack_id, equivalence_id):
+    ae = get_object_or_404(AssemblyEquivalence, id=equivalence_id)
+    arborescence = map_assembly_equivalence_to_arborescence(equivalence_id, project_id)
+    imported_skeleton = _import_skeleton(request, project_id, arborescence,
+            name='AssemblyEquivalence %s' % equivalence_id)
+
+    # Set the mapped skeleton ID for this AssemblyEquivalence.
+    cursor = connection.cursor()
+    cursor.execute('''
+        UPDATE djsopnet_assemblyequivalence
+        SET skeleton_id = %s
+        WHERE id = %s
+        ''' % (imported_skeleton['skeleton_id'], equivalence_id))
+
+    # TODO: annotate neurons to indicate they are mapped.
+
+    # Generate tuple string for slice ID -> treenode ID.
+    tn_slice_values = \
+            '),('.join([','.join(map(str, (n[0], n[1]['id']))) \
+            for n in imported_skeleton['graph'].nodes_iter(data=True)])
+    cursor.execute('''
+        INSERT INTO djsopnet_treenodeslice (slice_id, treenode_id)
+        VALUES (%s)
+        ''' % tn_slice_values)
+
+    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+
+def map_assembly_equivalence_to_arborescence(equivalence_id, project_id):
     """Create skeletons for existing equivalences and map nodes to slices."""
     equivalence_id = int(equivalence_id)
     project_id = int(project_id)

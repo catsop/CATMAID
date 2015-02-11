@@ -80,3 +80,8 @@ urlpatterns = patterns('djsopnet.views',
     (r'^solvesubvolume/test$', 'test_solvesubvolume_task'),
     (r'^traceneuron/test$', 'test_traceneuron_task'),
 )
+
+urlpatterns += patterns('djsopnet.control.assembly',
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/assembly_equivalence/(?P<equivalence_id>\d+)/map_to_skeleton$',
+        'map_assembly_equivalence_to_skeleton')
+)
