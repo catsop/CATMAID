@@ -6,7 +6,7 @@ from catmaid.models import ClassInstance, Stack, UserFocusedModel, Treenode
 from djsopnet.fields import *
 
 class AssemblyEquivalence(models.Model):
-    skeleton = models.ForeignKey(ClassInstance)
+    skeleton = models.ForeignKey(ClassInstance, null=True)
 
 class Assembly(models.Model):
     equivalence = models.ForeignKey(AssemblyEquivalence, null=True)
