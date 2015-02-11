@@ -106,12 +106,22 @@ def map_assembly_equivalence_to_skeleton(request, project_id, stack_id, equivale
     return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
 
 def _map_assembly_equivalence_to_skeleton(request, project_id, equivalence_id):
+    # Check that this equivalence is populated with segments.
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT count(ssol.id) FROM djsopnet_segmentsolution ssol
+        JOIN djsopnet_assembly a ON a.id = ssol.assembly_id
+        WHERE a.equivalence_id = %s
+        ''' % equivalence_id)
+    segment_count = cursor.fetchone()[0]
+    if segment_count == 0:
+        return
+
     arborescence = map_assembly_equivalence_to_arborescence(equivalence_id, project_id)
     imported_skeleton = _import_skeleton(request, project_id, arborescence,
             name='AssemblyEquivalence %s' % equivalence_id)
 
     # Set the mapped skeleton ID for this AssemblyEquivalence.
-    cursor = connection.cursor()
     cursor.execute('''
         UPDATE djsopnet_assemblyequivalence
         SET skeleton_id = %s
