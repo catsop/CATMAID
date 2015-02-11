@@ -100,6 +100,12 @@ def _generate_assemblies_for_core(core_id):
 @requires_user_role(UserRole.Annotate)
 def map_assembly_equivalence_to_skeleton(request, project_id, stack_id, equivalence_id):
     ae = get_object_or_404(AssemblyEquivalence, id=equivalence_id)
+
+    _map_assembly_equivalence_to_skeleton(request, project_id, equivalence_id)
+
+    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+
+def _map_assembly_equivalence_to_skeleton(request, project_id, equivalence_id):
     arborescence = map_assembly_equivalence_to_arborescence(equivalence_id, project_id)
     imported_skeleton = _import_skeleton(request, project_id, arborescence,
             name='AssemblyEquivalence %s' % equivalence_id)
@@ -122,8 +128,6 @@ def map_assembly_equivalence_to_skeleton(request, project_id, stack_id, equivale
         INSERT INTO djsopnet_treenodeslice (slice_id, treenode_id)
         VALUES (%s)
         ''' % tn_slice_values)
-
-    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
 
 def map_assembly_equivalence_to_arborescence(equivalence_id, project_id):
     """Create skeletons for existing equivalences and map nodes to slices."""
