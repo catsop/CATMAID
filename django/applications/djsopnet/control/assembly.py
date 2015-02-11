@@ -9,7 +9,93 @@ from django.shortcuts import get_object_or_404
 from catmaid.control.authentication import requires_user_role
 from catmaid.control.skeleton import _import_skeleton
 from catmaid.models import ProjectStack, Stack, UserRole
-from djsopnet.models import AssemblyEquivalence, BlockInfo
+from djsopnet.models import AssemblyEquivalence, BlockInfo, Core
+
+@requires_user_role(UserRole.Annotate)
+def generate_assemblies_for_core(request, project_id=None, stack_id=None, core_id=None):
+    c = get_object_or_404(Core, id=core_id)
+    if not c.solution_set_flag:
+        return HttpResponse(json.dumps(
+                {'error': 'Solution flag is not set for core'}),
+                status=409, content_type='application/json')
+
+    _generate_assemblies_for_core(core_id)
+
+    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+
+def _generate_assemblies_for_core(core_id):
+    """Create assemblies for the precedent solutino of a core.
+
+    Assemblies are connected components in the segment graph of a solution.
+    """
+    cursor = connection.cursor()
+    # Fetch the core's precedent solution ID.
+    cursor.execute('''
+        SELECT sp.solution_id
+        FROM djsopnet_solutionprecedence sp
+        WHERE sp.core_id = %s LIMIT 1
+        ''' % core_id)
+    solution_id = cursor.fetchone()[0]
+
+    # Fetch all segments and the segments to which they are connected in the
+    # core's precedent solution.
+    cursor.execute('''
+        SELECT
+          ssol.segment_id AS segment_id,
+          ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ss2.segment_id)) AS segment_neighbors,
+          ssol.id AS ssol_id
+        FROM djsopnet_segmentsolution ssol
+        JOIN djsopnet_segmentslice ss
+          ON (ss.segment_id = ssol.segment_id)
+        JOIN djsopnet_segmentslice ss2
+          ON (ss2.slice_id = ss.slice_id
+              AND ss2.segment_id <> ss.segment_id
+              AND ss2.direction <> ss.direction)
+        JOIN djsopnet_segmentsolution ssol2
+          ON (ssol2.segment_id = ss2.segment_id AND ssol2.solution_id = ssol.solution_id)
+        WHERE ssol.solution_id = %s
+        GROUP BY ssol.segment_id, ssol.id
+        ''' % solution_id)
+    segments = cursor.fetchall()
+
+    # Create an undirected graph of segments, connected by slice edges. The
+    # connected components of this graph are assemblies.
+    g = nx.Graph()
+    for segment in segments:
+        g.add_node(segment[0], {'ssol_id': segment[2]})
+        for slice_edge in json.loads(segment[1]):
+            g.add_edge(segment[0], slice_edge)
+
+    assembly_ccs = nx.connected_components(g)
+    assembly_map = []
+    segmentsolution_ids = []
+    for idx, assembly_cc in enumerate(assembly_ccs):
+        for segment in assembly_cc:
+            assembly_map.append(idx)
+            segmentsolution_ids.append(g.node[segment]['ssol_id'])
+
+    # Bulk create the number of assemblies needed.
+    cursor.execute('''
+        INSERT INTO djsopnet_assembly (solution_id)
+        SELECT v.solution_id
+        FROM (VALUES (%(solution_id)s))
+          AS v (solution_id), generate_series(1, %(num_assemblies)s)
+        RETURNING djsopnet_assembly.id
+        ''' % {'solution_id': solution_id,
+               'num_assemblies': len(assembly_ccs)})
+    assemblies = cursor.fetchall();
+    assembly_ids = [assemblies[idx][0] for idx in assembly_map]
+
+    # Bulk assign assemblies to SegmentSolutions.
+    # NOTE: This query can hang Django's debug cursor wrapper. There is nothing
+    # wrong with the query, apart from not being stupid enough for Django's
+    # cursor wrapper. Disable the debug wrapper and it will work correctly.
+    cursor.execute('''
+        UPDATE djsopnet_segmentsolution
+        SET assembly_id = assembly_map.assembly_id
+        FROM (VALUES %s) AS assembly_map (assembly_id, ssol_id)
+        WHERE djsopnet_segmentsolution.id = assembly_map.ssol_id
+        ''' % ','.join(['(%s,%s)' % x for x in zip(assembly_ids, segmentsolution_ids)]))
 
 @requires_user_role(UserRole.Annotate)
 def map_assembly_equivalence_to_skeleton(request, project_id, stack_id, equivalence_id):

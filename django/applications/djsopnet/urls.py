@@ -52,7 +52,6 @@ urlpatterns = patterns('djsopnet.views',
 
     
 
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/core/(?P<core_id>\d+)/generate_assemblies$', 'generate_assemblies_for_core'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/core/(?P<core_id>\d+)/solve$', 'solve_core'),
 
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_segments$', 'clear_segments'),
@@ -82,6 +81,7 @@ urlpatterns = patterns('djsopnet.views',
 )
 
 urlpatterns += patterns('djsopnet.control.assembly',
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/core/(?P<core_id>\d+)/generate_assemblies$', 'generate_assemblies_for_core'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/assembly_equivalence/(?P<equivalence_id>\d+)/map_to_skeleton$',
         'map_assembly_equivalence_to_skeleton')
 )
