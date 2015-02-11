@@ -1,7 +1,72 @@
+import itertools
 import json
 import networkx as nx
 
 from django.db import connection
+
+from catmaid.models import ProjectStack, Stack
+from djsopnet.models import BlockInfo
+
+def map_assembly_equivalence_to_skeleton(equivalence_id, project_id):
+    """Create skeletons for existing equivalences and map nodes to slices."""
+    equivalence_id = int(equivalence_id)
+    project_id = int(project_id)
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT c.stack_id
+        FROM djsopnet_assembly a
+        JOIN djsopnet_solution sol ON sol.id = a.solution_id
+        JOIN djsopnet_core c ON c.id = sol.core_id
+        WHERE a.equivalence_id = %s
+        LIMIT 1
+        ''' % equivalence_id)
+    stack_id = cursor.fetchone()[0]
+
+    # TODO: After the CATSOP stack-schema refactor project_id will be unnecessary.
+    ps = ProjectStack.objects.get(stack_id=stack_id, project_id=project_id)
+    stack = Stack.objects.get(id=stack_id)
+    bi = BlockInfo.objects.get(stack_id=stack_id)
+    zoom = 2**bi.scale
+
+    # Fetch all segments and their slices in equivalence.
+    cursor.execute('''
+        SELECT
+          ssol.segment_id AS segment_id,
+          JSON_AGG(DISTINCT ROW(s.id, s.ctr_x, s.ctr_y, s.section, ss.direction)) AS segment_slices
+        FROM djsopnet_segmentsolution ssol
+        JOIN djsopnet_assembly a
+          ON (ssol.assembly_id = a.id)
+        JOIN djsopnet_segmentslice ss
+          ON (ss.segment_id = ssol.segment_id)
+        JOIN djsopnet_slice s
+          ON (s.id = ss.slice_id)
+        WHERE a.equivalence_id = %s
+        GROUP BY ssol.segment_id
+        ''' % equivalence_id)
+    segments = cursor.fetchall()
+
+    # Create an undirected graph of slices, connected by segments.
+    g = nx.Graph()
+    for segment in segments:
+        slices = json.loads(segment[1])
+        for slice in slices:
+            g.add_node(slice['f1'], { # TODO: Does not handle orientation.
+                    'x': slice['f2']*zoom*stack.resolution.x + ps.translation.x,
+                    'y': slice['f3']*zoom*stack.resolution.y + ps.translation.y,
+                    'z': slice['f4']*stack.resolution.z + ps.translation.z})
+        for s1, s2 in itertools.combinations(slices, r=2):
+            if s1['f5'] != s2['f5']: # Don't add edges between slices in same section
+                g.add_edge(s1['f1'], s2['f1'])
+
+    # Find a directed tree for mapping to a skeleton.
+    # TODO: This discards cyclic edges in the graph, which SOPNET often creates.
+    # These should be checked for and added back in with duplicate nodes.
+    t = nx.bfs_tree(nx.minimum_spanning_tree(g), g.nodes()[0])
+    # Copy node attributes
+    for n in t.nodes_iter():
+        t.node[n] = g.node[n]
+
+    return t
 
 def generate_assembly_equivalences(stack_id):
     """Mark assembly equivalences for compatible assemblies in the stack."""
