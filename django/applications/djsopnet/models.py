@@ -169,7 +169,7 @@ class Solution(models.Model):
     creation_time = models.DateTimeField(default=datetime.now)
 
 class SolutionPrecedence(models.Model):
-    core = models.ForeignKey(Core, unique=True)
+    core = models.OneToOneField(Core, primary_key=True)
     solution = models.OneToOneField(Solution)
 
 class SegmentSolution(models.Model):
@@ -181,7 +181,7 @@ class SegmentSolution(models.Model):
         unique_together = ('solution', 'segment')
 
 class SegmentFeatures(models.Model):
-    segment = models.OneToOneField(Segment)
+    segment = models.OneToOneField(Segment, primary_key=True)
     features = DoubleArrayField()
 
 class SliceBlockRelation(models.Model):
