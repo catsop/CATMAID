@@ -22,7 +22,7 @@ segmentGuarantor = ps.SegmentGuarantor()
 
 segmentGuarantorParameters = ps.SegmentGuarantorParameters()
 
-bi = BlockInfo.objects.get(stack_id=st.raw_stack_id)
+bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
 for i in range(0, bi.num_x):
 	for j in range(0, bi.num_y):
 		for k in range(0, bi.num_z):

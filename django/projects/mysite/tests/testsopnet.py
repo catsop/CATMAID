@@ -8,7 +8,8 @@ from catmaid.fields import Double3D, Integer3D
 from django.conf import settings
 from django.db import connection
 
-from djsopnet.models import BlockInfo, FeatureName, FeatureInfo
+from djsopnet.models import SegmentationConfiguration, SegmentationStack, \
+		BlockInfo, FeatureName, FeatureInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
 from djsopnet.views import _setup_blocks
 import pysopnet as ps
@@ -45,6 +46,12 @@ def create_testdata():
 	psr, created = ProjectStack.objects.get_or_create(project=p, stack=sr)
 	psm, created = ProjectStack.objects.get_or_create(project=p, stack=sm)
 
+	sc, created = SegmentationConfiguration.objects.get_or_create(project=p)
+	ssr, create = SegmentationStack.objects.get_or_create(
+			configuration=sc, project_stack=psr, type='Raw')
+	ssm, create = SegmentationStack.objects.get_or_create(
+			configuration=sc, project_stack=psm, type='Membrane')
+
 	featureWeights = \
 		[0.00558637,-1.6678e-05,0.00204453,0.0711393,-0.00135737,3.35817,
 		-0.000916876,-0.000957261,-0.00193582,-1.48732,-0.000234868,-4.21938,
@@ -55,7 +62,7 @@ def create_testdata():
 		-0.0102862,0.0080712,0.00012668,-0.0031432,0.00186596,0.00371999,
 		-0.0688746,0.324525,0.79521,1.88847,2.09861,1.51523,0.394032,0.477188,
 		-0.0952926,0.374847,0.253683,0.840265,-2.89614,4.2625e-10]
-	fi, created = FeatureInfo.objects.get_or_create(stack=sr,
+	fi, created = FeatureInfo.objects.get_or_create(segmentation_stack=ssm,
 		defaults={'size':len(featureWeights), 'name_ids':[0], 'weights':featureWeights})
 	if created:
 		unnamedFeature = FeatureName(name='Unnamed Feature')
@@ -64,9 +71,7 @@ def create_testdata():
 		fi.name_ids = featureNames
 		fi.save()
 
-	print("SOPNET_PROJECT_ID = %s" % p.id)
-	print("SOPNET_RAW_STACK_ID = %s" % sr.id)
-	print("SOPNET_MEMBRANE_STACK_ID = %s" % sm.id)
+	print("SOPNET_SEGMENTATION_CONFIGURATION_ID = %s" % sc.id)
 
 class SopnetTest(object):
 	def param(self, name, override):
@@ -80,7 +85,7 @@ class SopnetTest(object):
 					"with the appropriate parameters." % name)
 
 	def __init__(self, **kwargs):
-		required_params = ['project_id', 'raw_stack_id', 'membrane_stack_id',
+		required_params = ['segmentation_configuration_id',
 			'stack_scale',
 			'block_width', 'block_height', 'block_depth',
 			'core_width', 'core_height', 'core_depth',
@@ -104,15 +109,14 @@ class SopnetTest(object):
 		else:
 			self.log("Clearing database, slices and segments are kept")
 
-		for s_id in (self.raw_stack_id, self.membrane_stack_id):
-			_clear_djsopnet(self.project_id, s_id,
-				clear_slices, clear_segments)
+		for ss_id in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id).values_list('id', flat=True):
+			_clear_djsopnet(ss_id, clear_slices, clear_segments)
 
 	def setup_sopnet(self, loglevel=None):
-		self.log("Setting up Sopnet parameters")
-		for s_id in (self.raw_stack_id, self.membrane_stack_id):
+		self.log("Setting up blocks for segmentation stacks")
+		for ss_id in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id).values_list('id', flat=True):
 			try:
-				_setup_blocks(s_id, self.stack_scale,
+				_setup_blocks(ss_id, self.stack_scale,
 						self.block_width, self.block_height,
 						self.block_depth, self.core_width,
 						self.core_height, self.core_depth)
@@ -121,12 +125,17 @@ class SopnetTest(object):
 		ps.setLogLevel(self.loglevel)
 
 	def get_configuration(self):
-		bi = BlockInfo.objects.get(stack_id=self.raw_stack_id)
+		sc = SegmentationConfiguration.objects.get(pk=self.segmentation_configuration_id)
+		bi = BlockInfo.objects.get(configuration=sc)
 		conf = ps.ProjectConfiguration()
 		conf.setBackendType(ps.BackendType.PostgreSql)
-		conf.setCatmaidProjectId(self.project_id)
-		conf.setCatmaidRawStackId(self.raw_stack_id)
-		conf.setCatmaidMembraneStackId(self.membrane_stack_id)
+		conf.setCatmaidProjectId(sc.project_id)
+		for segstack in SegmentationStack.objects.filter(configuration=sc):
+			stackIds = ps.StackIds()
+			stackIds.id = segstack.project_stack.stack.id
+			stackIds.segmentation_id = segstack.id
+			stackType = ps.StackType.Raw if segstack.type == 'Raw' else ps.StackType.Membrane
+			conf.setCatmaidStackIds(stackType, stackIds)
 		conf.setCatmaidHost(self.catmaid_host)
 		conf.setCatmaidStackScale(self.stack_scale)
 		conf.setComponentDirectory(self.component_dir)
@@ -143,8 +152,8 @@ class SopnetTest(object):
 
 		return conf
 
-	def import_weights(self, dat_file):
-		fi = FeatureInfo.objects.get(stack_id=self.raw_stack_id)
+	def import_weights(self, stack_type, dat_file):
+		fi = FeatureInfo.objects.get(stack_id=self.raw_stack_id) # TODO: use segstack
 		fo = open(dat_file, 'r')
 
 		weights = map(float, fo.readlines())
@@ -156,5 +165,5 @@ class SopnetTest(object):
 
 		cursor = connection.cursor()
 		cursor.execute('''
-			UPDATE djsopnet_segment SET cost = NULL WHERE stack_id = %s
+			UPDATE segment SET cost = NULL WHERE stack_id = %s
 			''' % self.raw_stack_id)

@@ -34,8 +34,8 @@ from djcelery.models import TaskState
 from StringIO import StringIO
 import traceback
 
-from djsopnet.control.slice import retrieve_slices_for_skeleton
-from djsopnet.control.skeleton_intersection import generate_user_constraints
+# from djsopnet.control.slice import retrieve_slices_for_skeleton
+# from djsopnet.control.skeleton_intersection import generate_user_constraints
 
 def safe_split(tosplit, name='data', delim=','):
     """ Tests if $tosplit evaluates to true and if not, raises a value error.
@@ -192,7 +192,7 @@ def error_response():
     return res
 
 # --- Blocks and Cores ---
-def setup_blocks(request, project_id = None, stack_id = None):
+def setup_blocks(request, segmentation_stack_id = None):
     '''
     Initialize and store the blocks and block info in the db, associated with
     the given stack, if these things don't already exist.
@@ -209,15 +209,16 @@ def setup_blocks(request, project_id = None, stack_id = None):
     except TypeError:
         return HttpResponse(json.dumps({'ok' : False, 'reason' : 'malformed'}), content_type='text/json')
     try:
-        _setup_blocks(stack_id, scale, width, height, depth,
+        _setup_blocks(segmentation_stack_id, scale, width, height, depth,
                       corewib, corehib, coredib)
     except ValueError as e:
         return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), content_type='text/json')
 
     return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
 
-def _setup_blocks(stack_id, scale, width, height, depth, corewib, corehib, coredib):
-    s = get_object_or_404(Stack, pk=stack_id)
+def _setup_blocks(segmentation_stack_id, scale, width, height, depth, corewib, corehib, coredib):
+    segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
+    s = segstack.project_stack.stack
 
     # The number of blocks is the ceiling of the stack size divided by block dimension
     def int_ceil(num, den): return ((num - 1) // den) + 1
@@ -226,33 +227,41 @@ def _setup_blocks(stack_id, scale, width, height, depth, corewib, corehib, cored
     nz = int_ceil(s.dimension.z, depth)
 
     try:
-        info = BlockInfo.objects.get(stack=s)
-        raise ValueError("already setup")
+        info = BlockInfo.objects.get(configuration=segstack.configuration)
     except BlockInfo.DoesNotExist:
-
-        info = BlockInfo(stack=s, scale=scale,
+        info = BlockInfo(configuration=segstack.configuration, scale=scale,
                          block_dim_y = height, block_dim_x = width, block_dim_z = depth,
                          core_dim_y = corehib, core_dim_x = corewib, core_dim_z = coredib,
                          num_x = nx, num_y = ny, num_z = nz)
         info.save()
 
     # Create new Blocks
-    blocks = []
-    for z in xrange(0, nz):
-        for y in xrange(0, ny):
-            for x in xrange(0, nx):
-                blocks.append(Block(stack=s, slices_flag=False, segments_flag=False,
-                                    coordinate_x=x, coordinate_y=y, coordinate_z=z))
-    Block.objects.bulk_create(blocks)
+    cursor = connection.cursor()
+    cursor.execute('SELECT 1 FROM segstack_%s.block LIMIT 1' % segstack.id)
+    if cursor.rowcount > 0:
+        raise ValueError('Blocks for SegmentationStack %s are already setup.' % segstack.id)
+
+    cursor.execute('''
+            INSERT INTO segstack_%(segstack_id)s.block
+              (slices_flag, segments_flag, coordinate_x, coordinate_y, coordinate_z)
+                SELECT false, false, x.id, y.id, z.id FROM
+                  generate_series(0, %(nx)s - 1) AS x (id),
+                  generate_series(0, %(ny)s - 1) AS y (id),
+                  generate_series(0, %(nz)s - 1) AS z (id);
+            ''' % {'segstack_id': segstack.id, 'nx': nx, 'ny': ny, 'nz': nz})
 
     # Create new Cores, round up if number of blocks is not divisible by core size
-    cores = []
-    for z in xrange(0, (nz + coredib - 1)/coredib):
-        for y in xrange(0, (ny + corehib - 1)/corehib):
-            for x in xrange(0, (nx + corewib - 1)/corewib):
-                cores.append(Core(stack=s, solution_set_flag = False,
-                                  coordinate_x=x, coordinate_y=y, coordinate_z=z))
-    Core.objects.bulk_create(cores)
+    nzc = (nz + coredib - 1)/coredib
+    nyc = (ny + corehib - 1)/corehib
+    nxc = (nx + corewib - 1)/corewib
+    cursor.execute('''
+            INSERT INTO segstack_%(segstack_id)s.core
+              (solution_set_flag, coordinate_x, coordinate_y, coordinate_z)
+                SELECT false, x.id, y.id, z.id FROM
+                  generate_series(0, %(nx)s - 1) AS x (id),
+                  generate_series(0, %(ny)s - 1) AS y (id),
+                  generate_series(0, %(nz)s - 1) AS z (id);
+            ''' % {'segstack_id': segstack.id, 'nx': nxc, 'ny': nyc, 'nz': nzc})
 
 # Query, agnostic to Model class for Core, Block
 def location_query(model, s, request):
@@ -338,18 +347,7 @@ def block_info(request, project_id=None, stack_id=None):
     block_info = get_object_or_404(BlockInfo, stack_id=stack_id)
     return generate_block_info_response(block_info)
 
-def set_flag(s, request, flag_name, id_field = 'block_id', type = Block):
-    id = int(request.GET.get(id_field))
-    flag = int(request.GET.get('flag'))
-    try:
-        box = type.objects.get(stack = s, id = id)
-        setattr(box, flag_name, flag)
-        box.save()
-        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
-    except type.DoesNotExist:
-        return HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
-
-def get_flag(s, request, flag_name, id_field = 'block_id', type = Block):
+def get_flag(s, request, flag_name, id_field = 'block_id', type = 'block'):
     id = int(request.GET.get(id_field))
     try:
         box = type.objects.get(stack = s, id = id)
@@ -358,21 +356,9 @@ def get_flag(s, request, flag_name, id_field = 'block_id', type = Block):
     except type.DoesNotExist:
         return HttpResponse(json.dumps({flag_name : False, 'ok' : False}), content_type='text/json')
 
-def set_block_slice_flag(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return set_flag(s, request, 'slices_flag')
-
 def set_block_segment_flag(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
     return set_flag(s, request, 'segments_flag')
-
-def set_block_solution_flag(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return set_flag(s, request, 'solution_cost_flag')
-
-def set_core_solution_flag(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return set_flag(s, request, 'solution_set_flag', 'core_id', Core)
 
 def get_block_slice_flag(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk=stack_id)
@@ -1237,45 +1223,25 @@ def clear_djsopnet(request, project_id = None, stack_id = None):
     else:
         return HttpResponse(json.dumps({'ok': False}), content_type='text/json')
 
-def _clear_djsopnet(project_id = None, stack_id = None, delete_slices=True,
+def _clear_djsopnet(segmentation_stack_id=None, delete_slices=True,
         delete_segments=True):
-    s = get_object_or_404(Stack, pk = stack_id)
+    s = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     delete_config = delete_slices and delete_segments
 
-    all_blocks = Block.objects.filter(stack = s)
-    all_segments = Segment.objects.filter(stack = s)
+    cursor = connection.cursor()
 
     # TODO: Assemblies are no longer cleared, but this function will be
     # deprecated soon.
 
     if delete_slices:
-        all_block_conflict_relations = BlockConflictRelation.objects.filter(block__in = all_blocks)
-        all_conflicts = {bcr.slice_conflict for bcr in all_block_conflict_relations}
-        SliceConflict.objects.filter(id__in = (conflict.id for conflict in all_conflicts)).delete()
+        cursor.execute('TRUNCATE TABLE segstack_%s.slice CASCADE;' % segmentation_stack_id)
 
     if delete_segments:
-        SegmentBlockRelation.objects.filter(block__in = all_blocks).delete()
-        SegmentFeatures.objects.filter(segment__in = all_segments).delete()
-        SegmentSolution.objects.filter(segment__in = all_segments).delete()
+        cursor.execute('TRUNCATE TABLE segstack_%s.segment CASCADE;' % segmentation_stack_id)
 
     if delete_config:
-        all_blocks.delete()
-
-    if delete_segments:
-        all_segments.delete()
-
-    if delete_slices:
-        Slice.objects.filter(stack = s).delete()
-
-    if delete_config:
-        Core.objects.filter(stack = s).delete()
-        BlockInfo.objects.filter(stack = s).delete()
-
-    if delete_slices:
-        Block.objects.filter(stack=s).update(slices_flag=False)
-
-    if delete_segments:
-        Block.objects.filter(stack=s).update(segments_flag=False)
+        cursor.execute('TRUNCATE TABLE segstack_%s.block CASCADE;' % segmentation_stack_id)
+        cursor.execute('TRUNCATE TABLE segstack_%s.core CASCADE;' % segmentation_stack_id)
 
 def get_task_list(request):
     """ Retrieves a list of all tasks that are currently processed.

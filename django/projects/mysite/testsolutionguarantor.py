@@ -23,7 +23,7 @@ solutionGuarantorParameters.setForceExplanation(True)
 
 sg = ps.SolutionGuarantor()
 
-bi = BlockInfo.objects.get(stack_id=st.raw_stack_id)
+bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
 for i in range(0, bi.num_x/bi.core_dim_x):
 	for j in range(0, bi.num_y/bi.core_dim_y):
 		for k in range(0, bi.num_z/bi.core_dim_z):
