@@ -1,5 +1,6 @@
-function CatsopResultsLayer (stack, scale) {
+function CatsopResultsLayer (stack, segmentationStack, scale) {
   this.stack = stack;
+  this.segmentationStack = segmentationStack;
   this.scale = scale; // CATSOP scale relative to stack (from BlockInfo)
   this.opacity = 0.5;
   this.radius = 3;
@@ -97,8 +98,8 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
 // Namespace for overlays extending CatsopResultsLayer
 CatsopResultsLayer.Overlays = {};
 
-CatsopResultsLayer.Overlays.Assemblies = function (stack, scale) {
-  CatsopResultsLayer.call(this, stack, scale);
+CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStack, scale) {
+  CatsopResultsLayer.call(this, stack, segmentationStack, scale);
 
   this.old_z = null;
 };
@@ -121,7 +122,7 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.redraw = function (completionCa
 CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
   var viewBox = this.stack.createStackViewBox();
   var self = this;
-  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStack +
           '/slices/by_bounding_box',
       'POST',
       {
@@ -146,8 +147,8 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
 
 CatsopResultsLayer.assemblyColors = {};
 
-CatsopResultsLayer.Overlays.Blocks = function (stack, scale) {
-  CatsopResultsLayer.call(this, stack, scale);
+CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStack, scale) {
+  CatsopResultsLayer.call(this, stack, segmentationStack, scale);
 
   this.z_lim = null;
   this.regions = {};
@@ -192,7 +193,7 @@ CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
   this.clear();
   var viewBox = this.stack.createStackViewBox();
   var self = this;
-  requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+  requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStack +
           '/' + this.regionType + '/by_bounding_box',
       'POST',
       {
@@ -247,8 +248,8 @@ CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, statu
   this.redraw();
 };
 
-CatsopResultsLayer.Overlays.Cores = function (stack, scale) {
-  CatsopResultsLayer.Overlays.Blocks.call(this, stack, scale);
+CatsopResultsLayer.Overlays.Cores = function (stack, segmentationStack, scale) {
+  CatsopResultsLayer.Overlays.Blocks.call(this, stack, segmentationStack, scale);
 
   this.regionType = 'cores';
   this.regionFlags = ['solutions'];

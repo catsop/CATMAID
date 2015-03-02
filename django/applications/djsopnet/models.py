@@ -41,7 +41,8 @@ class BlockInfo(models.Model):
     class Meta:
         db_table = 'segmentation_block_info'
 
-    configuration = models.OneToOneField(SegmentationConfiguration, primary_key=True)
+    configuration = models.OneToOneField(SegmentationConfiguration, primary_key=True,
+            related_name='block_info')
 
     scale = models.IntegerField(default=0)
 
@@ -59,6 +60,20 @@ class BlockInfo(models.Model):
     num_x = models.IntegerField(default=0)
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)
+
+    def size_for_unit(self, table):
+        if table == 'block':
+            zoom = 2**self.scale
+            return {'x': zoom * self.block_dim_x,
+                    'y': zoom * self.block_dim_y,
+                    'z': self.block_dim_z}
+        elif table == 'core':
+            zoom = 2**self.scale
+            return {'x': zoom * self.core_dim_x * self.block_dim_x,
+                    'y': zoom * self.core_dim_y * self.block_dim_y,
+                    'z': self.core_dim_z * self.block_dim_z}
+        else:
+            raise ValueError('%s is not a blockwise unit' % table)
 
 
 class FeatureName(models.Model):

@@ -263,7 +263,7 @@ CREATE TABLE constraint_segment_relation (
 
 CREATE TABLE correction (
   constraint_id integer NOT NULL REFERENCES solution_constraint(id),
-  mistake_id integer NOT NULL REFERENCES segment(id),
+  mistake_id bigint NOT NULL REFERENCES segment(id),
   PRIMARY KEY (constraint_id, mistake_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
