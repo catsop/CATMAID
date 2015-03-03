@@ -1426,17 +1426,19 @@ def get_task_list(request):
 
     return HttpResponse(json.dumps(task_data))
 
-def create_project_config(project_id, raw_stack_id, membrane_stack_id):
+def create_project_config(configuration_id):
     """
     Creates a configuration dictionary for Sopnet.
     """
-    config = {
-        'catmaid_project_id': project_id,
-        'catmaid_raw_stack_id': raw_stack_id,
-        'catmaid_membrane_stack_id': membrane_stack_id,
-    }
+    pc = get_object_or_404(SegmentationConfiguration, pk=configuration_id)
+    config = {'catmaid_project_id': pc.project_id, 'catmaid_stack_ids': {}}
+    for segstack in pc.segmentationstack_set.all():
+        config['catmaid_stack_ids'][segstack.type] = {
+            'id': segstack.project_stack.stack.id,
+            'segmentation_id': segstack.id
+        }
 
-    bi = BlockInfo.objects.get(stack_id=raw_stack_id)
+    bi = pc.block_info
 
     config['catmaid_stack_scale'] = bi.scale
     config['block_size'] = [bi.block_dim_x, bi.block_dim_y, bi.block_dim_z]
@@ -1481,11 +1483,16 @@ def test_solutionguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
     }))
 
 @requires_user_role(UserRole.Annotate)
-def solve_core(request, project_id=None, stack_id=None, core_id=None):
+def solve_core(request, project_id, segmentation_stack_id, core_id):
     """Solve a core synchronously"""
-    c = get_object_or_404(Core, id=core_id)
+    segstack = get_object_or_404(SegmentationStack, id=segmentation_stack_id)
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT * FROM segstack_{0}.core WHERE id = %s LIMIT 1
+        '''.format(segstack.id), core_id)
+    c = _blockcursor_to_namedtuple(cursor, segstack.configuration.block_info.size_for_unit('core'))[0]
     # SolutionGuarantor does not need to know membrane stack ID
-    config = create_project_config(project_id, stack_id, None)
+    config = create_project_config(segstack.configuration_id)
     result = SolutionGuarantorTask.apply([config, c.coordinate_x, c.coordinate_y, c.coordinate_z, False])
     return HttpResponse(json.dumps({
         'success': result.result

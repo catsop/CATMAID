@@ -527,7 +527,7 @@ CatsopWidget.prototype.solveAtLocation = function () {
       jsonResponseHandler((function (json) {
         var core = json;
         requestQueue.register(
-            [django_url + 'sopnet', project.id, 'stack', this.stack.getId(),
+            [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack,
              'core', core.id, 'solve'].join('/'),
             'POST',
             {},
