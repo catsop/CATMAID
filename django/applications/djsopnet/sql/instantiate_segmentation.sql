@@ -104,7 +104,9 @@ CREATE TABLE assembly_relation
     INHERITS (segstack_template.assembly_relation);
 
 CREATE TABLE solution_precedence
-    (LIKE segstack_template.solution_precedence INCLUDING INDEXES)
+    (LIKE segstack_template.solution_precedence INCLUDING INDEXES,
+      FOREIGN KEY (core_id) REFERENCES core(id),
+      FOREIGN KEY (solution_id) REFERENCES solution(id))
     INHERITS (segstack_template.solution_precedence);
 
 CREATE TABLE segment_solution
