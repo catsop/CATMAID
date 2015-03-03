@@ -76,7 +76,8 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
           'segment_summaries' : slice.segment_summaries}
 
     for summary in sd['segment_summaries']:
-        summary.update({'segment_id': id_to_hash(summary['segment_id'])})
+        summary.update({'segment_hash': id_to_hash(summary['segment_id'])})
+        summary.pop('segment_id', None)
 
     if with_conflicts:
         sd['conflicts'] = ','.join(map(id_to_hash, slice.conflict_slice_ids))

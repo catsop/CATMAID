@@ -29,8 +29,8 @@ var CatsopWidget = function () {
     'In Solution': (function (s) {return s.in_solution ? 'Y' : '';}),
     'Segments': ((function (s) {
       return s.segment_summaries.reduce((function ($segList, ss) {
-        $('<li>' + ss.segment_id + ' (' + (ss.direction ? 'L' : 'R') + ')</li>')
-          .click((function () {this.activateSegment(ss.segment_id);}).bind(this))
+        $('<li>' + ss.segment_hash + ' (' + (ss.direction ? 'L' : 'R') + ')</li>')
+          .click((function () {this.activateSegment(ss.segment_hash);}).bind(this))
           .appendTo($segList);
         return $segList;
       }).bind(this), $('<ul>'));
@@ -183,7 +183,7 @@ CatsopWidget.prototype.loadSegmentsAtLocation = function () {
         var segments = json.slices.reduce(function (segments, s) {
           return segments.concat(s.segment_summaries
               .filter(function (ss) { return ss.direction; })
-              .map(function (ss) { return ss.segment_id; }));
+              .map(function (ss) { return ss.segment_hash; }));
         }, []);
         if (segments.length)
           this.activateSegment(segments);
@@ -240,7 +240,7 @@ CatsopWidget.prototype.updateSegments = function () {
     segmap.nodes.push(slice);
     slice.segment_summaries.forEach(function (segsum) {
       var match = self.segmentRows.filter(function (sr) {
-        return sr.hash === segsum.segment_id && sr.section === activeSegment.section;});
+        return sr.hash === segsum.segment_hash && sr.section === activeSegment.section;});
       if (match.length) {
         slice.breadth = segsum.direction ? 0 : 2;
         if (segsum.direction) segmap.links.push({
@@ -402,7 +402,7 @@ CatsopWidget.prototype.updateSegments = function () {
         self.activateSegment(
             d.segment_summaries
                 .filter(function (ss) { return d.breadth === 0 ? !ss.direction : ss.direction; })
-                .map(function (ss) { return ss.segment_id; }));
+                .map(function (ss) { return ss.segment_hash; }));
       });
 
   var segmentTypes = ['End', 'Continuation', 'Branch'];
