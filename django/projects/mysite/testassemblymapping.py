@@ -8,7 +8,8 @@ from djsopnet.control.assembly import *
 from djsopnet.control.assembly import \
 	_generate_assemblies_for_core, \
 	_map_assembly_equivalence_to_skeleton
-from djsopnet.models import AssemblyEquivalence, BlockInfo, Core
+from djsopnet.models import BlockInfo, SegmentationConfiguration, SegmentationStack
+from djsopnet.views import _blockcursor_to_namedtuple
 from tests.testsopnet import SopnetTest
 
 from collections import namedtuple
@@ -16,42 +17,62 @@ from collections import namedtuple
 st = SopnetTest()
 Reqfake = namedtuple('Reqfake', ['user', 'project_id'])
 u = User.objects.get(username='drew')
-r = Reqfake(user=u, project_id=st.project_id)
+sc = SegmentationConfiguration.objects.get(pk=st.segmentation_configuration_id)
+request = Reqfake(user=u, project_id=sc.project_id)
+segstack = sc.segmentationstack_set.get(type='Membrane')
 
 # Generate assemblies for all solved cores.
 print 'Generating assemblies...'
-core_ids = Core.objects.filter(stack_id=st.raw_stack_id, solution_set_flag=True).values_list('id', flat=True)
+cursor = connection.cursor()
+cursor.execute('''
+	SELECT id FROM segstack_%s.core WHERE solution_set_flag = TRUE
+	''' % segstack.id)
+core_ids = [r[0] for r in cursor.fetchall()]
 for core_id in core_ids:
-	_generate_assemblies_for_core(core_id)
+	_generate_assemblies_for_core(segstack.id, core_id)
 
 # Generate assembly compatibility edges for all (6-)neighboring, solved cores.
-bi = BlockInfo.objects.get(stack_id=st.raw_stack_id)
+bi = sc.block_info
+block_size = bi.size_for_unit('block')
 for i in xrange(0, bi.num_x/bi.core_dim_x):
 	for j in xrange(0, bi.num_y/bi.core_dim_y):
 		for k in xrange(0, bi.num_z/bi.core_dim_z):
-			c = Core.objects.get(stack_id=st.raw_stack_id,
-					coordinate_x=i, coordinate_y=j, coordinate_z=k)
+			cursor.execute('''
+				SELECT * FROM segstack_%s.core
+				WHERE coordinate_x = %s
+				  AND coordinate_y = %s
+				  AND coordinate_z = %s
+				''' % (segstack.id, i, j, k))
+			c = _blockcursor_to_namedtuple(cursor, block_size)[0]
 			if c.solution_set_flag:
 				print 'Generating compatibility for core %s (%s, %s, %s)' % (c.id, i, j, k)
 				for (di, dj, dk) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
 					if i+di < bi.num_x/bi.core_dim_x and \
 					   j+dj < bi.num_y/bi.core_dim_y and \
 					   k+dk < bi.num_z/bi.core_dim_z:
-						nbr = Core.objects.get(stack_id=st.raw_stack_id,
-								coordinate_x=i+di, coordinate_y=j+dj, coordinate_z=k+dk)
+						cursor.execute('''
+							SELECT * FROM segstack_%s.core
+							WHERE coordinate_x = %s
+							  AND coordinate_y = %s
+							  AND coordinate_z = %s
+							''' % (segstack.id, i+di, j+dj, k+dk))
+						nbr = _blockcursor_to_namedtuple(cursor, block_size)[0]
 						if nbr.solution_set_flag:
-							generate_compatible_assemblies_between_cores(c.id, nbr.id)
+							generate_compatible_assemblies_between_cores(segstack.id, c.id, nbr.id)
 
 # Generate assembly equivalences.
 print 'Generating assembly equivalences...'
-generate_assembly_equivalences(st.raw_stack_id)
+generate_assembly_equivalences(segstack.id)
 
 # For each assembly equivalence, map to a skeleton.
-equivalence_ids = AssemblyEquivalence.objects.filter(skeleton=None).values_list('id', flat=True)
+cursor.execute('''
+	SELECT id FROM segstack_%s.assembly_equivalence WHERE skeleton_id IS NULL
+	''' % segstack.id)
+equivalence_ids = [r[0] for r in cursor.fetchall()]
 for equivalence_id in equivalence_ids:
 	print 'Mapping assembly equivalence %s' % equivalence_id
 	try:
-		_map_assembly_equivalence_to_skeleton(r, st.project_id, equivalence_id)
+		_map_assembly_equivalence_to_skeleton(request, segstack.id, equivalence_id)
 	except:
 		print '...error'
 		pass
