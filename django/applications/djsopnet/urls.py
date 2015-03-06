@@ -4,7 +4,7 @@ from django.views.generic import TemplateView
 # Sopnet API
 urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/configurations$', 'segmentation_configurations'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/setup_blocks$', 'setup_blocks'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/setup_blocks$', 'setup_blocks'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/block_at_location$', 'block_at_location'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/blocks/by_bounding_box$', 'retrieve_blocks_by_bounding_box'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core_at_location$', 'core_at_location'),

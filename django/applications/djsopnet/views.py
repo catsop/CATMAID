@@ -209,7 +209,7 @@ def segmentation_configurations(request, project_id, stack_id):
     return HttpResponseNotAllowed(['GET'])
 
 # --- Blocks and Cores ---
-def setup_blocks(request, segmentation_stack_id = None):
+def setup_blocks(request, project_id, segmentation_stack_id):
     '''
     Initialize and store the blocks and block info in the db, associated with
     the given stack, if these things don't already exist.
