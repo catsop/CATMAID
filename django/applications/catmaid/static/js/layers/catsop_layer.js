@@ -1,6 +1,7 @@
-function CatsopResultsLayer (stack, segmentationStack, scale) {
+function CatsopResultsLayer (stack, segmentationStack, scale, solutionId) {
   this.stack = stack;
   this.segmentationStack = segmentationStack;
+  this.solutionId = solutionId;
   this.scale = scale; // CATSOP scale relative to stack (from BlockInfo)
   this.opacity = 0.5;
   this.radius = 3;
@@ -83,7 +84,7 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
           '") 0 stretch')
       .addClass(status)
       .appendTo($(this.view));
-  if (slice.in_solution) $sliceImg.addClass('in-solution');
+  if (slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId)) $sliceImg.addClass('in-solution');
   this.slices[slice.hash] = {
     x: slice.box[0],
     y: slice.box[1],
@@ -98,8 +99,8 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
 // Namespace for overlays extending CatsopResultsLayer
 CatsopResultsLayer.Overlays = {};
 
-CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStack, scale) {
-  CatsopResultsLayer.call(this, stack, segmentationStack, scale);
+CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStack, scale, solutionId) {
+  CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
 
   this.old_z = null;
 };
@@ -135,20 +136,23 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
       jsonResponseHandler((function (json) {
         var czer = new Colorizer();
         json.slices.forEach(function (slice) {
+          if (!(slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId))) return;
+
           var sliceImg = self.addSlice(slice, 'active');
-          if (!(slice.in_solution in CatsopResultsLayer.assemblyColors)){
-            CatsopResultsLayer.assemblyColors[slice.in_solution] = czer.pickColor().getStyle();
+          var assemblyId = slice.in_solution[self.solutionId];
+          if (!(assemblyId in CatsopResultsLayer.assemblyColors)) {
+            CatsopResultsLayer.assemblyColors[assemblyId] = czer.pickColor().getStyle();
           }
 
-          sliceImg.css('background-color', CatsopResultsLayer.assemblyColors[slice.in_solution]);
+          sliceImg.css('background-color', CatsopResultsLayer.assemblyColors[assemblyId]);
         });
       })));
 };
 
 CatsopResultsLayer.assemblyColors = {};
 
-CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStack, scale) {
-  CatsopResultsLayer.call(this, stack, segmentationStack, scale);
+CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStack, scale, solutionId) {
+  CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
 
   this.z_lim = null;
   this.regions = {};
@@ -248,8 +252,8 @@ CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, statu
   this.redraw();
 };
 
-CatsopResultsLayer.Overlays.Cores = function (stack, segmentationStack, scale) {
-  CatsopResultsLayer.Overlays.Blocks.call(this, stack, segmentationStack, scale);
+CatsopResultsLayer.Overlays.Cores = function (stack, segmentationStack, scale, solutionId) {
+  CatsopResultsLayer.Overlays.Blocks.call(this, stack, segmentationStack, scale, solutionId);
 
   this.regionType = 'cores';
   this.regionFlags = ['solutions'];

@@ -26,7 +26,7 @@ var CatsopWidget = function () {
         return $csList;
       }, $('<ul />'));
     }),
-    'In Solution': (function (s) {return s.in_solution ? 'Y' : '';}),
+    'In Solution': (function (s) {return s.in_solution;}),
     'Segments': ((function (s) {
       return s.segment_summaries.reduce((function ($segList, ss) {
         $('<li>' + ss.segment_hash + ' (' + (ss.direction ? 'L' : 'R') + ')</li>')
@@ -48,6 +48,7 @@ var CatsopWidget = function () {
   this.layers = {};
   this.activeSliceIndex = null;
   this.activeSegmentHash = null;
+  this.activeSolutionId = null;
   this.stack = null;
   this.offsetStack = null;
 };
@@ -143,6 +144,8 @@ CatsopWidget.prototype.refreshSlices = function () {
 };
 
 CatsopWidget.prototype.updateSlices = function () {
+  this.updateSolutions();
+
   var $table = $('#' + this.tableContainers.slices.attr('id') + '-table');
   $table.empty();
 
@@ -416,7 +419,11 @@ CatsopWidget.prototype.updateSegments = function () {
       .attr("transform", null)
       .text(function(d) { return segmentTypes[d.type]; });
 
-  node.classed('in_solution', function (d) { return d.in_solution; });
+  node.classed('in_solution', function (d) {
+    return self.activeSolutionId === null ?
+        d.in_solution :
+        (d.in_solution && d.in_solution.hasOwnProperty(self.activeSolutionId));
+  });
 
   this.seggraph = seggraph;
   this.node = node;
@@ -465,7 +472,7 @@ CatsopWidget.prototype.toggleOverlay = function (name) {
     this.layers[name] = [];
   } else {
     [this.stack, this.offsetStack].forEach((function(s) {
-      var layer = new CatsopResultsLayer.Overlays[name](s, this.activeSegmentationStack, this.blockInfo.scale);
+      var layer = new CatsopResultsLayer.Overlays[name](s, this.activeSegmentationStack, this.blockInfo.scale, this.activeSolutionId);
       this.layers[name].push(layer);
       s.addLayer(this.getLayerKey(name), layer);
       s.redraw();
@@ -557,6 +564,25 @@ CatsopWidget.prototype.generateAssembliesAtLocation = function () {
         );
       }).bind(this))
   );
+};
+
+CatsopWidget.prototype.activateSolution = function () {
+  var selectedSolution = $('#catsop-results' + this.widgetID + '_buttons_Solution_solution_id option:selected').get(0);
+  this.activeSolutionId = selectedSolution.value === 'Union' ? null : selectedSolution.value;
+};
+
+CatsopWidget.prototype.updateSolutions = function () {
+  var solutionIds = this.sliceRows.reduce(function (ids, row) {
+    Object.keys(row.in_solution).forEach(function (solutionId) {
+      if (ids.indexOf(solutionId) < 0) ids.push(solutionId);
+    });
+    return ids;
+  }, []);
+
+  var solutionSelect = $('#catsop-results' + this.widgetID + '_solution_id');
+  solutionIds.forEach(function (id) {
+    solutionSelect.append($('<option>', {value: id}).text(id));
+  });
 };
 
 CatsopWidget.prototype.getSliceRowByHash = function (hash) {

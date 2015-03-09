@@ -538,8 +538,7 @@ def _slice_select_query(segmentation_stack_id, slice_id_query):
               ARRAY_AGG(DISTINCT scs_as_a.slice_b_id) AS conflicts_as_a,
               ARRAY_AGG(DISTINCT scs_as_b.slice_a_id) AS conflicts_as_b,
               ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ss.segment_id, ss.direction))) AS segment_summaries,
-              ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids,
-              ARRAY_AGG(DISTINCT ssol.assembly_id) AS in_solution_assembly_ids
+              ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ssol.solution_id, ssol.assembly_id))) AS in_solution
             FROM segstack_%(segstack_id)s.slice s
             JOIN (%(slice_id_query)s) AS slice_id_query
               ON (slice_id_query.slice_id = s.id)
@@ -563,7 +562,7 @@ def _slicecursor_to_namedtuple(cursor):
     """
     cols = [col[0] for col in cursor.description]
 
-    SliceTuple = namedtuple('SliceTuple', cols + ['conflict_slice_ids', 'in_solution'])
+    SliceTuple = namedtuple('SliceTuple', cols + ['conflict_slice_ids'])
 
     def slicerow_to_namedtuple(row):
         rowdict = dict(zip(cols, row))
@@ -573,12 +572,17 @@ def _slicecursor_to_namedtuple(cursor):
         segment_map = {'f1': 'segment_id', 'f2': 'direction'}
         rowdict.update({
                 'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
-                'in_solution': rowdict['in_solution_assembly_ids'] if any(rowdict['in_solution_core_ids']) else False,
+                'in_solution': dict([
+                    (solution['f1'], solution['f2'])
+                    for solution in json.loads(rowdict['in_solution'])
+                ]),
                 'segment_summaries': [
                     {segment_map[k]: v for k,v in summary.items()}
                     for summary in json.loads(rowdict['segment_summaries'])
                 ]
             })
+        if not any(rowdict['in_solution'].keys()):
+            rowdict['in_solution'] = False
         return SliceTuple(**rowdict)
 
     return [slicerow_to_namedtuple(row) for row in cursor.fetchall()]
@@ -813,7 +817,7 @@ def _segmentcursor_to_namedtuple(cursor):
     """
     cols = [col[0] for col in cursor.description]
 
-    SegmentTuple = namedtuple('SegmentTuple', cols + ['in_solution'])
+    SegmentTuple = namedtuple('SegmentTuple', cols)
 
     def segmentrow_to_namedtuple(row):
         rowdict = dict(zip(cols, row))
@@ -821,8 +825,13 @@ def _segmentcursor_to_namedtuple(cursor):
         # aggregated ROW columns without subqueries or CTEs. For now manually
         # map from default field names to original column names.
         rowdict.update({
-                'in_solution': rowdict['in_solution_assembly_ids'] if any(rowdict['in_solution_core_ids']) else False
+                'in_solution': dict([
+                    (solution['f1'], solution['f2'])
+                    for solution in json.loads(rowdict['in_solution'])
+                ])
             })
+        if not any(rowdict['in_solution'].keys()):
+            rowdict['in_solution'] = False
         return SegmentTuple(**rowdict)
 
     return [segmentrow_to_namedtuple(row) for row in cursor.fetchall()]
@@ -838,8 +847,7 @@ def _segment_select_query(segmentation_stack_id, segment_id_query):
               s.id, s.section_sup,
               s.min_x, s.min_y, s.max_x, s.max_y,
               s.ctr_x, s.ctr_y, s.type, s.cost,
-              ARRAY_AGG(DISTINCT ssol.core_id) AS in_solution_core_ids,
-              ARRAY_AGG(DISTINCT ssol.assembly_id) AS in_solution_assembly_ids
+              ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ssol.solution_id, ssol.assembly_id))) AS in_solution
             FROM segstack_%(segstack_id)s.segment s
             JOIN (%(segment_id_query)s) AS segment_id_query
               ON (segment_id_query.segment_id = s.id)

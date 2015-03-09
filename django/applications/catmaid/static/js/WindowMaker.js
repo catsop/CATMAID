@@ -2839,6 +2839,11 @@ var WindowMaker = new function()
     appendToTab(tabs['Solution'],
       [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)],
        ['Solve Current Core', CW.solveAtLocation.bind(CW)]]);
+    var solutionSelectLabel = $('<label>Solution:</label>').get(0);
+    var solutionSelect = appendSelect(solutionSelectLabel, '', ['Union']);
+    solutionSelect.id = 'catsop-results' + CW.widgetID + '_solution_id';
+    solutionSelect.onchange = CW.activateSolution.bind(CW);
+    tabs['Solution'].appendChild(solutionSelectLabel);
 
     appendToTab(tabs['Overlays'],
       Object.keys(CatsopResultsLayer.Overlays).map(function (overlay) {
