@@ -18,7 +18,7 @@ def generate_assemblies_for_core(request, project_id, segmentation_stack_id, cor
     cursor = connection.cursor()
     cursor.execute('''
         SELECT * FROM segstack_{0}.core WHERE id = %s LIMIT 1
-        '''.format(segstack.id), core_id)
+        '''.format(segstack.id), (core_id,))
     c = _blockcursor_to_namedtuple(cursor, segstack.configuration.block_info.size_for_unit('core'))[0]
 
     if not c.solution_set_flag:
@@ -112,7 +112,7 @@ def map_assembly_equivalence_to_skeleton(request, project_id, segmentation_stack
     cursor = connection.cursor()
     cursor.execute('''
         SELECT 1 FROM segstack_{0}.assembly_equivalence WHERE id = %s
-        '''.format(segstack.id), equivalence_id)
+        '''.format(segstack.id), (equivalence_id,))
     if cursor.rowcount == 0:
         raise Http404('No AssemblyEquivalence with ID %s exists' % equivalence_id)
 
