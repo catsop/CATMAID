@@ -133,7 +133,7 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
           max_y: viewBox.max.y,
           z: this.stack.z
       },
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         var czer = new Colorizer();
         json.slices.forEach(function (slice) {
           if (!(slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId))) return;
@@ -208,7 +208,7 @@ CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
           max_y: viewBox.max.y,
           max_z: this.stack.z
       },
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         if (json[self.regionType].length) {
           var region = json[self.regionType][0];
           self.z_lim = {min: region.box[2], max: region.box[5]};

@@ -64,7 +64,7 @@ CatsopWidget.prototype.init = function (container) {
           '/configurations',
       'GET',
       {},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         this.configurations = json;
         this.activeConfiguration = this.configurations[0].id;
         this.activeSegmentationStack = this.configurations[0].stacks.filter(function (config) {
@@ -74,7 +74,7 @@ CatsopWidget.prototype.init = function (container) {
         requestQueue.register(django_url + 'sopnet/' + this.activeConfiguration + '/block',
             'GET',
             {},
-            jsonResponseHandler((function (json) {
+            CATMAID.jsonResponseHandler((function (json) {
               this.blockInfo = json;
               openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
 
@@ -125,7 +125,7 @@ CatsopWidget.prototype.loadBlockAtLocation = function () {
           '/block_at_location',
       'GET',
       {x: this.stack.x, y: this.stack.y, z: this.stack.z},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         this.block = json;
         $('#' + $(this.container).attr('id') + '-block-id').text(json.id);
         this.refreshSlices();
@@ -137,7 +137,7 @@ CatsopWidget.prototype.refreshSlices = function () {
           '/slices_by_blocks_and_conflict',
       'POST',
       {block_ids: this.block.id},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         this.sliceRows = json.slices;
         this.updateSlices();
       }).bind(this)));
@@ -182,7 +182,7 @@ CatsopWidget.prototype.loadSegmentsAtLocation = function () {
           '/slices/by_location',
       'POST',
       {x: this.stack.x, y: this.stack.y, z: this.stack.z},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         var segments = json.slices.reduce(function (segments, s) {
           return segments.concat(s.segment_summaries
               .filter(function (ss) { return ss.direction; })
@@ -444,7 +444,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
           '/conflict_sets_by_slice',
       'POST',
       {hash: slice.hash},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         var self = this;
         json.conflict.forEach(function (conflictSet) {
           conflictSet
@@ -494,7 +494,7 @@ CatsopWidget.prototype.activateSegment = function (hashes) {
           '/segment_and_conflicts',
       'POST',
       {hash: Array.isArray(hashes) ? hashes.join(',') : hashes},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         this.sliceRows = json.slices;
         this.segmentRows = json.segments;
         this.updateSlices();
@@ -513,7 +513,7 @@ CatsopWidget.prototype.createSegmentForSlices = function () {
       [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'segment', 'create_for_slices'].join('/'),
       'POST',
       {hash: hashes},
-      jsonResponseHandler(this.refreshSegments.bind(this)));
+      CATMAID.jsonResponseHandler(this.refreshSegments.bind(this)));
 };
 
 CatsopWidget.prototype.constrainSegment = function (hash) {
@@ -521,7 +521,7 @@ CatsopWidget.prototype.constrainSegment = function (hash) {
       [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'segment', hash, 'constrain'].join('/'),
       'POST',
       {},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         d3.selectAll($('[class~="seg-hash-' + hash + '"]')).classed('constrained', true);
       }).bind(this)));
 };
@@ -531,14 +531,14 @@ CatsopWidget.prototype.solveAtLocation = function () {
       [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'core_at_location'].join('/'),
       'GET',
       {x: this.stack.x, y: this.stack.y, z: this.stack.z},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         var core = json;
         requestQueue.register(
             [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack,
              'core', core.id, 'solve'].join('/'),
             'POST',
             {},
-            jsonResponseHandler((function (json) {
+            CATMAID.jsonResponseHandler((function (json) {
               growlAlert('Infomation', json.success);
             }))
         );
@@ -551,14 +551,14 @@ CatsopWidget.prototype.generateAssembliesAtLocation = function () {
       [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'core_at_location'].join('/'),
       'GET',
       {x: this.stack.x, y: this.stack.y, z: this.stack.z},
-      jsonResponseHandler((function (json) {
+      CATMAID.jsonResponseHandler((function (json) {
         var core = json;
         requestQueue.register(
             [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack,
              'core', core.id, 'generate_assemblies'].join('/'),
             'POST',
             {},
-            jsonResponseHandler((function (json) {
+            CATMAID.jsonResponseHandler((function (json) {
               growlAlert('Success', 'Assemblies generated for core ' + core.id);
             }))
         );
