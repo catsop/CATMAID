@@ -528,6 +528,12 @@ div#classification_graph_object img.roiimage {
   clear: both;
 }
 
+.connectivity_widget .remove-skeleton {
+  float: right;
+  position: relative;
+  top: -0.2em;
+}
+
 .connectivity_widget .connectivity_table_actions {
   position: relative;
   clear: both;
@@ -577,6 +583,15 @@ div#classification_graph_object img.roiimage {
 
 .connectivity_widget .partner_table tfoot {
   color: grey;
+}
+
+.connectivity_widget a {
+  color: black;
+  text-decoration: none;
+}
+
+.connectivity_widget a:hover {
+  text-decoration: underline;
 }
 
 .clear {
@@ -679,4 +694,13 @@ div#classification_graph_object img.roiimage {
   fill: none;
   stroke: #fcc;
   stroke-width: 1.5px;
+}
+
+a.neuron-selection-link {
+  color: black;
+  text-decoration: none;
+}
+
+a.neuron-selection-link:hover {
+  text-decoration: underline;
 }

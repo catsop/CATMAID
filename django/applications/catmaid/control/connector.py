@@ -96,9 +96,6 @@ def one_to_many_synapses(request, project_id=None):
       AND tc2.treenode_id = t2.id
     ''' % (skid, ','.join(map(str, skids)), relation_name))
 
-    def parse(loc):
-        return tuple(imap(float, loc[1:-1].split(',')))
-
     rows = tuple((row[0], (row[1], row[2], row[3]),
                   row[4], row[5], row[6], row[7],
                   (row[8], row[9], row[10]),
@@ -167,6 +164,7 @@ def list_connector(request, project_id=None):
             tn_this.id AS this_treenode_id,
             tc_this.relation_id AS this_to_connector_relation_id,
             tc_other.relation_id AS connector_to_other_relation_id,
+            tc_other.confidence AS confidence,
             to_char(connector.edition_time, 'DD-MM-YYYY HH24:MI') AS last_modified
             FROM
             treenode tn_other,
@@ -217,6 +215,7 @@ def list_connector(request, project_id=None):
             connector.location_z AS connector_z,
             tn_this.id AS this_treenode_id,
             tc_this.relation_id AS this_to_connector_relation_id,
+            tc_this.confidence AS confidence,
             to_char(connector.edition_time, 'DD-MM-YYYY HH24:MI') AS last_modified
             FROM
             connector,
@@ -309,6 +308,7 @@ def list_connector(request, project_id=None):
             # done in the client as well. So we really want to keep this and
             # have a more complicated API?
             row.append(int((z - translation.z) / resolution.z))
+            row.append(c['confidence'])
             row.append(labels)
             row.append(connected_skeleton_treenode_count)
             row.append(c['connector_username'])
@@ -359,7 +359,7 @@ def _connector_skeletons(connector_ids, project_id):
     POST = relations['postsynaptic_to']
 
     cursor.execute('''
-    SELECT connector_id, relation_id, skeleton_id
+    SELECT connector_id, relation_id, skeleton_id, treenode_id
     FROM treenode_connector
     WHERE connector_id IN (%s)
     ''' % ",".join(map(str, connector_ids)))
@@ -369,12 +369,15 @@ def _connector_skeletons(connector_ids, project_id):
         c = cs.get(row[0])
         if not c:
             # Ensure each connector has the two entries at their minimum
-            c = {'presynaptic_to': None, 'postsynaptic_to': []}
+            c = {'presynaptic_to': None, 'postsynaptic_to': [], 
+                 'presynaptic_to_node': None, 'postsynaptic_to_node': []}
             cs[row[0]] = c
         if POST == row[1]:
             c['postsynaptic_to'].append(row[2])
+            c['postsynaptic_to_node'].append(row[3])
         elif PRE == row[1]:
             c['presynaptic_to'] = row[2]
+            c['presynaptic_to_node'] = row[3]
 
     return cs
 
@@ -537,3 +540,62 @@ def _list_completed(project_id, completed_by=None, from_date=None, to_date=None)
                   (row[8], row[9], row[10]),
                   row[11], row[12], row[13], row[14],
                   (row[15], row[16], row[17])) for row in cursor.fetchall())
+
+
+@requires_user_role(UserRole.Browse)
+def connectors_info(request, project_id):
+    """
+    Given a list of connectors, a list of presynaptic skeletons and a list of postsynatic skeletons,
+    return a list of rows, one per synaptic connection, in the same format as one_to_many_synapses.
+    The list of connectors is optional.
+    """
+
+    cids = tuple(str(int(v)) for k,v in request.POST.iteritems() if k.startswith('cids['))
+    skids_pre = tuple(str(int(v)) for k,v in request.POST.iteritems() if k.startswith('pre['))
+    skids_post = tuple(str(int(v)) for k,v in request.POST.iteritems() if k.startswith('post['))
+
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT relation_name, id FROM relation WHERE project_id=%s" % project_id)
+    relations = dict(cursor.fetchall())
+
+    pre = relations['presynaptic_to']
+    post = relations['postsynaptic_to']
+
+    cursor.execute('''
+    SELECT DISTINCT
+           tc1.connector_id, c.location_x, c.location_y, c.location_z,
+           tc1.treenode_id, tc1.skeleton_id, tc1.confidence, tc1.user_id,
+           t1.location_x, t1.location_y, t1.location_z,
+           tc2.treenode_id, tc2.skeleton_id, tc2.confidence, tc2.user_id,
+           t2.location_x, t2.location_y, t2.location_z
+    FROM treenode_connector tc1,
+         treenode_connector tc2,
+         treenode t1,
+         treenode t2,
+         connector c
+    WHERE %s
+          tc1.connector_id = c.id
+      AND tc1.connector_id = tc2.connector_id
+      AND tc1.skeleton_id IN (%s)
+      AND tc2.skeleton_id IN (%s)
+      AND tc1.relation_id = %s
+      AND tc2.relation_id = %s
+      AND tc1.id != tc2.id
+      AND tc1.treenode_id = t1.id
+      AND tc2.treenode_id = t2.id
+    ORDER BY tc2.skeleton_id
+    ''' % ("c.id IN (%s) AND" % ",".join(cids) if cids else "",
+           ",".join(skids_pre),
+           ",".join(skids_post),
+           pre,
+           post))
+
+    rows = tuple((row[0], (row[1], row[2], row[3]),
+                  row[4], row[5], row[6], row[7],
+                  (row[8], row[9], row[10]),
+                  row[11], row[12], row[13], row[14],
+                  (row[15], row[16], row[17])) for row in cursor.fetchall())
+
+    return HttpResponse(json.dumps(rows))
+

@@ -12,7 +12,7 @@ from catmaid.models import UserRole, Treenode, BrokenSlice, ClassInstance, \
 from catmaid.control.authentication import requires_user_role, \
         can_edit_class_instance_or_fail, can_edit_or_fail
 from catmaid.control.common import get_relation_to_id_map, \
-        get_class_to_id_map, insert_into_log
+        get_class_to_id_map, insert_into_log, _create_relation
 from catmaid.control.neuron import _delete_if_empty
 
 
@@ -21,17 +21,6 @@ def can_edit_treenode_or_fail(user, project_id, treenode_id):
     the treenode models."""
     info = _treenode_info(project_id, treenode_id)
     return can_edit_class_instance_or_fail(user, info['neuron_id'], 'neuron')
-
-
-def _create_relation(user, project_id, relation_id, instance_a_id, instance_b_id):
-    relation = ClassInstanceClassInstance()
-    relation.user = user
-    relation.project_id = project_id
-    relation.relation_id = relation_id
-    relation.class_instance_a_id = instance_a_id
-    relation.class_instance_b_id = instance_b_id
-    relation.save()
-    return relation
 
 
 @requires_user_role(UserRole.Annotate)
@@ -315,7 +304,7 @@ def update_radius(request, project_id=None, treenode_id=None):
         return HttpResponse(json.dumps({'success': True}))
 
     cursor.execute('''
-    SELECT id, parent_id
+    SELECT id, parent_id, radius
     FROM treenode
     WHERE skeleton_id = (SELECT t.skeleton_id FROM treenode t WHERE id = %s)
     ''' % treenode_id)
@@ -347,7 +336,7 @@ def update_radius(request, project_id=None, treenode_id=None):
 
         include = [treenode_id]
         parent = parents[treenode_id]
-        while parent and 1 == len(children[parent]):
+        while parent and parents[parent] and 1 == len(children[parent]):
             include.append(parent)
             parent = parents[parent]
 
@@ -356,6 +345,23 @@ def update_radius(request, project_id=None, treenode_id=None):
         return HttpResponse(json.dumps({'success': True}))
 
     if 3 == option:
+        # Update radius from treenode_id to prev node with radius (excluded)
+        parents = {}
+        for row in cursor.fetchall():
+            if row[2] < 0 or row[0] == treenode_id: # DB default radius is 0 but is initialized to -1 elsewhere
+                parents[row[0]] = row[1]
+
+        include = [treenode_id]
+        parent = parents[treenode_id]
+        while parent in parents:
+            include.append(parent)
+            parent = parents[parent]
+
+        Treenode.objects.filter(pk__in=include).update(editor=request.user,
+                                                       radius=radius)
+        return HttpResponse(json.dumps({'success': True}))
+
+    if 4 == option:
         # Update radius from treenode_id to root (included)
         parents = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -369,7 +375,7 @@ def update_radius(request, project_id=None, treenode_id=None):
                                                        radius=radius)
         return HttpResponse(json.dumps({'success': True}))
 
-    if 4 == option:
+    if 5 == option:
         # Update radius of all nodes (in a single query)
         Treenode.objects \
             .filter(skeleton_id=Treenode.objects \
@@ -396,6 +402,7 @@ def delete_treenode(request, project_id=None):
     parent_id = treenode.parent_id
 
     response_on_error = ''
+    deleted_neuron = False
     try:
         if not parent_id:
             # This treenode is root.
@@ -433,7 +440,7 @@ def delete_treenode(request, project_id=None):
             # If the neuron modeled by the skeleton of the treenode is empty,
             # delete it.
             response_on_error = 'Could not delete neuron #%s' % neuron.id
-            _delete_if_empty(neuron.id)
+            deleted_neuron = _delete_if_empty(neuron.id)
 
         else:
             # Treenode is not root, it has a parent and perhaps children.
@@ -446,7 +453,9 @@ def delete_treenode(request, project_id=None):
         response_on_error = 'Could not delete treenode.'
         Treenode.objects.filter(pk=treenode_id).delete()
         return HttpResponse(json.dumps({
+            'deleted_neuron': deleted_neuron,
             'parent_id': parent_id,
+            'skeleton_id': treenode.skeleton_id,
             'success': "Removed treenode successfully."
         }))
 

@@ -98,7 +98,6 @@ Slider = function(
    * are made about order or interval.
    */
   this.setByValue = function(val, cancelOnchange) {
-    if (self.val === val) return; // If value is unchanged, don't needlessly update.
     var valBin, index;
 
     if (values.length > 1) {
@@ -203,11 +202,11 @@ Slider = function(
     getBarSize();
     virtualHandlePos = barSize * handlePos / 100;
     
-    ui.registerEvent( "onmousemove", handleMove );
-    ui.registerEvent( "onmouseup", handleMouseUp );
-    ui.setCursor( "pointer" );
-    ui.catchEvents();
-    ui.onmousedown( e );
+    CATMAID.ui.registerEvent( "onmousemove", handleMove );
+    CATMAID.ui.registerEvent( "onmouseup", handleMouseUp );
+    CATMAID.ui.setCursor( "pointer" );
+    CATMAID.ui.catchEvents();
+    CATMAID.ui.onmousedown( e );
     
     return false;
   };
@@ -219,9 +218,9 @@ Slider = function(
   {
     if ( timer ) window.clearTimeout( timer );
     
-    ui.releaseEvents();
-    ui.removeEvent( "onmousemove", handleMove );
-    ui.removeEvent( "onmouseup", handleMouseUp );
+    CATMAID.ui.releaseEvents();
+    CATMAID.ui.removeEvent( "onmousemove", handleMove );
+    CATMAID.ui.removeEvent( "onmouseup", handleMouseUp );
     
     return false;
   };
@@ -235,10 +234,10 @@ Slider = function(
     switch ( type )
     {
     case SLIDER_VERTICAL:
-      md = ui.diffY;
+      md = CATMAID.ui.diffY;
       break;
     case SLIDER_HORIZONTAL:
-      md = ui.diffX;
+      md = CATMAID.ui.diffX;
       break;
     }
     getBarSize();
@@ -254,7 +253,7 @@ Slider = function(
    */
   var mouseWheel = function( e )
   {
-    var w = ui.getMouseWheel( e );
+    var w = CATMAID.ui.getMouseWheel( e );
     if ( w )
     {
       if ( type == SLIDER_HORIZONTAL ) w *= -1;
@@ -313,10 +312,10 @@ Slider = function(
   {
     if ( timer ) window.clearTimeout( timer );
     
-    ui.registerEvent( "onmouseup", barMouseUp );
-    ui.setCursor( "auto" );
-    ui.catchEvents();
-    ui.onmousedown( e );
+    CATMAID.ui.registerEvent( "onmouseup", barMouseUp );
+    CATMAID.ui.setCursor( "auto" );
+    CATMAID.ui.catchEvents();
+    CATMAID.ui.onmousedown( e );
     
     decrease();
     return false;
@@ -329,10 +328,10 @@ Slider = function(
   {
     if ( timer ) window.clearTimeout( timer );
     
-    ui.registerEvent( "onmouseup", barMouseUp );
-    ui.setCursor( "auto" );
-    ui.catchEvents();
-    ui.onmousedown( e );
+    CATMAID.ui.registerEvent( "onmouseup", barMouseUp );
+    CATMAID.ui.setCursor( "auto" );
+    CATMAID.ui.catchEvents();
+    CATMAID.ui.onmousedown( e );
     
     increase();
     return false;
@@ -345,8 +344,8 @@ Slider = function(
   {
     if ( timer ) window.clearTimeout( timer );
     
-    ui.releaseEvents();
-    ui.removeEvent( "onmouseup", barMouseUp );
+    CATMAID.ui.releaseEvents();
+    CATMAID.ui.removeEvent( "onmouseup", barMouseUp );
     
     return false;
   };
@@ -476,8 +475,6 @@ Slider = function(
   this.val = 0;     //!< the current value
   var splitIndex = 0; //!< index where to change div class
   if ( typeof forceSnap === 'undefined' ) forceSnap = true;
-
-  if ( !ui ) ui = new UI();
   
   var view = document.createElement( "div" );
   var barTop = document.createElement( "div" );
@@ -512,7 +509,7 @@ Slider = function(
   
   if ( input )
   {
-    var name = uniqueId();
+    var name = CATMAID.tools.uniqueId();
     
     inputView = document.createElement( "p" );
     inputView.style.paddingLeft = "0.5em";
@@ -564,36 +561,10 @@ Slider = function(
     inputView.style.display = "block";
     
     input.onchange = setByInput;
-    try
-    {
-      input.addEventListener( "DOMMouseScroll", mouseWheel, false );
-      /* Webkit takes the event but does not understand it ... */
-      input.addEventListener( "mousewheel", mouseWheel, false );
-    }
-    catch ( error )
-    {
-      try
-      {
-        input.onmousewheel = mouseWheel;
-      }
-      catch ( error ) {}
-    }
+    input.addEventListener( "wheel", mouseWheel, false );
   }
-  
-  try
-  {
-    view.addEventListener( "DOMMouseScroll", mouseWheel, false );
-    /* Webkit takes the event but does not understand it ... */
-    view.addEventListener( "mousewheel", mouseWheel, false );
-  }
-  catch ( error )
-  {
-    try
-    {
-      view.onmousewheel = mouseWheel;
-    }
-    catch ( error ) {}
-  }
-  
+
+  view.addEventListener( "wheel", mouseWheel, false );
+
   this.update( min, max, steps, def, onchange, split);
 };

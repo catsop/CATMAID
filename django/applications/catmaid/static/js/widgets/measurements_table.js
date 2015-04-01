@@ -1,5 +1,13 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  ArborParser,
+  fetchSkeletons,
+  InstanceRegistry,
+  NeuronNameService,
+  OptionsDialog,
+  project,
+*/
 
 "use strict";
 
@@ -13,7 +21,7 @@ var SkeletonMeasurementsTable = function() {
 
 SkeletonMeasurementsTable.prototype = {};
 $.extend(SkeletonMeasurementsTable.prototype, new InstanceRegistry());
-$.extend(SkeletonMeasurementsTable.prototype, new SkeletonSource());
+$.extend(SkeletonMeasurementsTable.prototype, new CATMAID.SkeletonSource());
 
 SkeletonMeasurementsTable.prototype.labels = ['Neuron', 'Skeleton', 'Raw cable (nm)', 'Smooth cable (nm)', 'Lower-bound cable (nm)', 'N inputs', 'N outputs', 'N presynaptic sites', 'N nodes', 'N branch nodes', 'N end nodes'];
 

@@ -6,6 +6,7 @@ from collections import defaultdict
 from math import sqrt
 from datetime import datetime
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import connection
 from django.http import HttpResponse
 
@@ -149,12 +150,14 @@ def compact_arbor(request, project_id=None, skeleton_id=None, with_nodes=None, w
     The difference between this function and the compact_skeleton function is that
     the connectors contain the whole chain from the skeleton of interest to the
     partner skeleton:
-    [treenode_id, confidence, relation_id
+    [treenode_id, confidence,
      connector_id,
-     relation_id, confidence, treenode_id, skeleton_id]
-    where the last 4 values correspond to the partner skeleton.
-    Notice that the index in the array correponds to the position in the chain:
-    (skeleton ->) treenode -> confidence -> relation -> connector -> relation -> confidence -> treenode -> skeleton.
+     confidence, treenode_id, skeleton_id,
+     relation_id, relation_id]
+    where the first 2 values are from the given skeleton_id,
+    then the connector_id,
+    then the next 3 values are from the partner skeleton,
+    and finally the two relations: first for the given skeleton_id and then for the other skeleton.
     The relation_id is 0 for pre and 1 for post.
     """
 
@@ -257,7 +260,7 @@ def compact_arbor_with_minutes(request, project_id=None, skeleton_id=None, with_
     return r
 
 
-# THIS FUNCTION IS HEREBY DECLARED A MESS. Users of this function: split it up
+# DEPRECATED. Will be removed.
 def _skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=True, lean=0, all_field=False):
     """ with_connectors: when False, connectors are not returned
         lean: when not zero, both connectors and tags are returned as empty arrays. """
@@ -353,11 +356,12 @@ def _skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=True, lean=
     return name, nodes, tags, connectors, reviews
 
 
-
+# DEPRECATED. Will be removed.
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeleton_for_3d_viewer(request, project_id=None, skeleton_id=None):
     return HttpResponse(json.dumps(_skeleton_for_3d_viewer(skeleton_id, project_id, with_connectors=request.POST.get('with_connectors', True), lean=int(request.POST.get('lean', 0)), all_field=request.POST.get('all_fields', False)), separators=(',', ':')))
 
+# DEPRECATED. Will be removed.
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeleton_with_metadata(request, project_id=None, skeleton_id=None):
 
@@ -714,7 +718,7 @@ def _export_review_skeleton(project_id=None, skeleton_id=None, format=None,
     treenodes = Treenode.objects.filter(skeleton_id=skeleton_id).values_list(
         'id', 'parent_id', 'location_x', 'location_y', 'location_z')
     # Get all reviews for the requested skeleton
-    reviews = get_treenodes_to_reviews(skeleton_ids=[skeleton_id])
+    reviews = get_treenodes_to_reviews_with_time(skeleton_ids=[skeleton_id])
 
     # Add each treenode to a networkx graph and attach reviewer information to
     # it.
@@ -796,7 +800,8 @@ def export_review_skeleton(request, project_id=None, skeleton_id=None, format=No
 
     segments = _export_review_skeleton( project_id, skeleton_id, format,
             subarbor_node_id )
-    return HttpResponse(json.dumps(segments))
+    return HttpResponse(json.dumps(segments, cls=DjangoJSONEncoder),
+            content_type='text/json')
 
 @requires_user_role(UserRole.Browse)
 def skeleton_connectors_by_partner(request, project_id):
@@ -835,10 +840,10 @@ def export_skeleton_reviews(request, project_id=None, skeleton_id=None):
     """ Return a map of treenode ID vs list of reviewer IDs,
     without including any unreviewed treenode. """
     m = defaultdict(list)
-    for row in Review.objects.filter(skeleton_id=int(skeleton_id)).values_list('treenode_id', 'reviewer_id').iterator():
-        m[row[0]].append(row[1])
+    for row in Review.objects.filter(skeleton_id=int(skeleton_id)).values_list('treenode_id', 'reviewer_id', 'review_time').iterator():
+        m[row[0]].append(row[1:3])
 
-    return HttpResponse(json.dumps(m, separators=(',', ':')))
+    return HttpResponse(json.dumps(m, separators=(',', ':'), cls=DjangoJSONEncoder))
 
 @requires_user_role(UserRole.Browse)
 def within_spatial_distance(request, project_id=None):

@@ -1,5 +1,9 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  InstanceRegistry,
+  requestQueue
+*/
 
 "use strict";
 
@@ -100,9 +104,9 @@ OntologySearch.prototype.renderToContent = function(container, url, patch)
     'GET', undefined,
     function(status, data, text) {
       if (status !== 200) {
-        new ErrorDialog("Couldn't fetch requested content", "The server " +
-            "returned an unexpected status (" + status + ") " + "with error " +
-            " message:\n" + text).show();
+        new CATMAID.ErrorDialog("Couldn't fetch requested content", "The " +
+            "server returned an unexpected status (" + status + ") " + "with " +
+            "error message:\n" + text).show();
       } else {
         $(container).html("<p>" + data + "</p>");
         // patch the data if requested

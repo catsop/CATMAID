@@ -1,5 +1,15 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  Arbor,
+  fetchSkeletons,
+  growlAlert,
+  InstanceRegistry,
+  NeuronNameService,
+  project,
+  saveDivSVG,
+  SkeletonAnnotations,
+*/
 
 "use strict";
 
@@ -13,7 +23,7 @@ var MorphologyPlot = function() {
 
 MorphologyPlot.prototype = {};
 $.extend(MorphologyPlot.prototype, new InstanceRegistry());
-$.extend(MorphologyPlot.prototype, new SkeletonSource());
+$.extend(MorphologyPlot.prototype, new CATMAID.SkeletonSource());
 
 MorphologyPlot.prototype.getName = function() {
   return "Morphology Plot " + this.widgetID;

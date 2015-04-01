@@ -5,14 +5,14 @@
  */
 var OntologyEditor = new function()
 {
-    this.workspace_pid;
-    this.trees = new Array();
+    this.workspace_pid = undefined;
+    this.trees = [];
     var content_div_id = "ontology_editor_widget";
 
     this.init = function( pid )
     {
         // clear the trees array
-        self.trees = new Array();
+        self.trees = [];
         // display the known root class names
         $.getJSON(django_url + 'ontology/knownroots',
                 function(data) {
@@ -764,9 +764,9 @@ var OntologyEditor = new function()
                         // output some status
                         var deleted = jsonData['deleted_relations'].length;
                         var not_deleted = jsonData['not_deleted_relations'].length;
-                        if (not_deleted == 0) {
+                        if (not_deleted === 0) {
                             OntologyEditor.show_error_status( "Success", "All " + deleted + " relations have been removed." );
-                        } else if (deleted == 0) {
+                        } else if (deleted === 0) {
                             refresh = false;
                             OntologyEditor.show_error_status( "No success", "No relation could be removed due to their use by in some class links." );
                         } else {
@@ -857,9 +857,9 @@ var OntologyEditor = new function()
                         // output some status
                         var deleted = jsonData['deleted_classes'].length;
                         var not_deleted = jsonData['not_deleted_classes'].length;
-                        if (not_deleted == 0) {
+                        if (not_deleted === 0) {
                             OntologyEditor.show_error_status( "Success", "All " + deleted + " classes have been removed." );
-                        } else if (deleted == 0) {
+                        } else if (deleted === 0) {
                             refresh = false;
                             OntologyEditor.show_error_status( "No success", "No class could be removed due to relations to other classes." );
                         } else {

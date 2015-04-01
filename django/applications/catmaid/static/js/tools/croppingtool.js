@@ -26,7 +26,7 @@ function CroppingTool() {
 			1,
 			1,
 			1,
-			function( val ){ statusBar.replaceLast( "crop top z: " + val ); return; } );
+			function( val ){ CATMAID.statusBar.replaceLast( "crop top z: " + val ); return; } );
 
 	this.slider_crop_bottom_z = new Slider(
 			SLIDER_HORIZONTAL,
@@ -35,7 +35,7 @@ function CroppingTool() {
 			1,
 			1,
 			1,
-			function( val ){ statusBar.replaceLast( "crop bottom z: " + val ); return; } );
+			function( val ){ CATMAID.statusBar.replaceLast( "crop bottom z: " + val ); return; } );
 
 	this.slider_crop_s = new Slider(
 			SLIDER_HORIZONTAL,
@@ -44,14 +44,14 @@ function CroppingTool() {
 			0,
 			6,
 			5,
-			function( val ){ statusBar.replaceLast( "crop s: " + val ); } );
+			function( val ){ CATMAID.statusBar.replaceLast( "crop s: " + val ); } );
 
 	// Obtain a reference to the RoiTool toolbar button
 	var toolbar = document.getElementById("toolbar_roi");
 	var toolbar_button = document.getElementById("button_roi_apply").parentNode;
 
 	// Keep a list of added elements
-	var added_elements = new Array();
+	var added_elements = [];
 
 	// A procedure to create a toolbar box
 	var create_tb_box = function()
@@ -209,7 +209,7 @@ function CroppingTool() {
 			}
 			else
 			{
-				statusBar.replaceLast( text );
+				CATMAID.statusBar.replaceLast( text );
 				alert( "Cropping the microstack...\nThis operation may take some time, you will be notified as soon as the cropped stack is ready." );
 			}
 		} else {
@@ -228,7 +228,7 @@ function CroppingTool() {
 		// only create and show the menu when there is more than one stack
 		if (self.stacks_to_crop.length > 1)
 		{
-			var current_menu_content = new Array();
+			var current_menu_content = [];
 			for (var s in self.stacks_to_crop)
 			{
 				var stack = self.stacks_to_crop[ s ];
@@ -335,7 +335,7 @@ function CroppingTool() {
 		//self.stack.moveToPixel( self.stack.z, self.stack.y, self.stack.x, val );
 		if ( self.getCropBox() )
 			self.updateCropBox();
-		statusBar.replaceLast( "crop s: " + val );
+		CATMAID.statusBar.replaceLast( "crop s: " + val );
 		self.zoomlevel = val;
 		return;
 	};
@@ -375,7 +375,7 @@ function CroppingTool() {
 
 		// initialize the stacks we offer to crop
 		getStackMenuInfo(project.id, function(stacks) {
-			self.stacks_to_crop = new Array();
+			self.stacks_to_crop = [];
 			$.each(stacks, function(index, value) {
 				// By default, mark only the current stack to be cropped
 				self.stacks_to_crop.push(
@@ -493,5 +493,5 @@ function CroppingTool() {
 		return;
 	};
 }
-extend( CroppingTool, RoiTool );
+CATMAID.tools.extend( CroppingTool, RoiTool );
 

@@ -221,7 +221,7 @@ var toolActions = [
  */
 var createEditToolActions = function() {
   // re-create the whole array
-  editToolActions = new Array();
+  editToolActions = [];
 
   if (userprofile.show_text_label_tool) {
     editToolActions.push(
@@ -322,13 +322,26 @@ var createEditToolActions = function() {
         }
       }));
   }
+
+  if (userprofile.show_roi_tool) {
+    editToolActions.push(
+      new Action({
+        helpText: "Show ROI tool",
+        buttonID: "edit_button_roi",
+        buttonName: 'roitool',
+        run: function (e) {
+          project.setTool( new RoiTool() );
+          return true;
+        }
+      }));
+  }
 };
 
 /* Edit tools are dependent on the current user. Therefore,
  * they get initialized when we know whether the user is
  * logged in or not.
  */
-var editToolActions = new Array();
+var editToolActions = [];
 
 var segmentationWindowActions = [
 

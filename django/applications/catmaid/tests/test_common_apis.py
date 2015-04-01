@@ -14,7 +14,7 @@ import datetime
 
 from catmaid.models import Project, Stack, ProjectStack
 from catmaid.models import ClassInstance, Log, Message, TextlabelLocation
-from catmaid.models import Treenode, Connector, TreenodeConnector, User
+from catmaid.models import Treenode, Connector, TreenodeConnector, User, Review, ReviewerWhitelist
 from catmaid.models import Textlabel, TreenodeClassInstance, ClassInstanceClassInstance
 from catmaid.fields import Double3D, Integer3D
 from catmaid.control.common import get_relation_to_id_map, get_class_to_id_map
@@ -65,7 +65,10 @@ class TransactionTests(TransactionTestCase):
                 '/%d/neuron/%s/delete' % (self.test_project_id, neuron_id), {})
         self.assertEqual(response.status_code, 200)
         parsed_response = json.loads(response.content)
-        expected_result = {'success': 'Deleted neuron #2 as well as its skeletons and annotations.'}
+        expected_result = {
+            'skeleton_ids': [skeleton_id],
+            'success': 'Deleted neuron #2 as well as its skeletons and annotations.'
+        }
         self.assertEqual(expected_result, parsed_response)
 
         self.assertEqual(0, Treenode.objects.filter(skeleton_id=skeleton_id).count())
@@ -373,6 +376,7 @@ class ViewPageTests(TestCase):
         self.assertEqual(len(returned_labels), 1)
         self.assertEqual(returned_labels[0], "uncertain end")
 
+        # Test label update with, removing existing tags
         response = self.client.post('/%d/label/treenode/%d/update' % (self.test_project_id,
                                                                       403),
                                     {'tags': ",".join(['foo', 'bar'])})
@@ -385,6 +389,35 @@ class ViewPageTests(TestCase):
         returned_labels = json.loads(response.content)
         self.assertEqual(len(returned_labels), 2)
         self.assertEqual(set(returned_labels), set(['foo', 'bar']))
+
+        # Test label update without removing existing tags
+        response = self.client.post('/%d/label/treenode/%d/update' % (self.test_project_id,
+                                                                      403),
+                                    {'tags': ",".join(['green', 'apple']),
+                                     'delete_existing': 'false'})
+        parsed_response = json.loads(response.content)
+        self.assertTrue('message' in parsed_response)
+        self.assertTrue(parsed_response['message'] == 'success')
+
+        response = self.client.post('/%d/labels-for-node/treenode/%d' % (self.test_project_id,
+                                                                    403))
+        returned_labels = json.loads(response.content)
+        self.assertEqual(len(returned_labels), 4)
+        self.assertEqual(set(returned_labels), set(['foo', 'bar', 'green', 'apple']))
+
+        # Test removal of a single label
+        response = self.client.post('/%d/label/treenode/%d/remove' % (self.test_project_id,
+                                                                      403),
+                                    {'tag': 'bar'})
+        parsed_response = json.loads(response.content)
+        self.assertTrue('message' in parsed_response)
+        self.assertTrue(parsed_response['message'] == 'success')
+
+        response = self.client.post('/%d/labels-for-node/treenode/%d' % (self.test_project_id,
+                                                                    403))
+        returned_labels = json.loads(response.content)
+        self.assertEqual(len(returned_labels), 3)
+        self.assertEqual(set(returned_labels), set(['foo', 'green', 'apple']))
 
     def test_project_list(self):
         # Check that, pre-authentication, we can see none of the
@@ -1074,8 +1107,8 @@ class ViewPageTests(TestCase):
                 u'iTotalRecords': 4,
                 u'iTotalDisplayRecords': 4,
                 u'aaData': [
-                    [421, 373, 6630.00, 4330.00, 0.0, 0, u"", 5, u"test2", 409, u'07-10-2011 07:02'],
-                    [356, 373, 7620.00, 2890.00, 0.0, 0, u"", 5, u"test2", 377, u'27-10-2011 10:45']]}
+                    [421, 373, 6630.00, 4330.00, 0.0, 0, 5, u"", 5, u"test2", 409, u'07-10-2011 07:02'],
+                    [356, 373, 7620.00, 2890.00, 0.0, 0, 5, u"", 5, u"test2", 377, u'27-10-2011 10:45']]}
         self.assertEqual(expected_result, parsed_response)
 
     def test_list_connector_outgoing_with_sorting(self):
@@ -1095,10 +1128,10 @@ class ViewPageTests(TestCase):
                 u'iTotalRecords': 4,
                 u'iTotalDisplayRecords': 4,
                 u'aaData': [
-                    [432, u"", 2640.00, 3450.00, 0.0, 0, u"synapse with more targets, TODO", 0, u"test2", u"", u'31-10-2011 05:22'],
-                    [421, 373, 6630.00, 4330.00, 0.0, 0, u"", 5, u"test2", 409, u'07-10-2011 07:02'],
-                    [356, 373, 7620.00, 2890.00, 0.0, 0, u"", 5, u"test2", 377, u'27-10-2011 10:45'],
-                    [356, 361, 7030.00, 1980.00, 0.0, 0, u"", 9, u"test2", 367, u'27-10-2011 10:45']]
+                    [432, u"", 2640.00, 3450.00, 0.0, 0, 5, u"synapse with more targets, TODO", 0, u"test2", u"", u'31-10-2011 05:22'],
+                    [421, 373, 6630.00, 4330.00, 0.0, 0, 5, u"", 5, u"test2", 409, u'07-10-2011 07:02'],
+                    [356, 373, 7620.00, 2890.00, 0.0, 0, 5, u"", 5, u"test2", 377, u'27-10-2011 10:45'],
+                    [356, 361, 7030.00, 1980.00, 0.0, 0, 5, u"", 9, u"test2", 367, u'27-10-2011 10:45']]
         }
         self.assertEqual(expected_result, parsed_response)
 
@@ -1119,9 +1152,9 @@ class ViewPageTests(TestCase):
                 u'iTotalRecords': 2,
                 u'iTotalDisplayRecords': 2,
                 u'aaData': [
-                    [356, 235, 6100.00, 2980.00, 0.0, 0, u"", 28,
+                    [356, 235, 6100.00, 2980.00, 0.0, 0, 5, u"", 28,
                      u"test2", 285, u'27-10-2011 10:45'],
-                    [421, 235, 5810.00, 3950.00, 0.0, 0, u"", 28,
+                    [421, 235, 5810.00, 3950.00, 0.0, 0, 5, u"", 28,
                      u"test2", 415, u'07-10-2011 07:02']]}
         self.assertEqual(expected_result, parsed_response)
 
@@ -1689,7 +1722,9 @@ class ViewPageTests(TestCase):
         parsed_response = json.loads(response.content)
         expected_result = {
             'success': 'Removed treenode successfully.',
-            'parent_id': None
+            'parent_id': None,
+            'deleted_neuron': True,
+            'skeleton_id': 2433
         }
         self.assertEqual(expected_result, parsed_response)
         self.assertEqual(0, Treenode.objects.filter(id=treenode_id).count())
@@ -1804,6 +1839,41 @@ class ViewPageTests(TestCase):
                 {"id":374, "name":"downstream-A", "class_name":"neuron"},
                 {"id":362, "name":"downstream-B", "class_name":"neuron"}]
         self.assertEqual(expected_result, parsed_response)
+
+    def test_search_with_nodes_and_duplicate_label(self):
+        self.fake_authentication()
+
+        response = self.client.get(
+                '/%d/search' % self.test_project_id,
+                {'substring': 'uncertain end'})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+
+        # Expect only one result that has a node linked
+        expected_result = [
+            {"id":2342, "name":"uncertain end", "class_name":"label", "nodes":[
+                {"id":403, "x":7840, "y":2380, "z":0, "skid":373}]},
+        ]
+        self.assertItemsEqual(expected_result, parsed_response)
+
+        # Add a duplicate record of the label, without any node links
+        label = ClassInstance.objects.get(id=2342)
+        label.id = None
+        label.save()
+
+        response2 = self.client.get(
+                '/%d/search' % self.test_project_id,
+                {'substring': 'uncertain end'})
+        self.assertEqual(response2.status_code, 200)
+        parsed_response2 = json.loads(response2.content)
+
+        # Expect the nodes to be not linked to the duplicate record
+        expected_result2 = [
+            {"id":label.id, "name":"uncertain end", "class_name":"label"},
+            {"id":2342, "name":"uncertain end", "class_name":"label", "nodes":[
+                {"id":403, "x":7840, "y":2380, "z":0, "skid":373}]}
+        ]
+        self.assertItemsEqual(expected_result2, parsed_response2)
 
     def test_search_with_nodes(self):
         self.fake_authentication()
@@ -1937,6 +2007,155 @@ class ViewPageTests(TestCase):
         expected_result = {'skeleton_id': 235, 'neuron_id': 233, 'skeleton_name': 'skeleton 235', 'neuron_name': 'branched neuron'}
         self.assertEqual(expected_result, parsed_response)
 
+    def assertTreenodeHasRadius(self, treenode_id, radius):
+        """Helper function for radius update tests."""
+        treenode = Treenode.objects.get(id=treenode_id)
+        self.assertEqual(radius, treenode.radius,
+                'Treenode %d has radius %s not %s' % (treenode_id, treenode.radius, radius))
+
+    def test_update_treenode_radius_single_node(self):
+        self.fake_authentication()
+
+        treenode_id = 257
+        new_r = 5
+        old_r = -1
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 0})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(259, old_r), (257, new_r), (255, old_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+    def test_update_treenode_radius_next_branch(self):
+        self.fake_authentication()
+
+        # Test to end node
+        treenode_id = 257
+        new_r = 5
+        old_r = -1
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 1})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(261, new_r), (259, new_r), (257, new_r),
+                    (255, old_r), (253, old_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+        # Test to branch node
+        treenode_id = 263
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 1})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(253, old_r), (263, new_r), (265, new_r),
+                    (269, old_r), (267, old_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+    def test_update_treenode_radius_prev_branch(self):
+        self.fake_authentication()
+
+        # Test to branch node
+        treenode_id = 257
+        new_r = 5
+        old_r = -1
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 2})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(261, old_r), (259, old_r), (257, new_r),
+                    (255, new_r), (253, old_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+        # Test to root node
+        treenode_id = 253
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 2})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(255, new_r), (263, old_r), (253, new_r),
+                    (251, new_r), (249, new_r), (247, new_r),
+                    (247, new_r), (245, new_r), (243, new_r),
+                    (241, new_r), (239, new_r), (237, old_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+    def test_update_treenode_radius_prev_defined_node(self):
+        self.fake_authentication()
+
+        # Set radius at ancestor node
+        ancestor = Treenode.objects.get(id=251)
+        ancestor.radius = 7
+        ancestor.save()
+
+        # Test to previous defined node
+        treenode_id = 257
+        new_r = 5
+        old_r = -1
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 3})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(261, old_r), (259, old_r), (257, new_r),
+                    (255, new_r), (253, new_r), (251, 7)]
+
+        # Test on node with defined radius (and propagation to root)
+        treenode_id = ancestor.id
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 3})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(253, new_r), (251, new_r), (249, new_r),
+                    (247, new_r), (247, new_r), (245, new_r),
+                    (243, new_r), (241, new_r), (239, new_r),
+                    (237, new_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+    def test_update_treenode_radius_to_root(self):
+        self.fake_authentication()
+
+        treenode_id = 257
+        new_r = 5
+        old_r = -1
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 4})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(261, old_r), (259, old_r), (257, new_r),
+                    (255, new_r), (253, new_r), (263, old_r),
+                    (251, new_r), (249, new_r), (247, new_r),
+                    (247, new_r), (245, new_r), (243, new_r),
+                    (241, new_r), (239, new_r), (237, new_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
+    def test_update_treenode_radius_all_nodes(self):
+        self.fake_authentication()
+
+        treenode_id = 2417
+        new_r = 5
+        old_r = -1
+        response = self.client.post(
+                '/%d/treenode/%d/radius' % (self.test_project_id, treenode_id),
+                {'radius': new_r, 'option': 5})
+        self.assertEqual(response.status_code, 200)
+
+        expected = [(2419, new_r), (2417, new_r), (2415, new_r), (2423, new_r)]
+        for x in expected:
+            self.assertTreenodeHasRadius(*x)
+
     def test_read_message_error(self):
         self.fake_authentication()
         message_id = 5050
@@ -2013,6 +2232,87 @@ class ViewPageTests(TestCase):
         # Check result independent from order
         for mi in ('0','1','2','3'):
             self.assertEqual(expected_result[mi], parsed_response[mi])
+
+    def test_skeleton_openleaf(self):
+        skeleton_id = 235
+
+        self.fake_authentication()
+        url = '/%d/skeleton/%d/openleaf' % (self.test_project_id, skeleton_id,)
+
+        # Return untagged root
+        response = self.client.post(url, {'tnid': 243})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        distsort = lambda end: end[2]
+        parsed_response.sort(key=distsort)
+        expected_result = \
+                [[237, [1065.0, 3035.0, 0.0],  4, u'2011-09-27T07:49:15.802'],
+                 [261, [2820.0, 1345.0, 0.0], 10, u'2011-09-27T07:49:25.549'],
+                 [277, [6090.0, 1550.0, 0.0], 13, u'2011-09-27T07:49:33.770'],
+                 [417, [4990.0, 4200.0, 0.0], 16, u'2011-10-07T07:02:15.176']]
+        self.assertEqual(parsed_response, expected_result)
+
+        # Tag soma and try again
+        response = self.client.post(
+                '/%d/label/treenode/%d/update' % (self.test_project_id, 237),
+                {'tags': 'soma', 'delete_existing': 'false'})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(url, {'tnid': 243})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        parsed_response.sort(key=distsort)
+        expected_result.pop(0)
+        self.assertEqual(parsed_response, expected_result)
+
+        # Tag branch and try again, should be shortest path (277) not nearest (417)
+        # Also check tag case insensitivity.
+        response = self.client.post(
+                '/%d/label/treenode/%d/update' % (self.test_project_id, 261),
+                {'tags': 'End', 'delete_existing': 'false'})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(url, {'tnid': 243})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        parsed_response.sort(key=distsort)
+        expected_result.pop(0)
+        self.assertEqual(parsed_response, expected_result)
+
+        # Check that an arbitrary tag containing 'end' is still considered open.
+        response = self.client.post(
+                '/%d/label/treenode/%d/update' % (self.test_project_id, 277),
+                {'tags': 'mitochondria ends', 'delete_existing': 'false'})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(url, {'tnid': 243})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        parsed_response.sort(key=distsort)
+        self.assertEqual(parsed_response, expected_result)
+
+        # Regression test for acardona/CATMAID#946
+        # Test that an untagged root with multiple children is considered open
+        skeleton_id = 361
+        url = '/%d/skeleton/%d/openleaf' % (self.test_project_id, skeleton_id,)
+        response = self.client.post(url, {'tnid': 367})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        parsed_response.sort(key=distsort)
+        expected_result = \
+                [[367, [7030.0, 1980.0, 0.0], 1, u'2011-09-27T07:57:17.808'],
+                 [387, [9030.0, 1480.0, 0.0], 4, u'2011-09-27T07:57:26.310'],
+                 [399, [5670.0,  640.0, 0.0], 6, u'2011-09-27T07:57:37.518']]
+        self.assertEqual(parsed_response, expected_result)
+
+        # Tag soma and try again
+        response = self.client.post(
+                '/%d/label/treenode/%d/update' % (self.test_project_id, 367),
+                {'tags': 'soma', 'delete_existing': 'false'})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(url, {'tnid': 367})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        parsed_response.sort(key=distsort)
+        expected_result.pop(0)
+        self.assertEqual(parsed_response, expected_result)
 
     def test_skeleton_ancestry(self):
         skeleton_id = 361
@@ -2492,6 +2792,144 @@ class ViewPageTests(TestCase):
         self.assertEqual(len(aq), 2)
         self.assertEqual(aq[0].name, 'myannotation')
         self.assertEqual(aq[1].name, 'pattern 10 test-2-annotation')
+
+    def test_review_status(self):
+        self.fake_authentication()
+
+        skeleton_id = 2388
+
+        # No reviews, single segment
+        url = '/%d/skeleton/review-status' % (self.test_project_id)
+        response = self.client.post(url, {'skeleton_ids[0]': skeleton_id})
+        self.assertEqual(response.status_code, 200)
+        expected_result = {'2388': 0}
+        self.assertJSONEqual(response.content, expected_result)
+
+        # Add reviews
+        review_time = "2014-03-17T00:00:00"
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2396)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=2,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2396)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2394)
+        response = self.client.post(url, {'skeleton_ids[0]': skeleton_id})
+        self.assertEqual(response.status_code, 200)
+        expected_result = {'2388': 66}
+        self.assertJSONEqual(response.content, expected_result)
+
+        # Use empty whitelist
+        response = self.client.post(url,
+                {'skeleton_ids[0]': skeleton_id, 'whitelist': 'true'})
+        self.assertEqual(response.status_code, 200)
+        expected_result = {'2388': 0}
+        self.assertJSONEqual(response.content, expected_result)
+
+        # Add a user to whitelist
+        ReviewerWhitelist.objects.create(project_id=self.test_project_id,
+                user_id=self.test_user_id, reviewer_id=2, accept_after=review_time)
+        response = self.client.post(url,
+                {'skeleton_ids[0]': skeleton_id, 'whitelist': 'true'})
+        self.assertEqual(response.status_code, 200)
+        expected_result = {'2388': 33}
+        self.assertJSONEqual(response.content, expected_result)
+
+    def test_export_review_skeleton(self):
+        self.fake_authentication()
+
+        skeleton_id = 2388
+
+        # No reviews, single segment
+        url = '/%d/skeleton/%d/review' % (self.test_project_id, skeleton_id)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        expected_result = [{'status': '0.00', 'id': 0, 'nr_nodes': 3, 'sequence': [
+                {'y': 6550.0, 'x': 3680.0, 'z': 0.0, 'rids': [], 'id': 2396},
+                {'y': 6030.0, 'x': 3110.0, 'z': 0.0, 'rids': [], 'id': 2394},
+                {'y': 6080.0, 'x': 2370.0, 'z': 0.0, 'rids': [], 'id': 2392}]}]
+        self.assertJSONEqual(response.content, expected_result)
+
+        # Add reviews
+        review_time = "2014-03-17T00:00:00"
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2396)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=2,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2396)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2394)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        expected_result = [{'status': '66.67', 'id': 0, 'nr_nodes': 3, 'sequence': [
+                {'y': 6550.0, 'x': 3680.0, 'z': 0.0, 'rids': [[3, review_time], [2, review_time]], 'id': 2396},
+                {'y': 6030.0, 'x': 3110.0, 'z': 0.0, 'rids': [[3, review_time]], 'id': 2394},
+                {'y': 6080.0, 'x': 2370.0, 'z': 0.0, 'rids': [], 'id': 2392}]}]
+        self.assertJSONEqual(response.content, expected_result)
+
+        # Newer reviews of same nodes should duplicate reviewer ID
+        # NOTE: this duplication does not happen in practice because
+        # update_location_reviewer updates the timestamp of the existing
+        # review. This is just to demonstrate what edge case behavior is.
+        review_time = "2014-03-18T00:00:00"
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=2,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2396)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=2394)
+        response = self.client.get(url)
+        expected_result[0]['sequence'][0]['rids'].append([2, review_time])
+        expected_result[0]['sequence'][1]['rids'].append([3, review_time])
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, expected_result)
+
+    def test_export_skeleton_reviews(self):
+        self.fake_authentication()
+
+        skeleton_id = 235
+
+        # No reviews
+        url = '/%d/skeleton/%d/reviewed-nodes' % (self.test_project_id, skeleton_id)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = {}
+        self.assertEqual(expected_result, parsed_response)
+
+        review_time = "2014-03-17T18:14:34.851"
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=253)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=2,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=253)
+        Review.objects.create(project_id=self.test_project_id, reviewer_id=3,
+            review_time=review_time, skeleton_id=skeleton_id, treenode_id=263)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        expected_result = {
+                '253': [[3, review_time], [2, review_time]],
+                '263': [[3, review_time]]}
+        self.assertJSONEqual(response.content, expected_result)
+
+    def test_user_reviewer_whitelist(self):
+        self.fake_authentication()
+
+        # Test that whitelist is empty by default.
+        url = '/%d/user/reviewer-whitelist' % (self.test_project_id,)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = []
+        self.assertEqual(expected_result, parsed_response)
+
+        # Test replacing whitelist.
+        whitelist = {
+                '1': "2014-03-17T00:00:00",
+                '2': "2014-03-18T00:00:00"}
+        response = self.client.post(url, whitelist)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        expected_result = [{'reviewer_id': int(r), 'accept_after': t}
+                for r,t in whitelist.iteritems()]
+        self.assertJSONEqual(response.content, expected_result)
 
 
 class TreenodeTests(TestCase):

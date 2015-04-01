@@ -20,8 +20,8 @@ name, size, onchange, defaultvalue) {
   var mouseUp = function (e) {
     if (timer) window.clearTimeout(timer);
 
-    ui.releaseEvents();
-    ui.removeEvent("onmouseup", mouseUp);
+    CATMAID.ui.releaseEvents();
+    CATMAID.ui.removeEvent("onmouseup", mouseUp);
 
     return false;
   };
@@ -46,10 +46,10 @@ name, size, onchange, defaultvalue) {
   var topMouseDown = function (e) {
     if (timer) window.clearTimeout(timer);
 
-    ui.registerEvent("onmouseup", mouseUp);
-    ui.setCursor("auto");
-    ui.catchEvents();
-    ui.onmousedown(e);
+    CATMAID.ui.registerEvent("onmouseup", mouseUp);
+    CATMAID.ui.setCursor("auto");
+    CATMAID.ui.catchEvents();
+    CATMAID.ui.onmousedown(e);
 
     decrease();
     return false;
@@ -75,10 +75,10 @@ name, size, onchange, defaultvalue) {
   var bottomMouseDown = function (e) {
     if (timer) window.clearTimeout(timer);
 
-    ui.registerEvent("onmouseup", mouseUp);
-    ui.setCursor("auto");
-    ui.catchEvents();
-    ui.onmousedown(e);
+    CATMAID.ui.registerEvent("onmouseup", mouseUp);
+    CATMAID.ui.setCursor("auto");
+    CATMAID.ui.catchEvents();
+    CATMAID.ui.onmousedown(e);
 
     increase();
     return false;
@@ -91,9 +91,9 @@ name, size, onchange, defaultvalue) {
     var val = parseInt(input.value);
     if (isNaN(val)) return;
 
-    var w = ui.getMouseWheel(e);
+    var w = CATMAID.ui.getMouseWheel(e);
     if (w) {
-      if (w == MOUSE_WHEEL_UP) {
+      if (w > 0) {
         input.value = val - 1;
       } else {
         input.value = val + 1;
@@ -106,8 +106,6 @@ name, size, onchange, defaultvalue) {
   // initialise
   var self = this;
   var timer;
-
-  if (!ui) ui = new UI();
 
   var view = document.createElement("span");
   //view.style.paddingLeft = "2em";
@@ -151,12 +149,5 @@ name, size, onchange, defaultvalue) {
   view.appendChild(img);
 
   input.onchange = onchange;
-  try {
-    input.addEventListener("DOMMouseScroll", mouseWheel, false); /* Webkit takes the event but does not understand it ... */
-    input.addEventListener("mousewheel", mouseWheel, false);
-  } catch (error) {
-    try {
-      input.onmousewheel = mouseWheel;
-    } catch (error) {}
-  }
+  input.addEventListener("wheel", mouseWheel, false);
 }

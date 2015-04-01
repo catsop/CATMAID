@@ -4,7 +4,6 @@
  *
  * requirements:
  *	 tools.js
- *	 ui.js
  *	 slider.js
  *   stack.js
  */
@@ -21,16 +20,11 @@ function Navigator()
 	this.stack = null;
 	this.toolname = "navigator";
 
-	if ( !ui ) ui = new UI();
-
 	var sliders_box = document.getElementById( "sliders_box" );
 	this.input_x = document.getElementById( "x" );		//!< x_input
 	this.input_y = document.getElementById( "y" );		//!< y_input
 	this.checkbox_reflines = document.getElementById( "displayreflines" );
 
-	// Last mouse position for proper zoom with + and -
-	var lastX = 0, lastY = 0;
-	
 	/* remove all existing dimension sliders */
 	while ( sliders_box.firstChild )
 		sliders_box.removeChild( sliders_box.firstChild );
@@ -42,7 +36,7 @@ function Navigator()
 			388,
 			388,
 			1,
-			function( val ){ statusBar.replaceLast( "z: " + val ); return; } );
+			function( val ){ CATMAID.statusBar.replaceLast( "z: " + val ); return; } );
 	
 	this.slider_s = new Slider(
 			SLIDER_HORIZONTAL,
@@ -56,7 +50,7 @@ function Navigator()
 				4,
 				8 ),
 			8,
-			function( val ){ statusBar.replaceLast( "s: " + val ); },
+			function( val ){ CATMAID.statusBar.replaceLast( "s: " + val ); },
 			undefined,
 			false );
 	
@@ -114,39 +108,37 @@ function Navigator()
 	
 	var onmousemove = function( e )
 	{
-		self.lastX = self.stack.x + ui.diffX; // TODO - or + ?
-		self.lastY = self.stack.y + ui.diffY;
 		self.stack.moveToPixel(
 			self.stack.z,
-			self.stack.y - ui.diffY / self.stack.scale,
-			self.stack.x - ui.diffX / self.stack.scale,
+			self.stack.y - CATMAID.ui.diffY / self.stack.scale,
+			self.stack.x - CATMAID.ui.diffX / self.stack.scale,
 			self.stack.s );
 		return true;
 	};
 	
 	var onmouseup = function( e )
 	{
-		ui.releaseEvents(); 
-		ui.removeEvent( "onmousemove", onmousemove );
-		ui.removeEvent( "onmouseup", onmouseup );
+		CATMAID.ui.releaseEvents();
+		CATMAID.ui.removeEvent( "onmousemove", onmousemove );
+		CATMAID.ui.removeEvent( "onmouseup", onmouseup );
 		return false;
 	};
 	
 	var onmousedown = function( e )
 	{
-		ui.registerEvent( "onmousemove", onmousemove );
-		ui.registerEvent( "onmouseup", onmouseup );
-		ui.catchEvents( "move" );
-		ui.onmousedown( e );
+		CATMAID.ui.registerEvent( "onmousemove", onmousemove );
+		CATMAID.ui.registerEvent( "onmouseup", onmouseup );
+		CATMAID.ui.catchEvents( "move" );
+		CATMAID.ui.onmousedown( e );
 		
-		ui.catchFocus();
+		CATMAID.ui.catchFocus();
 		
 		return false;
 	};
 	
 	var onmousewheel = function( e )
 	{
-		var w = ui.getMouseWheel( e );
+		var w = CATMAID.ui.getMouseWheel( e );
 		if ( w )
 		{
 			if ( w > 0 )
@@ -165,7 +157,7 @@ function Navigator()
 	{
 		zoom : function( e )
 		{
-			var w = ui.getMouseWheel( e );
+			var w = CATMAID.ui.getMouseWheel( e );
 			if ( w )
 			{
         		w = self.stack.inverse_mouse_wheel * w;
@@ -193,13 +185,12 @@ function Navigator()
 		{
 			var xp = self.stack.x;
 			var yp = self.stack.y;
-			var m = ui.getMouse( e, self.stack.getView() );
-			var w = ui.getMouseWheel( e );
+			var m = CATMAID.ui.getMouse( e, self.stack.getView() );
+			var w = CATMAID.ui.getMouseWheel( e );
 			if ( m )
 			{
 				xp = m.offsetX - self.stack.viewWidth / 2;
 				yp = m.offsetY - self.stack.viewHeight / 2;
-				//statusBar.replaceLast( ( m.offsetX - viewWidth / 2 ) + " " + ( m.offsetY - viewHeight / 2 ) );
 			}
 			if ( w )
 			{
@@ -287,8 +278,22 @@ function Navigator()
 	
 	this.changeScale = function( val )
 	{
-		self.stack.moveToPixel( self.stack.z, self.stack.y, self.stack.x, val );
-		return;
+		// Determine if the mouse is over the stack view.
+		var offset = $(self.stack.getView()).offset();
+		var m = CATMAID.UI.getLastMouse();
+		var x = m.x - offset.left,
+			y = m.y - offset.top;
+		if (x >= 0 && x <= self.stack.viewWidth &&
+			y >= 0 && y <= self.stack.viewHeight) {
+			x /= self.stack.scale;
+			y /= self.stack.scale;
+			x += (self.stack.x - self.stack.viewWidth / self.stack.scale / 2);
+			y += (self.stack.y - self.stack.viewHeight / self.stack.scale / 2);
+			self.scalePreservingLastPosition(x, y, val);
+		} else {
+			// If the mouse is not over the stack view, zoom towards the center.
+			self.stack.moveToPixel( self.stack.z, self.stack.y, self.stack.x, val );
+		}
 	};
 
 	/**
@@ -298,19 +303,19 @@ function Navigator()
 	this.scalePreservingLastPosition = function (keep_x, keep_y, sp) {
 		var old_s = self.stack.s;
 		var old_scale = self.stack.scale;
-		var new_s = Math.max(0, Math.min(self.stack.MAX_S, Math.round(sp)));
+		var new_s = Math.max(self.stack.MIN_S, Math.min(self.stack.MAX_S, sp));
 		var new_scale = 1 / Math.pow(2, new_s);
 
 		if (old_s == new_s)
 			return;
 
-		var dx = keep_x - self.stack.getProject().coordinates.x;
-		var dy = keep_y - self.stack.getProject().coordinates.y;
+		var dx = keep_x - self.stack.x;
+		var dy = keep_y - self.stack.y;
 
 		var new_centre_x = keep_x - dx * (old_scale / new_scale);
 		var new_centre_y = keep_y - dy * (old_scale / new_scale);
 
-		self.stack.moveTo(self.stack.getProject().coordinates.z, new_centre_y, new_centre_x, sp);
+		self.stack.moveToPixel(self.stack.z, new_centre_y, new_centre_x, sp);
 	};
 
 	//--------------------------------------------------------------------------
@@ -333,7 +338,7 @@ function Navigator()
 	
 	var YXMouseWheel = function( e )
 	{
-		var w = ui.getMouseWheel( e );
+		var w = CATMAID.ui.getMouseWheel( e );
 		if ( w )
 		{
 			this.value = parseInt( this.value ) - w;
@@ -453,19 +458,23 @@ function Navigator()
 				"SPACE": [ 32 ]
 			},
 			run: function (e) {
-				// Avoid repeated onkeydown events in some browsers.
-				if (self.hideLayersHeld) return;
+				// Avoid repeated onkeydown events in some browsers, but still
+				// handle event to prevent browser default behavior (scrolling
+				// or input selection).
+				if (self.hideLayersHeld) return true;
 				self.hideLayersHeld = true;
 
 				// Hide any visible layers (besides the tile layer).
-				var layers = self.stack.getLayers();
-				var layerOpacities = Object.keys(layers).reduce(function (opacities, k) {
-					if (k !== 'TileLayer') {
-						opacities[k] = layers[k].getOpacity();
-						layers[k].setOpacity(0);
-					}
-					return opacities;
-				}, {});
+				var stackLayers = project.getStacks().map(function (s) { return s.getLayers(); });
+				var layerOpacities = stackLayers.map(function (layers) {
+					return Object.keys(layers).reduce(function (opacities, k) {
+						if (k !== 'TileLayer') {
+							opacities[k] = layers[k].getOpacity();
+							layers[k].setOpacity(0);
+						}
+						return opacities;
+					}, {});
+				});
 
 				// Set a key up a listener to make these layers visible again
 				// when the key is released.
@@ -473,11 +482,13 @@ function Navigator()
 				var oldListener = target.onkeyup;
 				target.onkeyup = function (e) {
 					if (e.keyCode == 32) {
-						Object.keys(layerOpacities).forEach(function (k) {
-							layers[k].setOpacity(layerOpacities[k]);
+						stackLayers.forEach(function (layers, ind) {
+							Object.keys(layerOpacities[ind]).forEach(function (k) {
+								layers[k].setOpacity(layerOpacities[ind][k]);
+							});
+							target.onkeyup = oldListener;
+							self.hideLayersHeld = false;
 						});
-						target.onkeyup = oldListener;
-						self.hideLayersHeld = false;
 					} else if (oldListener) oldListener(e);
 				};
 				return true;
@@ -498,21 +509,8 @@ function Navigator()
 		self.stack = parentStack;
 
 		self.mouseCatcher.onmousedown = onmousedown;
-		try
-		{
-			self.mouseCatcher.addEventListener( "DOMMouseScroll", onmousewheel.zoom, false );
-			/* Webkit takes the event but does not understand it ... */
-			self.mouseCatcher.addEventListener( "mousewheel", onmousewheel.zoom, false );
-		}
-		catch ( error )
-		{
-			try
-			{
-				self.mouseCatcher.onmousewheel = onmousewheel.zoom;
-			}
-			catch ( error ) {}
-		}
-		
+		self.mouseCatcher.addEventListener( "wheel", onmousewheel.zoom, false );
+
 		self.stack.getView().appendChild( self.mouseCatcher );
 
 		self.slider_s.update(
@@ -539,34 +537,12 @@ function Navigator()
 			  minor: self.stack.slices },
 			self.stack.z,
 			self.changeSliceDelayed );
-		
+
 		self.input_x.onchange = changeXByInput;
-		try
-		{
-			self.input_x.addEventListener( "DOMMouseScroll", YXMouseWheel, false );
-		}
-		catch ( error )
-		{
-			try
-			{
-				self.input_x.onmousewheel = YXMouseWheel;
-			}
-			catch ( error ) {}
-		}
-		
+		self.input_x.addEventListener( "wheel", YXMouseWheel, false );
+
 		self.input_y.onchange = changeYByInput;
-		try
-		{
-			self.input_y.addEventListener( "DOMMouseScroll", YXMouseWheel, false );
-		}
-		catch ( error )
-		{
-			try
-			{
-				self.input_y.onmousewheel = YXMouseWheel;
-			}
-			catch ( error ) {}
-		}
+		self.input_y.addEventListener( "wheel", YXMouseWheel, false );
 
 		self.checkbox_reflines.checked = userprofile.display_stack_reference_lines;
 		self.checkbox_reflines.onchange = function( e )
@@ -629,33 +605,11 @@ function Navigator()
 			null );
 		
 		self.input_x.onchange = null;
-		try
-		{
-			self.input_x.removeEventListener( "DOMMouseScroll", YXMouseWheel, false );
-		}
-		catch ( error )
-		{
-			try
-			{
-				self.input_x.onmousewheel = null;
-			}
-			catch ( error ) {}
-		}
-		
+		self.input_x.removeEventListener( "wheel", YXMouseWheel, false );
+
 		self.input_y.onchange = null;
-		try
-		{
-			self.input_y.removeEventListener( "DOMMouseScroll", YXMouseWheel, false );
-		}
-		catch ( error )
-		{
-			try
-			{
-				self.input_y.onmousewheel = null;
-			}
-			catch ( error ) {}
-		}
-		
+		self.input_y.removeEventListener( "wheel", YXMouseWheel, false );
+
 		self.checkbox_reflines.onchange = null;
 
 		self.stack = null;

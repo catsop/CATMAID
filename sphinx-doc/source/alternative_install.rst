@@ -28,10 +28,7 @@ In Debian based distributions, this can be done with::
 
   sudo apt-get install nginx libevent-dev
 
-
-Nginx can be started after this. Additionally, you need to make sure a FastCGI
-PHP server is installed. Here we assume PHP-FPM to be available and listing on
-the unix socket *unix:/run/php-fpm/php-fpm.sock*.
+Nginx can be started after this.
 
 Gevent in turn is a Python module. To make it usable, activate the *virtualenv*
 and install Gevent by running::
@@ -67,7 +64,11 @@ following, a Nginx configuration is provided to give access to CATMAID:
       location /catmaid/ {
           proxy_pass http://catmaid-wsgi/;
           proxy_redirect http://catmaid-wsgi/ http://$host/;
+          # This is required to tell Django it is behind a proxy
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          # This lets Django know which protocol was used to connect and also
+          # overrides the header a client who fakes it.
+          proxy_set_header X-Forwarded-Protocol $scheme;
       }
   }
 

@@ -4,7 +4,6 @@
  *
  * requirements:
  *	 tools.js
- *	 ui.js
  *	 request.js
  *
  */
@@ -46,13 +45,13 @@ function Project( pid )
 		if ( !opened )
 		{
 			stacks.push( stack );
-			if ( rootWindow.getChild() == null )
+			if ( rootWindow.getChild() === null )
 				rootWindow.replaceChild( stack.getWindow() );
 			else
 				rootWindow.replaceChild( new CMWHSplitNode( rootWindow.getChild(), stack.getWindow() ) );
 			
 			stack.getWindow().focus();	
-			ui.onresize();
+			CATMAID.ui.onresize();
 		}
 		if ( stacks.length > 1 )
 			self.moveTo( self.coordinates.z, self.coordinates.y, self.coordinates.x );
@@ -62,10 +61,8 @@ function Project( pid )
 			self.moveTo( c.z, c.y, c.x );
 		}
 
-		// Only set focus if stack isn't already in focus
-		if ( stack !== self.focusedStack )
-		    self.setFocusedStack( stack );
-		
+		self.setFocusedStack( stack );
+
 		// only set the tool for the first stack
 		if ( stacks.length == 1 )
 		{
@@ -110,13 +107,13 @@ function Project( pid )
 			if ( stacks[ i ].id == sid )
 			{
 				stacks.splice( i, 1 );
-				if ( stacks.length == 0 )
+				if ( stacks.length === 0 )
 					self.destroy();
 				else
 					stacks[ ( i + 1 ) % stacks.length ].getWindow().focus();
 			}
 		}
-		ui.onresize();
+		CATMAID.ui.onresize();
 		return;
 	};
 	
@@ -249,7 +246,7 @@ function Project( pid )
 		document.getElementById("toolbox_edit").style.display = "block";
 		document.getElementById( "content" ).style.display = "none";
 		document.body.appendChild( view );
-		ui.registerEvent( "onresize", resize );
+		CATMAID.ui.registerEvent( "onresize", resize );
 		//window.onresize();
 		
 		document.onkeydown = onkeydown;
@@ -270,7 +267,7 @@ function Project( pid )
 		//! on the root window as this done by the last child.
 		rootWindow.closeAllChildren();
 			
-		ui.removeEvent( "onresize", resize );
+		CATMAID.ui.removeEvent( "onresize", resize );
 		try
 		{
 			document.body.removeChild( view );
@@ -463,12 +460,12 @@ function Project( pid )
 			ctrl = event.ctrlKey;
 			meta = event.metaKey;
 		}
-		fakeEvent.target = UI.getTargetElement(e || event);
+		fakeEvent.target = CATMAID.UI.getTargetElement(e || event);
 		var n = fakeEvent.target.nodeName.toLowerCase();
 		var fromATextField = false;
 		if (n == "input") {
 			var inputType = fakeEvent.target.type.toLowerCase();
-			if (inputType == "text" || inputType == "password") {
+			if (inputType == "text" || inputType == "password" || inputType == "search") {
 				fromATextField = true;
 			}
 		}
@@ -505,7 +502,6 @@ function Project( pid )
 	// initialise
 	var self = this;
 	this.id = pid;
-	if ( typeof ui == "undefined" ) ui = new UI();
 	if ( typeof requestQueue == "undefined" ) requestQueue = new RequestQueue();
 	
 	var tool = null;
@@ -523,8 +519,8 @@ function Project( pid )
 	var template;				//!< DTD like abstract object tree (classes)
 	var data;					//!< instances in a DOM representation
 	
-	var stacks = new Array();	//!< a list of stacks related to the project
-	this.focusedStack;
+	var stacks = [];	//!< a list of stacks related to the project
+	this.focusedStack = undefined;
 	
 	var mode = "move";
 	var show_textlabels = true;

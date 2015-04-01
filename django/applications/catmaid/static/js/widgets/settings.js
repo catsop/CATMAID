@@ -1,5 +1,19 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  CATMAID,
+  annotations,
+  ConnectorSelection,
+  growlAlert,
+  NeuronNameService,
+  OptionsDialog,
+  project,
+  requestQueue,
+  SelectionTable,
+  User,
+  userprofile,
+  WindowMaker
+*/
 
 "use strict";
 
@@ -49,9 +63,12 @@ SettingsWidget.prototype.init = function(space)
   /**
    * Helper function to create a checkbox with label.
    */
-  var createCheckboxSetting = function(name, handler)
+  var createCheckboxSetting = function(name, handler, checked)
   {
     var cb = $('<input/>').attr('type', 'checkbox');
+    if (checked) {
+      cb.prop('checked', checked);
+    }
     if (handler) {
       cb.change(handler);
     }
@@ -87,6 +104,28 @@ SettingsWidget.prototype.init = function(space)
     }, $('<div />'));
   };
 
+  /**
+   * Adds TileLayer settings to the given container.
+   */
+  var addTileLayerSettings = function(container)
+  {
+    var ds = addSettingsContainer(container, "Tile Layer");
+    // Add explanatory text
+    ds.append($('<div/>').addClass('setting').append('Choose whether to use ' +
+        'WebGL or Canvas tile layer rendering when supported by your tile ' +
+        'source and browser. Note that your tile source server may need to ' +
+        'be <a href="http://enable-cors.org/">configured to enable use in ' +
+        'WebGL</a>. (Note: you must reload the page for this setting to take ' +
+        'effect.)'));
+
+    ds.append(createCheckboxSetting("Prefer WebGL Layers", function() {
+      userprofile.prefer_webgl_layers = this.checked;
+      userprofile.saveAll(function () {
+        growlAlert('Success', 'User profile updated successfully.');
+      });
+    }, userprofile.prefer_webgl_layers));
+  };
+
   /*
    * Adds a grid settings to the given container.
    */
@@ -114,7 +153,7 @@ SettingsWidget.prototype.init = function(space)
           if (this.checked) {
             // Get current settings
             project.getStacks().forEach(function(s) {
-              s.addLayer("grid", new GridLayer(s, getGridOptions()));
+              s.addLayer("grid", new CATMAID.GridLayer(s, getGridOptions()));
               s.redraw();
             });
           } else {
@@ -236,7 +275,7 @@ SettingsWidget.prototype.init = function(space)
         // element is disabled by default.
         var optionElement = $('<option/>').attr('value', o.id)
             .text(o.name);
-        if (i==0) {
+        if (i === 0) {
           optionElement.attr('disabled', 'disabled');
         }
         return optionElement[0];
@@ -291,10 +330,81 @@ SettingsWidget.prototype.init = function(space)
         growlAlert('Success', 'User profile updated successfully.');
       });
     }).addClass('setting'));
+
+
+    // Reviewer whitelist settings
+    ds = addSettingsContainer(container, "Reviewer Team");
+    // Add explanatory text
+    ds.append($('<div/>').addClass('setting').append("Choose which users' " +
+        "reviews to include when calculating review statistics. You may also " +
+        "specify a time after which to include each user's reviews. Reviews " +
+        "by that user prior to this time are ignored. Your team is private; " +
+        "reviewers are not informed whether you have added them to your team."));
+
+    // Get all available users
+    var users = User.all();
+    var reviewers = Object.keys(users).map(function (userId) { return users[userId]; });
+    // Add reviewer options to select box
+    var reviewerSelect = $('<select/>');
+    reviewers.sort(User.displayNameCompare).forEach(function (user) {
+      this.append(new Option(user.getDisplayName(), user.id));
+    }, reviewerSelect);
+
+    var acceptAfterInput = $('<input type="text" />').datepicker({
+      changeMonth: true,
+      changeYear: true,
+      maxDate: 0 // Do not allow future dates
+    });
+
+    // Create 'Add' button and whitelist
+    var whitelist = $('<select/>').addClass('multiline').attr('size', '4')[0];
+
+    var addReviewerButton = $('<button/>').text('Add to team').click(function() {
+      var newReviewer = reviewerSelect.val();
+      // Let CATMAID.ReviewSystem.Whitelist choose a default date if none was entered
+      var acceptAfter = acceptAfterInput.val() ? acceptAfterInput.val() : undefined;
+      CATMAID.ReviewSystem.Whitelist
+          .addReviewer(newReviewer, acceptAfter)
+          .save(refreshWhitelist);
+    });
+
+    var removeReviewerButton = $('<button/>').text('Remove from team').click(function() {
+      var removedReviewer = $(whitelist).val();
+      CATMAID.ReviewSystem.Whitelist
+          .removeReviewer(removedReviewer)
+          .save(refreshWhitelist);
+    });
+
+    ds.append(createLabeledControl('Reviewer', reviewerSelect));
+    ds.append(createLabeledControl('Accept after', acceptAfterInput));
+    ds.append(createLabeledControl('', addReviewerButton));
+    ds.append(createLabeledControl('', whitelist));
+    ds.append(createLabeledControl('', removeReviewerButton));
+
+    var refreshWhitelist = function () {
+      $(whitelist).empty();
+      var wlEntries = CATMAID.ReviewSystem.Whitelist.getWhitelist();
+      var options = Object.keys(wlEntries).map(function(userId) {
+        var user = User.safe_get(userId);
+        var optionElement = $('<option/>')
+            .attr('value', userId)
+            .text(user.getDisplayName() + ' (' + wlEntries[userId].toDateString() + ')');
+        return optionElement[0];
+      });
+
+      options.sort(function (a, b) {
+          return User.displayNameCompare(users[a.value], users[b.value]); });
+
+      options.forEach(whitelist.appendChild.bind(whitelist));
+    };
+
+    // Initialize whitelist
+    refreshWhitelist();
   };
 
 
   // Add all settings
+  addTileLayerSettings(space);
   addGridSettings(space);
   addTracingSettings(space);
 

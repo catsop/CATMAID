@@ -1,5 +1,19 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  CATMAID
+  Colorizer,
+  growlAlert,
+  InstanceRegistry,
+  NeuronNameService,
+  project,
+  requestQueue,
+  SkeletonAnnotations,
+  SkeletonMeasurementsTable,
+  TracingTool,
+  User,
+  WindowMaker
+*/
 
 "use strict";
 
@@ -10,6 +24,7 @@ var SelectionTable = function() {
   this.skeletons = [];
   this.skeleton_ids = {}; // skeleton_id vs index in skeleton array
   this.reviews = {};  // skeleton_id vs review percentage
+  this.review_filter = 'Union'; // filter for review percentage: 'Union' or 'Team'
   this.all_visible = true;
   this.all_items_visible = {pre: true, post: true, text: false, meta: true};
   this.selected_skeleton_id = null;
@@ -21,7 +36,7 @@ SelectionTable._lastFocused = null; // Static reference to last focused instance
 
 SelectionTable.prototype = {};
 $.extend(SelectionTable.prototype, new InstanceRegistry());
-$.extend(SelectionTable.prototype, new SkeletonSource());
+$.extend(SelectionTable.prototype, new CATMAID.SkeletonSource());
 $.extend(SelectionTable.prototype, new Colorizer());
 
 SelectionTable.prototype.highlighting_color = "#d6ffb5";
@@ -102,7 +117,7 @@ SelectionTable.prototype.SkeletonModel.prototype.property_dialog = function() {
   var entry = document.createElement('input');
   entry.setAttribute("type", "text");
   entry.setAttribute("id", "skeleton-selected");
-  entry.setAttribute("value", self.selected );
+  entry.setAttribute("value", this.selected );
   dialog.appendChild(entry);
 
   $(dialog).dialog({
@@ -283,7 +298,7 @@ SelectionTable.prototype.sortByName = function() {
   this.sort(function(sk1, sk2) {
     var name1 = NeuronNameService.getInstance().getName(sk1.id).toLowerCase(),
         name2 = NeuronNameService.getInstance().getName(sk2.id).toLowerCase();
-    return name1 == name2 ? 0 : (name1 < name2 ? -1 : 1);
+    return CATMAID.tools.compareStrings(name1, name2);
   });
 
 };
@@ -366,12 +381,12 @@ SelectionTable.prototype.append = function(models) {
 
   // Retrieve review status before doing anything else
   requestQueue.register(django_url + project.id + '/skeleton/review-status', 'POST',
-    {skeleton_ids: skeleton_ids},
+    {skeleton_ids: skeleton_ids, whitelist: this.review_filter === 'Team'},
     (function(status, text) {
       if (200 !== status) return;
       var json = $.parseJSON(text);
       if (json.error) {
-        new ErrorDialog(json.error, json.detail).show();
+        new CATMAID.ErrorDialog(json.error, json.detail).show();
         return;
       }
 
@@ -461,6 +476,37 @@ SelectionTable.prototype.randomizeColorsOfSelected = function() {
   }, this);
   this.updateLink(this.getSelectedSkeletonModels());
 };
+
+SelectionTable.prototype.colorizeWith = function(scheme) {
+  if ('CATMAID' === scheme) return this.randomizeColorsOfSelected();
+
+  var skeletons = this.filteredSkeletons(true),
+      colorFn;
+
+  if (0 === scheme.indexOf('category') && d3.scale.hasOwnProperty(scheme)) {
+    colorFn = d3.scale[scheme]();
+  } else if (colorbrewer.hasOwnProperty(scheme)) {
+    var sets = colorbrewer[scheme];
+    if (skeletons.size <= 3) {
+      colorFn = function(i) { return sets[3][i]; };
+    } else if (sets.hasOwnProperty(skeletons.size)) {
+      colorFn = function(i) { return sets[skeletons.size][i]; };
+    } else {
+      // circular indexing
+      var keys = Object.keys(sets),
+          largest = sets[keys.sort(function(a, b) { return a < b ? 1 : -1; })[0]];
+      colorFn = function(i) { return largest[i % largest.length]; };
+    }
+  }
+
+  if (colorFn) {
+    skeletons.forEach(function(sk, i) {
+      sk.color.setStyle(colorFn(i));
+      this.gui.update_skeleton_color_button(sk);
+    }, this);
+    this.updateLink(this.getSelectedSkeletonModels());
+  }
+};
  
 SelectionTable.prototype.getSkeletonModel = function( id ) {
   if (id in this.skeleton_ids) {
@@ -517,7 +563,8 @@ SelectionTable.prototype.update = function() {
       // Retrieve review status
       skeleton_ids = skeleton_ids.concat(Object.keys(new_models));
       requestQueue.register(django_url + project.id + '/skeleton/review-status', 'POST',
-        {skeleton_ids: skeleton_ids}, jsonResponseHandler(function(json) {
+        {skeleton_ids: skeleton_ids, whitelist: self.review_filter === 'Team'},
+        CATMAID.jsonResponseHandler(function(json) {
           // Update review information
           skeleton_ids.forEach(function(skeleton_id) {
             self.reviews[skeleton_id] = parseInt(json[skeleton_id]);
@@ -644,15 +691,6 @@ SelectionTable.prototype.GUI.prototype.append = function (skeleton) {
 
   var td = $(document.createElement("td"));
   td.append( $(document.createElement("img")).attr({
-    value: 'Nearest node'
-  })
-    .click( function( event )
-    {
-      TracingTool.goToNearestInNeuronOrSkeleton( 'skeleton', skeleton.id );
-    })
-    .attr('src', STATIC_URL_JS + 'images/activate.gif')
-  );
-  td.append( $(document.createElement("img")).attr({
         value: 'Remove'
         })
         .click( function( event )
@@ -666,14 +704,19 @@ SelectionTable.prototype.GUI.prototype.append = function (skeleton) {
 
   // name
   var name = NeuronNameService.getInstance().getName(skeleton.id);
-  rowElement.append($(document.createElement("td")).text(
-        name ? name : 'undefined'));
+  rowElement.append($(document.createElement("td")).append($('<a />')
+      .text(name ? name : 'undefined')
+      .attr('href', '#')
+      .attr('class', 'neuron-selection-link')
+      .click(function() {
+        TracingTool.goToNearestInNeuronOrSkeleton( 'skeleton', skeleton.id );
+      })));
 
   // percent reviewed
   rowElement.append($('<td/>')
       .text(this.table.reviews[skeleton.id] + "%")
       .css('background-color',
-          ReviewSystem.getBackgroundColor(this.table.reviews[skeleton.id])));
+          CATMAID.ReviewSystem.getBackgroundColor(this.table.reviews[skeleton.id])));
 
   ['selected',
    'pre_visible',

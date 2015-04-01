@@ -1,5 +1,12 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  growlAlert,
+  mayEdit,
+  project,
+  requestQueue,
+  SkeletonAnnotations,
+*/
 
 "use strict";
 
@@ -42,6 +49,12 @@ var SkeletonElements = function(paper)
     SkeletonElements.prototype.ArrowLine.prototype,
   ];
   concreteElements.forEach(function (klass) {klass.initDefs(defs);});
+
+  // Create element groups to enforce drawing order: lines, arrows, nodes, labels
+  paper.append('g').classed('lines', true);
+  paper.append('g').classed('arrows', true);
+  paper.append('g').classed('nodes', true);
+  paper.append('g').classed('labels', true);
 
   this.cache = {
     nodePool : new this.ElementPool(100),
@@ -240,7 +253,7 @@ SkeletonElements.prototype.NodePrototype = new (function() {
     // c may already exist if the node is being reused
     if (!this.c) {
       // create a circle object
-      this.c = this.paper.append('use')
+      this.c = this.paper.select('.nodes').append('use')
                           .attr('xlink:href', '#' + this.USE_HREF)
                           .attr('x', this.x)
                           .attr('y', this.y)
@@ -370,8 +383,10 @@ SkeletonElements.prototype.AbstractTreenode = function() {
     var lineColor = this.colorFromZDiff();
 
     if (!this.line) {
-      this.line = this.paper.append('line');
+      this.line = this.paper.select('.lines').append('line');
       this.line.toBack();
+      this.line.datum(this.id);
+      this.line.on('click', SkeletonElements.prototype.mouseEventManager.edge_mc_click);
     }
 
     this.line.attr({
@@ -505,6 +520,7 @@ SkeletonElements.prototype.AbstractTreenode = function() {
       }
     }
     if (this.line) {
+      this.line.datum(id);
       this.line.hide();
     }
     if (this.number_text) {
@@ -517,11 +533,11 @@ SkeletonElements.prototype.AbstractTreenode = function() {
    * Draws a circle around the treenode and control its radius with the help of
    * the mouse (and a mouse-to-stack transform function).
    */
-  this.drawSurroundingCircle = function(transform) {
+  this.drawSurroundingCircle = function(transform, onclickHandler) {
     var self = this;
     // Create a raphael circle object that represents the surrounding circle
     var color = "rgb(255,255,0)";
-    var c = this.paper.append('circle')
+    var c = this.paper.select('.nodes').append('circle')
       .attr({
         cx: this.x,
         cy: this.y,
@@ -531,7 +547,7 @@ SkeletonElements.prototype.AbstractTreenode = function() {
         'stroke-width': 1.5,
       });
     // Create an adhoc mouse catcher
-    var mc = this.paper.append('circle')
+    var mc = this.paper.select('.nodes').append('circle')
       .attr({
         cx: this.x,
         cy: this.y,
@@ -540,9 +556,29 @@ SkeletonElements.prototype.AbstractTreenode = function() {
         stroke: "none",
         opacity: 0
       });
+    // Create a label to measure current radius of the circle.
+    var label = this.paper.append('g').classed('radiuslabel', true).attr({
+        'pointer-events': 'none'});
+    var fontSize = parseFloat(SkeletonElements.prototype.ArrowLine.prototype.confidenceFontSize) * 0.75;
+    var pad = fontSize * 0.5;
+    var labelShadow = label.append('rect').attr({
+        x: this.x,
+        y: this.y,
+        rx: pad,
+        ry: pad,
+        stroke: '#000',
+        fill: '#000',
+        opacity: 0.75,
+        'pointer-events': 'none'});
+    var labelText = label.append('text').attr({
+        x: this.x,
+        y: this.y,
+        'font-size': fontSize + 'pt',
+        fill: '#FFF',
+        'pointer-events': 'none'});
 
     // Mark this node as currently edited
-    this.surroundingCircleElements = [c, mc];
+    this.surroundingCircleElements = [c, mc, label];
 
     // Update radius on mouse move
     mc.on('mousemove', function() {
@@ -554,6 +590,15 @@ SkeletonElements.prototype.AbstractTreenode = function() {
       c.attr('r', newR);
       // Strore also x and y components
       c.datum(r);
+      // Update radius measurement label.
+      labelText.attr({x: self.x + r.x + 3 * pad, y: self.y + r.y + 2 * pad});
+      labelText.text(Math.round(newR) + 'nm');
+      var bbox = labelText.node().getBBox();
+      labelShadow.attr({
+          x: self.x + r.x + 2 * pad,
+          y: self.y + r.y + 2 * pad - bbox.height,
+          width: bbox.width + 2 * pad,
+          height: bbox.height + pad});
     });
 
     // Don't let mouse down events bubble up
@@ -562,6 +607,8 @@ SkeletonElements.prototype.AbstractTreenode = function() {
     });
     mc.on('click', function() {
       d3.event.stopPropagation();
+      if (onclickHandler) { onclickHandler(); }
+      return true;
     });
   };
 
@@ -576,8 +623,7 @@ SkeletonElements.prototype.AbstractTreenode = function() {
     // Get last radius components
     var r = this.surroundingCircleElements[0].datum();
     // Clean up
-    this.surroundingCircleElements[0].remove();
-    this.surroundingCircleElements[1].remove();
+    this.surroundingCircleElements.forEach(function (e) { e.remove() ;});
     delete this.surroundingCircleElements;
     // Execute callback, if any, with radius in nm as argument
     if (callback) {
@@ -806,7 +852,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
   /** Here 'this' is c's SVG node. */
   var mc_dblclick = function(d) {
     d3.event.stopPropagation();
-    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode);
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
     catmaidSVGOverlay.ensureFocused();
   };
 
@@ -816,7 +862,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
   this.mc_click = function(d) {
     var e = d3.event;
     e.stopPropagation();
-    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode);
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
     if (catmaidSVGOverlay.ensureFocused()) {
       return;
     }
@@ -824,7 +870,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
     if (e.shiftKey) {
       var atnID = SkeletonAnnotations.getActiveNodeId();
       if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
-        return catmaidSVGOverlay.deleteNode(node.id)
+        return catmaidSVGOverlay.deleteNode(node.id);
       }
       if (atnID) {
         var atnType = SkeletonAnnotations.getActiveNodeType();
@@ -838,7 +884,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
           // careful, atnID is a connector
           catmaidSVGOverlay.createLink(node.id, atnID, "postsynaptic_to");
           // TODO check for error
-          statusBar.replaceLast("Joined node #" + atnID + " to connector #" + node.id);
+          CATMAID.statusBar.replaceLast("Joined node #" + atnID + " to connector #" + node.id);
         } else if (atnType === SkeletonAnnotations.TYPE_NODE) {
           // Joining two skeletons: only possible if one owns both nodes involved
           // or is a superuser
@@ -848,7 +894,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
           }
           catmaidSVGOverlay.createTreenodeLink(atnID, node.id);
           // TODO check for error
-          statusBar.replaceLast("Joined node #" + atnID + " to node #" + node.id);
+          CATMAID.statusBar.replaceLast("Joined node #" + atnID + " to node #" + node.id);
         }
 
       } else {
@@ -863,8 +909,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
   /** Here 'this' is c's SVG node, and node is the Node instance. */
   var mc_move = function(d) {
     var e = d3.event.sourceEvent;
-    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode);
-    var node = catmaidSVGOverlay.nodes[d];
+    if (this === null || this.parentNode === null) return; // Not from a valid SVG source.
 
     if (is_middle_click(e)) return; // Allow middle-click panning
 
@@ -873,8 +918,11 @@ SkeletonElements.prototype.mouseEventManager = new (function()
     if (!o) return; // Not properly initialized with mc_start
     if (e.shiftKey) return;
 
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
+    var node = catmaidSVGOverlay.nodes[d];
+
     if (!mayEdit() || !node.can_edit) {
-      statusBar.replaceLast("You don't have permission to move node #" + d);
+      CATMAID.statusBar.replaceLast("You don't have permission to move node #" + d);
       return;
     }
 
@@ -888,7 +936,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
       y: node.y
     });
     node.drawEdges(true); // TODO for connector this is overkill
-    statusBar.replaceLast("Moving node #" + node.id);
+    CATMAID.statusBar.replaceLast("Moving node #" + node.id);
 
     node.needsync = true;
   };
@@ -906,7 +954,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
   var checkNodeID = function(svgNode) {
     if (!o || o.id !== svgNode.__data__) {
       console.log("WARNING: detected ID mismatch in mouse event system.");
-      SkeletonAnnotations.getSVGOverlayByPaper(svgNode.parentNode).updateNodes();
+      SkeletonAnnotations.getSVGOverlayByPaper(svgNode.parentNode.parentNode).updateNodes();
       return false;
     }
     return true;
@@ -915,7 +963,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
   /** Here 'this' is c's SVG node. */
   var mc_start = function(d) {
     var e = d3.event.sourceEvent;
-    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode);
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
     var node = catmaidSVGOverlay.nodes[d];
     if (is_middle_click(e)) {
       // Allow middle-click panning
@@ -947,7 +995,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
   var connector_mc_click = function(d) {
     var e = d3.event;
     e.stopPropagation();
-    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode);
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
     if (catmaidSVGOverlay.ensureFocused()) {
       return;
     }
@@ -971,7 +1019,7 @@ SkeletonElements.prototype.mouseEventManager = new (function()
         } else if (atnType === SkeletonAnnotations.TYPE_NODE) {
           var synapse_type = e.altKey ? 'post' : 'pre';
           catmaidSVGOverlay.createLink(atnID, connectornode.id, synapse_type + "synaptic_to");
-          statusBar.replaceLast("Joined node #" + atnID + " with connector #" + connectornode.id);
+          CATMAID.statusBar.replaceLast("Joined node #" + atnID + " with connector #" + connectornode.id);
         }
       } else {
         growlAlert('BEWARE', 'You need to activate a node before joining it to a connector node!');
@@ -979,6 +1027,20 @@ SkeletonElements.prototype.mouseEventManager = new (function()
     } else {
       // activate this node
       catmaidSVGOverlay.activateNode(connectornode);
+    }
+  };
+
+  this.edge_mc_click = function (d) {
+    var e = d3.event;
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
+    if (catmaidSVGOverlay.ensureFocused()) {
+      return;
+    }
+    var node = catmaidSVGOverlay.nodes[d];
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+      e.stopPropagation();
+      catmaidSVGOverlay.activateNode(node);
+      catmaidSVGOverlay.splitSkeleton(d);
     }
   };
 
@@ -1008,8 +1070,12 @@ SkeletonElements.prototype.mouseEventManager = new (function()
 
 
 SkeletonElements.prototype.ArrowLine = function(paper) {
-  this.line = paper.append('line');
-  this.line.on('mousedown', this.mousedown);
+  this.line = paper.select('.arrows').append('line');
+  // Because the transparent stroke trick will not work for lines, a separate,
+  // larger stroked, transparent line is needed to catch mouse events. In SVG2
+  // this can be achieved on the original line with a marker-segment.
+  this.catcher = paper.select('.arrows').append('line');
+  this.catcher.on('mousedown', this.mousedown);
   this.confidence_text = null;
 };
 
@@ -1017,6 +1083,7 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
   this.PRE_COLOR = "rgb(200,0,0)";
   this.POST_COLOR = "rgb(0,217,232)";
   this.BASE_EDGE_WIDTH = 2;
+  this.CATCH_SCALE = 3;
   this.CONFIDENCE_FONT_PT = 15;
   this.confidenceFontSize = this.CONFIDENCE_FONT_PT + 'pt';
 
@@ -1027,8 +1094,8 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
     if(!(e.shiftKey && (e.ctrlKey || e.metaKey))) {
       return;
     }
-    // 'this' will be the the connector line
-    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode);
+    // 'this' will be the the connector's mouse catcher line
+    var catmaidSVGOverlay = SkeletonAnnotations.getSVGOverlayByPaper(this.parentNode.parentNode);
     requestQueue.register(django_url + project.id + '/link/delete', "POST", {
       pid: project.id,
       connector_id: d.connector_id,
@@ -1063,6 +1130,7 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
     var y2new = (y2 - y1) * F + y1;
 
     this.line.attr({x1: x1, y1: y1, x2: x2new, y2: y2new});
+    this.catcher.attr({x1: x1, y1: y1, x2: x2new, y2: y2new});
 
     var stroke_color = is_pre ? this.PRE_COLOR : this.POST_COLOR;
 
@@ -1077,6 +1145,9 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
     this.line.attr({stroke: stroke_color,
                     'stroke-width': this.EDGE_WIDTH,
                     'marker-end': is_pre ? 'url(#markerArrowPre)' : 'url(#markerArrowPost)'});
+    this.catcher.attr({stroke: stroke_color, // Though invisible, must be set for mouse events to trigger
+                       'stroke-opacity': 0,
+                       'stroke-width': this.EDGE_WIDTH*this.CATCH_SCALE });
 
     this.show();
   };
@@ -1085,20 +1156,24 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
     // Ensure visible
     if ('hidden' === this.line.attr('visibility')) {
       this.line.show();
+      this.catcher.show();
     }
   };
 
   this.disable = function() {
-    this.line.datum(null);
+    this.catcher.datum(null);
     this.line.hide();
+    this.catcher.hide();
     if (this.confidence_text) this.confidence_text.hide();
   };
 
   this.obliterate = function() {
-    this.line.datum(null);
-    this.line.on('mousedown', null);
+    this.catcher.datum(null);
+    this.catcher.on('mousedown', null);
     this.line.remove();
     this.line = null;
+    this.catcher.remove();
+    this.catcher = null;
     if (this.confidence_text) {
       this.confidence_text.remove();
       this.confidence_text = null;
@@ -1106,7 +1181,7 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
   };
 
   this.init = function(connector, node, confidence, is_pre) {
-    this.line.datum({connector_id: connector.id, treenode_id: node.id});
+    this.catcher.datum({connector_id: connector.id, treenode_id: node.id});
     if (is_pre) {
       this.update(node.x, node.y, connector.x, connector.y, is_pre, confidence, connector.NODE_RADIUS);
     } else {
@@ -1172,8 +1247,10 @@ SkeletonElements.prototype.ArrowLine.prototype = new (function() {
     xdiff = parentx - x,
     ydiff = parenty - y,
     length = Math.sqrt(xdiff*xdiff + ydiff*ydiff),
-    nx = -ydiff / length,
-    ny = xdiff / length,
+    // Compute direction to offset label from edge. If node and parent are at
+    // the same location, hardwire to offset vertically to prevent NaN x, y.
+    nx = length === 0 ? 0 : -ydiff / length,
+    ny = length === 0 ? 1 : xdiff / length,
     newConfidenceX = (x + parentx) / 2 + nx * numberOffset,
     newConfidenceY = (y + parenty) / 2 + ny * numberOffset;
 

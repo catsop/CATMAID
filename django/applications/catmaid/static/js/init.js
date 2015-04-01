@@ -1,86 +1,21 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 
-
-/* It's very easy to accidentally leave in a console.log if you're
- * working with Firebug, but this will break CATMAID for the majority
- * of browsers.  If window.console isn't defined, create a noop
- * version of console.log: */
-
-if (!window.console) {
-  window.console = {};
-  window.console.log = function() {};
-}
-
-// Attach a general error handler
-window.onerror = function(msg, url, lineno, colno, err)
-{
-  var info = 'An error occured in CATMAID and the current action can\'t be ' +
-      'completed. You can try to reload the widget or tool you just used.';
-  var detail = 'Error: ' + msg + ' URL: ' + url + ' Line: ' + lineno +
-      ' Column: ' + colno + ' Stacktrace: ' + (err ? err.stack : 'N/A');
-
-  // Log the error detail to the console
-  console.log(detail);
-
-  // Log the error object, if available
-  if (err) {
-    console.log('Error object:')
-    console.log(err)
-  } else {
-    console.log('No error object was provided');
-  }
-
-  // Use alert() to inform the user, if the error function isn't available for
-  // some reason
-  if (error) {
-    error(info, detail);
-  } else {
-    alert(info + ' Detail: ' + detail);
-  }
-
-  // Return true to indicate the exception is handled and doesn't need to be
-  // shown to the user.
-  return true;
-};
-
 var global_bottom = 29;
-var statusBar; //!< global statusBar
-var slider_trace_z;
-var slider_trace_s;
-var a_url; //!< URL to this page
 
-var input_fontsize; //!< fontsize input
-var input_fontcolourred; //!< fontcolour red input
-var input_fontcolourgreen; //!< fontcolour green input
-var input_fontcolourblue; //!< fontcolour blue input
-var ui;
 var requestQueue;
 var project;
-var project_view;
 
 var current_dataview;
 var dataview_menu;
 
 var project_menu;
-//var project_menu_open;
-//var project_menu_current;
 
 var stack_menu;
 
 var message_menu;
 // A menu for user related links
 var user_menu;
-
-var pid;
-var sids = new Array();
-var ss = new Array();
-var zp;
-var yp;
-var xp;
-var inittool;
-var init_active_skeleton;
-var init_active_node_id;
 
 var session;
 var msg_timeout;
@@ -108,23 +43,13 @@ function mayView() {
   return checkPermission('can_annotate') || checkPermission('can_browse');
 }
 
-// From: http://stackoverflow.com/q/956719/223092
-function countProperties(obj) {
-  var count = 0;
-  for(var prop in obj) {
-    if(obj.hasOwnProperty(prop))
-      ++count;
-  }
-  return count;
-}
-
 /**
  * queue a login-request on pressing return
  * to be used as onkeydown-handler in the account and password input fields
  */
 
 function login_oninputreturn(e) {
-  if (ui.getKey(e) == 13) {
+  if (CATMAID.ui.getKey(e) == 13) {
     login(document.getElementById("account").value, document.getElementById("password").value);
     return false;
   } else
@@ -149,8 +74,8 @@ function login(
 		handle_login( status, text, xml, completionCallback );
 	};
 	if ( msg_timeout ) window.clearTimeout( msg_timeout );
-	
-	ui.catchEvents( "wait" );
+
+	CATMAID.ui.catchEvents( "wait" );
 	if ( account || password ) {
 		// Attempt to login.
 		requestQueue.register(
@@ -167,7 +92,6 @@ function login(
 			undefined,
 			loginCompletion );
 	}
-	return;
 }
 
 /**
@@ -181,8 +105,7 @@ function login(
 
 function handle_login(status, text, xml, completionCallback) {
   if (status == 200 && text) {
-    // console.log(text);
-    var e = eval("(" + text + ")");
+    var e = JSON.parse(text);
 
     if (e.id) {
       session = e;
@@ -207,13 +130,13 @@ function handle_login(status, text, xml, completionCallback) {
           note: "",
         }
       });
-      
+
     } else if (e.error) {
       alert(e.error);
     }
 
     // Continuation for user list retrieval
-    function done() {
+    done = function () {
       handle_profile_update(e);
       updateProjects(completionCallback);
     };
@@ -233,8 +156,6 @@ function handle_login(status, text, xml, completionCallback) {
       completionCallback();
     }
   }
-
-  return;
 }
 
 /**
@@ -245,10 +166,8 @@ function handle_login(status, text, xml, completionCallback) {
 function logout() {
   if (msg_timeout) window.clearTimeout(msg_timeout);
 
-  ui.catchEvents("wait");
+  CATMAID.ui.catchEvents("wait");
   requestQueue.register(django_url + 'accounts/logout', 'POST', undefined, handle_logout);
-
-  return;
 }
 
 /**
@@ -262,9 +181,9 @@ function handle_logout(status, text, xml) {
 	document.getElementById( "login_box" ).style.display = "block";
 	document.getElementById( "logout_box" ).style.display = "none";
 	document.getElementById( "session_box" ).style.display = "none";
-	
+
 	document.getElementById( "message_box" ).style.display = "none";
-	
+
 	if ( project && project.id ) project.setTool( new Navigator() );
 
 	if (status == 200 && text) {
@@ -273,8 +192,6 @@ function handle_logout(status, text, xml) {
 	}
 
 	updateProjects();
-
-	return;
 }
 
 /**
@@ -292,9 +209,9 @@ function handle_profile_update(e) {
     /* A valid user profile is needed to start CATMAID. This is a severe error
      * and a message box will tell the user to report this problem.
      */
-    new ErrorDialog("The user profile couldn't be loaded. This, however, is " +
-        "required to start CATMAID. Please report this problem to your " +
-        "administrator and try again later.", error).show();
+    new CATMAID.ErrorDialog("The user profile couldn't be loaded. This " +
+        "however, is required to start CATMAID. Please report this problem " +
+        "to your administrator and try again later.", error).show();
     return;
   }
 
@@ -304,6 +221,9 @@ function handle_profile_update(e) {
     'toolbox_edit', '');
   $('#toolbox_edit').replaceWith(new_edit_actions);
   $('#toolbox_edit').hide();
+
+  // TODO: There should be a user change event for this to subscribe
+  CATMAID.ReviewSystem.Whitelist.refresh();
 }
 
 /**
@@ -324,7 +244,6 @@ function updateProjects(completionCallback) {
 		}
 	}, 'json');
 
-	//ui.catchEvents( "wait" );
 	project_menu.update(null);
 
 	document.getElementById("projects_h").style.display = "none";
@@ -348,7 +267,6 @@ function updateProjects(completionCallback) {
 				completionCallback();
 			}
 		});
-	return;
 }
 
 var cachedProjectsInfo = null;
@@ -383,8 +301,7 @@ function handle_updateProjects(status, text, xml) {
 			project = undefined;
 		}
 	}
-	ui.releaseEvents();
-	return;
+	CATMAID.ui.releaseEvents();
 }
 
 function updateProjectListMessage(text) {
@@ -405,7 +322,7 @@ function updateProjectListFromCacheDelayed()
   window.setTimeout( function() { indicator.className = "filtering"; }, 1);
 
   // clear timeout if already present and create a new one
-  if (cacheLoadingTimeout != null)
+  if (cacheLoadingTimeout !== null)
   {
     clearTimeout(cacheLoadingTimeout);
   }
@@ -436,7 +353,6 @@ function getStackMenuInfo(project_id, callback) {
                 alert("Sorry, the stacks for the current project couldn't be retrieved.");
             }
         });
-    return;
 }
 
 /**
@@ -524,32 +440,36 @@ function updateProjectListFromCache() {
 
 /**
  * queue an open-project-stack-request to the request queue
- * freeze the window to wait for an answer
+ * freeze the window to wait for an answer. The successFn callback is called
+ * only if the loading was successful.
  */
-function openProjectStack( pid, sid, completionCallback, stackConstructor )
+function openProjectStack( pid, sid, successFn, stackConstructor )
 {
 	if ( project && project.id != pid )
 	{
 		project.destroy();
 	}
 
-	ui.catchEvents( "wait" );
+	CATMAID.ui.catchEvents( "wait" );
 	requestQueue.register(
 		django_url + pid + '/stack/' + sid + '/info',
 		'GET',
 		{ },
-		function(args)
-		{
-			// Convert arguments to array and append stackConstructor
-			var stack = handle_openProjectStack.apply(
-					this,
-					Array.prototype.slice.call(arguments).concat(stackConstructor));
-			if (completionCallback)
-			{
-				completionCallback(stack);
-			}
-		});
-	return;
+		CATMAID.jsonResponseHandler(
+			function(json) {
+				var stack = handle_openProjectStack(json, stackConstructor);
+				// Call success function, if any, if a stack was added
+				if (stack) {
+					CATMAID.tools.callIfFn(successFn);
+				}
+			}, function(e) {
+				// Handle login errors
+				if (e && e.permission_error) {
+					new CATMAID.LoginDialog(e.error, realInit).show();
+					return true;
+				}
+				return false;
+			}));
 }
 
 /**
@@ -558,171 +478,110 @@ function openProjectStack( pid, sid, completionCallback, stackConstructor )
  *
  * free the window
  */
-function handle_openProjectStack( status, text, xml, stackConstructor )
+function handle_openProjectStack( e, stackConstructor )
 {
-	var stack = null;
-	if ( status == 200 && text )
-	{
-		var e = eval( "(" + text + ")" );
-		if ( e.error )
-		{
-			if (e.permission_error) {
-				new LoginDialog(e.error, realInit).show();
-			} else {
-				new ErrorDialog(e.error, e.detail).show();
-			}
-		}
-		else
-		{
-			//! look if the project is already opened, otherwise open a new one
-			if ( !( project && project.id == e.pid ) )
-			{
-				project = new Project( e.pid );
-				project_view = project.getView();
-				project.register();
-			}
+  var stack = null;
+  //! look if the project is already opened, otherwise open a new one
+  if ( !( project && project.id == e.pid ) )
+  {
+    project = new Project( e.pid );
+    project.register();
+    // TODO: There should be a project change event for this to subscribe
+    CATMAID.ReviewSystem.Whitelist.refresh();
+  }
 
-			var labelupload = '';
+  var labelupload = '';
 
-			if( e.hasOwnProperty('labelupload_url') && e.tile_source_type === 2 ) {
-				labelupload = e.labelupload_url;
-			}
+  if( e.hasOwnProperty('labelupload_url') && e.tile_source_type === 2 ) {
+    labelupload = e.labelupload_url;
+  }
 
-			if (typeof stackConstructor === 'undefined') stackConstructor = Stack;
-			stack = new stackConstructor(
-					project,
-					e.sid,
-					e.stitle,
-					e.dimension,
-					e.resolution,
-					e.translation,		//!< @todo replace by an affine transform
-					e.broken_slices,
-					e.trakem2_project,
-					e.num_zoom_levels,
-					-2,
-					e.tile_source_type,
-					labelupload, // TODO: if there is any
-					e.metadata,
-					userprofile.inverse_mouse_wheel,
-					e.orientation );
+  if (typeof stackConstructor === 'undefined') stackConstructor = Stack;
+  stack = new stackConstructor(
+      project,
+      e.sid,
+      e.stitle,
+      e.dimension,
+      e.resolution,
+      e.translation,		//!< @todo replace by an affine transform
+      e.broken_slices,
+      e.trakem2_project,
+      e.num_zoom_levels,
+      -2,
+      e.tile_source_type,
+      labelupload, // TODO: if there is any
+      e.metadata,
+      userprofile.inverse_mouse_wheel,
+      e.orientation );
 
-			document.getElementById( "toolbox_project" ).style.display = "block";
+  document.getElementById( "toolbox_project" ).style.display = "block";
 
-			var tilesource = getTileSource( e.tile_source_type, e.image_base,
-					e.file_extension );
-			var tilelayer = new TileLayer(
-					"Image data",
-					stack,
-					e.tile_width,
-					e.tile_height,
-					tilesource,
-					true,
-					1,
-					true);
+  var tilesource = getTileSource( e.tile_source_type, e.image_base,
+      e.file_extension );
+  var tilelayerConstructor = userprofile.prefer_webgl_layers ? CATMAID.PixiTileLayer : CATMAID.TileLayer;
+  var tilelayer = new tilelayerConstructor(
+      "Image data",
+      stack,
+      e.tile_width,
+      e.tile_height,
+      tilesource,
+      true,
+      1,
+      true);
 
-			stack.addLayer( "TileLayer", tilelayer );
+  stack.addLayer( "TileLayer", tilelayer );
 
-			$.each(e.overlay, function(key, value) {
-				var tilesource = getTileSource( value.tile_source_type,
-					value.image_base, value.file_extension );
-				var layer_visibility = false;
-				if( parseInt(value.default_opacity) > 0) 
-					layer_visibility = true;
-				var tilelayer2 = new TileLayer(
-								value.title,
-								stack,
-								value.tile_width,
-								value.tile_height,
-								tilesource,
-								layer_visibility,
-								value.default_opacity / 100,
-								false);
-				stack.addLayer( value.title, tilelayer2 );
-			});
+  $.each(e.overlay, function(key, value) {
+    var tilesource = getTileSource( value.tile_source_type,
+      value.image_base, value.file_extension );
+    var layer_visibility = false;
+    if( parseInt(value.default_opacity) > 0)
+      layer_visibility = true;
+    var tilelayer2 = new tilelayerConstructor(
+            value.title,
+            stack,
+            value.tile_width,
+            value.tile_height,
+            tilesource,
+            layer_visibility,
+            value.default_opacity / 100,
+            false);
+    stack.addLayer( value.title, tilelayer2 );
+  });
 
-			// If the requested stack is already loaded, the existing
-			// stack is returned. Continue work with the existing stack.
-			stack = project.addStack( stack );
+  // If the requested stack is already loaded, the existing
+  // stack is returned. Continue work with the existing stack.
+  stack = project.addStack( stack );
 
-			// refresh the overview handler to also register the mouse events on the buttons
-			stack.tilelayercontrol.refresh();
+  // refresh the overview handler to also register the mouse events on the buttons
+  stack.tilelayercontrol.refresh();
 
-			var tools = {
-				navigator: Navigator,
-				tracingtool: TracingTool,
-				segmentationtool: SegmentationTool,
-				classification_editor: null
-			};
+  /* Update the projects stack menu. If there is more
+  than one stack linked to the current project, a submenu for easy
+  access is generated. */
+  stack_menu.update();
+  getStackMenuInfo(project.id, function(stacks) {
+    if (stacks.length > 1)
+    {
+      var stack_menu_content = [];
+      $.each(stacks, function(i, s) {
+        stack_menu_content.push(
+          {
+            id : s.id,
+            title : s.title,
+            note : s.note,
+            action : s.action
+          }
+        );
+      });
 
-			//! if the stack was initialized by an URL query, move it to a given position
-			if ( pid == e.pid && sids.length > 0 )
-			{
-				for ( var i = 0; i < sids.length; ++i )
-				{
-					if ( sids[ i ] == e.sid )
-					{
-						if (
-							typeof ss[ i ] == "number" &&
-							typeof zp == "number" &&
-							typeof yp == "number" &&
-							typeof xp == "number" )
-						{
-							project.moveTo( zp, yp, xp, ss[i],
-									function() {
-										// Set the tool only after the move;
-										// otherwise, thousands of skeleton nodes may be fetched and painted
-										// unnecessarily.
-										var tool = tools[inittool];
-										if (tool) {
-											project.setTool(new tool());
-										}
-										if (init_active_node_id) {
-											// initialization hack
-											SkeletonAnnotations.init_active_node_id = init_active_node_id;
-										}
-									});
+      stack_menu.update( stack_menu_content );
+      document.getElementById( "stackmenu_box" ).style.display = "block";
+    }
+  });
 
-							sids.splice( i, 1 );
-							ss.splice( i, 1 );
-							break;
-						}
-					}
-				}
-			}
-			else if ( inittool )
-			{
-				var tool = tools[ inittool ];
-				if ( tool )
-					project.setTool( new tool() );
-			}
-
-			/* Update the projects stack menu. If there is more
-			than one stack linked to the current project, a submenu for easy
-			access is generated. */
-			stack_menu.update();
-			getStackMenuInfo(project.id, function(stacks) {
-				if (stacks.length > 1)
-				{
-					var stack_menu_content = new Array();
-					$.each(stacks, function(i, s) {
-						stack_menu_content.push(
-							{
-								id : s.id,
-								title : s.title,
-								note : s.note,
-								action : s.action
-							}
-						);
-					});
-
-					stack_menu.update( stack_menu_content );
-					document.getElementById( "stackmenu_box" ).style.display = "block";
-				}
-			});
-		}
-	}
-	ui.releaseEvents();
-	return stack;
+  CATMAID.ui.releaseEvents();
+  return stack;
 }
 
 /**
@@ -731,7 +590,7 @@ function handle_openProjectStack( status, text, xml, stackConstructor )
 
 function check_messages() {
   requestQueue.register(django_url + 'messages/latestunreaddate', 'GET',
-      undefined, jsonResponseHandler(function(data) {
+      undefined, CATMAID.jsonResponseHandler(function(data) {
         // If there is a newer latest message than we know of, get all
         // messages to display them in the message menu and widget.
         if (data.latest_unread_date) {
@@ -748,8 +607,6 @@ function check_messages() {
           msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
         }
       }));
-
-  return;
 }
 
 /**
@@ -758,7 +615,6 @@ function check_messages() {
 
 function get_messages() {
   requestQueue.register(django_url + 'messages/list', 'GET', undefined, handle_message);
-  return;
 }
 
 /**
@@ -768,10 +624,10 @@ function handle_message( status, text, xml )
 {
 	if ( !session )
 		return;
-	
+
 	if ( status == 200 && text )
 	{
-		var e = eval( "(" + text + ")" );
+		var e = JSON.parse(text);
 		if ( e.error )
 		{
 			alert( e.error );
@@ -779,11 +635,11 @@ function handle_message( status, text, xml )
 		else
 		{
 			var message_container = document.getElementById( "message_container" );
-			if ( !( typeof message_container == "undefined" || message_container == null ) )
+			if ( !( typeof message_container === "undefined" || message_container === null ) )
 			{
-				//! remove old messages	
+				//! remove old messages
 				while ( message_container.firstChild ) message_container.removeChild( message_container.firstChild );
-				
+
 				//! add new messages
 				var n = 0;
 				for ( var i in e )
@@ -797,7 +653,7 @@ function handle_message( status, text, xml )
 							else
 								notifications_button_img.attr('src', STATIC_URL_JS + 'images/table_notifications.png');
 						}
-						
+
 						delete e [ i ];
 					} else {
 						e[ i ].action = django_url + 'messages/mark_read?id=' + e[ i ].id;
@@ -825,10 +681,8 @@ function handle_message( status, text, xml )
 
 		}
 	}
-	
+
 	msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
-	
-	return;
 }
 
 /**
@@ -839,7 +693,6 @@ function read_message(id) {
   requestQueue.register(django_url + 'messages/mark_read', 'POST', {
     id: id
   }, null);
-  return;
 }
 
 /**
@@ -847,13 +700,12 @@ function read_message(id) {
  */
 function dataviews() {
 	requestQueue.register(django_url + 'dataviews/list', 'GET', undefined, handle_dataviews);
-	return;
 }
 
 function handle_dataviews(status, text, xml) {
 	if ( status == 200 && text )
 	{
-		var e = eval( "(" + text + ")" );
+		var e = JSON.parse(text);
 		if ( e.error )
 		{
 			alert( e.error );
@@ -886,8 +738,6 @@ function handle_dataviews(status, text, xml) {
 			dataview_menu.update( e );
 		}
 	}
-
-	return;
 }
 
 function switch_dataview( view_id, view_type ) {
@@ -938,13 +788,12 @@ function switch_dataview( view_id, view_type ) {
 function load_default_dataview() {
 	requestQueue.register(django_url + 'dataviews/default',
 		'GET', undefined, handle_load_default_dataview);
-	return;
 }
 
 function handle_load_default_dataview(status, text, xml) {
 	if ( status == 200 && text )
 	{
-		var e = eval( "(" + text + ")" );
+		var e = JSON.parse(text);
 		if ( e.error )
 		{
 			alert( e.error );
@@ -962,13 +811,12 @@ function handle_load_default_dataview(status, text, xml) {
 function load_dataview( view_id ) {
 	requestQueue.register(django_url + 'dataviews/show/' + view_id,
 		'GET', undefined, handle_load_dataview);
-	return;
 }
 
 function handle_load_dataview(status, text, xml) {
 	var data_view_container = document.getElementById("data_view");
 
-	if ( !( typeof data_view_container == "undefined" || data_view_container == null ) )
+	if ( !( typeof data_view_container === "undefined" || data_view_container === null ) )
 	{
 		//! remove old content
 		while ( data_view_container.firstChild )
@@ -995,8 +843,6 @@ function handle_load_dataview(status, text, xml) {
 			error_iframe.contentDocument.write( text );
 		}
 	}
-
-	return;
 }
 
 /*
@@ -1005,9 +851,9 @@ function handle_load_dataview(status, text, xml) {
 function global_resize( e )
 {
 	var top = document.getElementById( "toolbar_container" ).offsetHeight;
-	var height = Math.max( 0, ui.getFrameHeight() - top - global_bottom );
-	var width = ui.getFrameWidth();
-	
+	var height = Math.max( 0, CATMAID.ui.getFrameHeight() - top - global_bottom );
+	var width = CATMAID.ui.getFrameWidth();
+
 	var content = document.getElementById( "content" );
 	content.style.top = top + "px";
 	content.style.width = width + "px";
@@ -1022,13 +868,6 @@ function global_resize( e )
  */
 var realInit = function()
 {
-	//! set some non standard attributes
-	/*
-	document.body.oncontextmenu = function( e ){ return false; };
-	document.body.onselectstart = function( e ){ return false; };
-	document.body.ondragstart = function( e ){ return false; };
-	*/
-	
 	// If the browser supports everything but webgl, let the user dismiss the warning message
 	if (Modernizr.opacity && Modernizr.canvas && Modernizr.svg && Modernizr.json)
 	{
@@ -1037,16 +876,40 @@ var realInit = function()
 		}));
 	}
 
+	// If promises are missing, load a polyfill then try to init again.
+	if (!Modernizr.promises)
+	{
+		var script = document.createElement('script');
+		script.type = 'text/javascript';
+		script.src = STATIC_URL_JS + 'libs/promise-polyfill/es6-promise-2.0.1.min.js';
+		script.onload = function () {
+			window.ES6Promise.polyfill();
+			Modernizr.promises = true;
+			realInit();
+		};
+		document.head.appendChild(script);
+		return;
+	}
+
 	//! analyze the URL
+	var pid;
+	var sids = [];
+	var ss = [];
+	var inittool;
 	var z;
 	var y;
 	var x;
 	var s;
-  
+	var zp;
+	var yp;
+	var xp;
+	var init_active_node_id;
+	var init_active_skeleton;
+
 	var account;
 	var password;
-	
-	var values = parseQuery();
+
+	var values = CATMAID.tools.parseQuery(window.location.search);
 	if ( values )
 	{
 		// simply parse the fragment values
@@ -1069,9 +932,9 @@ var realInit = function()
 				typeof s == "undefined" ) )
 		{
 			pid = 1;
-			sids = new Array();
+			sids = [];
 			sids[ 0 ] = 1;
-			ss = new Array();
+			ss = [];
 			ss[ 0 ] = 1;
 		}
 		else
@@ -1085,7 +948,7 @@ var realInit = function()
 			if ( values[ "xp" ] ) xp = parseInt( values[ "xp" ] );
 			if ( isNaN( xp ) ) xp = undefined;
 			if ( values[ "tool" ] ) inittool = values[ "tool"];
-			
+
 			for ( var i = 0; values[ "sid" + i ]; ++i )
 			{
 				var sid = parseInt( values[ "sid" + i ] );
@@ -1105,7 +968,7 @@ var realInit = function()
 				}
 			}
 		}
-		
+
 		if ( values[ "account" ] && values[ "password" ] )
 		{
 			account = values[ "account" ];
@@ -1117,21 +980,17 @@ var realInit = function()
 			current_dataview = parseInt( values["dataview"] );
 		if ( isNaN( current_dataview ) ) current_dataview = undefined;
 	}
-	
-	statusBar = new Console();
-	document.body.appendChild( statusBar.getView() );
-	
-	ui = new UI();
-	
-	input_fontsize = document.getElementById( "fontsize" );
-	
-	a_url = document.getElementById( "a_url" );
+
+	CATMAID.statusBar = new CATMAID.Console();
+	document.body.appendChild( CATMAID.statusBar.getView() );
+
+	var a_url = document.getElementById( "a_url" );
 	a_url.onmouseover = function( e )
 	{
 		this.href = project.createURL();
 		return true;
 	};
-	
+
 	document.getElementById( "login_box" ).style.display = "block";
 	document.getElementById( "logout_box" ).style.display = "none";
 	document.getElementById( "session_box" ).style.display = "none";
@@ -1157,20 +1016,20 @@ var realInit = function()
 	document.getElementById( "toolbox_data" ).style.display = "none";
   document.getElementById( "toolbox_segmentation" ).style.display = "none";
 	document.getElementById( "toolbox_show" ).style.display = "none";
-	
+
 	document.getElementById( "account" ).onkeydown = login_oninputreturn;
 	document.getElementById( "password" ).onkeydown = login_oninputreturn;
 
 	dataview_menu = new Menu();
 	document.getElementById( "dataview_menu" ).appendChild( dataview_menu.getView() );
 	dataviews();
-	
+
 	project_menu = new Menu();
 	document.getElementById( "project_menu" ).appendChild( project_menu.getView() );
-	
+
 	stack_menu = new Menu();
 	document.getElementById( "stack_menu" ).appendChild( stack_menu.getView() );
-	
+
 	message_menu = new Menu();
 	document.getElementById( "message_menu" ).appendChild( message_menu.getView() );
 
@@ -1179,45 +1038,71 @@ var realInit = function()
 
 	// login and thereafter load stacks if requested
 	login(undefined, undefined, function() {
-		if ( pid && sids.length > 0 )
-		{
-			for ( var i = 0; i < sids.length; ++i )
-			{
-				openProjectStack( pid, sids[ i ] );
+		var tools = {
+			navigator: Navigator,
+			tracingtool: TracingTool,
+			segmentationtool: SegmentationTool,
+			classification_editor: null
+		};
+
+		loadStacksFromURL();
+
+		// Open stacks one after another and move to the requested location. Load
+		// the requested tool after everything has been loaded.
+		function loadStacksFromURL() {
+			if (pid) {
+				if (sids.length > 0) {
+					// Open stack and queue test/loading for next one
+					var sid = sids.shift();
+					var s = ss.shift();
+					openProjectStack(pid, sid, function() {
+						// Moving every stack is not really necessary, but for now a
+						// convenient way to apply the requested scale to each stack.
+						if (typeof zp == "number" && typeof yp == "number" &&
+								typeof xp == "number" && typeof s == "number" ) {
+							project.moveTo(zp, yp, xp, s, function() {
+								// Load next stack
+								loadStacksFromURL();
+							});
+						}
+					});
+				} else {
+					// Set the tool only after the move; otherwise, thousands of skeleton
+					// nodes may be fetched and painted unnecessarily.
+					var tool = tools[inittool];
+					if (tool) {
+						project.setTool(new tool());
+					}
+					if (init_active_node_id) {
+						// initialization hack
+						SkeletonAnnotations.init_active_node_id = init_active_node_id;
+					}
+				}
 			}
 		}
 	});
-	
+
 	// the text-label toolbar
-	
-	input_fontsize = new Input( "fontsize", 3, function( e ){ return true; }, 32 );
+
+	var input_fontsize = new Input( "fontsize", 3, function( e ){ return true; }, 32 );
 	document.getElementById( "input_fontsize" ).appendChild( input_fontsize.getView() );
-	input_fontcolourred = new Input( "fontcolourred", 3, function( e ){ return true; }, 255 );
+	var input_fontcolourred = new Input( "fontcolourred", 3, function( e ){ return true; }, 255 );
 	document.getElementById( "input_fontcolourred" ).appendChild( input_fontcolourred.getView() );
-	input_fontcolourgreen = new Input( "fontcolourgreen", 3, function( e ){ return true; }, 127 );
+	var input_fontcolourgreen = new Input( "fontcolourgreen", 3, function( e ){ return true; }, 127 );
 	document.getElementById( "input_fontcolourgreen" ).appendChild( input_fontcolourgreen.getView() );
-	input_fontcolourblue = new Input( "fontcolourblue", 3, function( e ){ return true; }, 0 );
+	var input_fontcolourblue = new Input( "fontcolourblue", 3, function( e ){ return true; }, 0 );
 	document.getElementById( "input_fontcolourblue" ).appendChild( input_fontcolourblue.getView() );
-	
-	
-	/*
-	var testLabel = new Textlabel( 1, "This is a textlabel containing some useless text." );
-	document.body.appendChild( testLabel.getView() );
-	testLabel.redraw( 200, 100, 600, 600 );
-	*/
-	
-	ui.registerEvent( "onresize", global_resize );
-	
+
+	CATMAID.ui.registerEvent( "onresize", global_resize );
+
 	rootWindow = new CMWRootNode();
-	ui.registerEvent( "onresize", resize );
+	CATMAID.ui.registerEvent( "onresize", resize );
 
   // change global bottom bar height, hide the copyright notice
   // and move the statusBar
-  statusBar.setBottom();
+  CATMAID.statusBar.setBottom();
 
 	window.onresize();
-
-	return;
 };
 
 /**
@@ -1226,21 +1111,21 @@ var realInit = function()
 var resize = function( e )
 {
 	var top = document.getElementById( "toolbar_container" ).offsetHeight;
-	var height = Math.max( 0, ui.getFrameHeight() - top - global_bottom );
-	var width = ui.getFrameWidth();
-	
+	var height = Math.max( 0, CATMAID.ui.getFrameHeight() - top - global_bottom );
+	var width = CATMAID.ui.getFrameWidth();
+
 	var content = document.getElementById( "content" );
 	content.style.top = top + "px";
 	content.style.width = width + "px";
 	content.style.height = height + "px";
-	
+
 	rootFrame = rootWindow.getFrame();
 	rootFrame.style.top = top + "px";
-	rootFrame.style.width = UI.getFrameWidth() + "px";
+	rootFrame.style.width = CATMAID.UI.getFrameWidth() + "px";
 	rootFrame.style.height = height + "px";
-	
+
 	rootWindow.redraw();
-	
+
 	return true;
 };
 
@@ -1255,7 +1140,7 @@ function showMessages()
 		if ( messageContext.parentNode )
 			messageContext.parentNode.removeChild( messageContext );
 		messageContent.appendChild( messageContext );
-		
+
 		messageWindow.addListener(
 			function( callingWindow, signal )
 			{
@@ -1265,7 +1150,7 @@ function showMessages()
 					if ( messageContext.parentNode )
 						messageContext.parentNode.removeChild( messageContext );
 					document.getElementById( "dump" ).appendChild( messageContext );
-					if ( typeof project == undefined || project == null )
+					if ( typeof project === "undefined" || project === null )
 					{
 						rootWindow.close();
 						document.getElementById( "content" ).style.display = "block";
@@ -1278,19 +1163,19 @@ function showMessages()
 				}
 				return true;
 			} );
-	
+
 		/* be the first window */
 		if ( rootWindow.getFrame().parentNode != document.body )
 		{
 			document.body.appendChild( rootWindow.getFrame() );
 			document.getElementById( "content" ).style.display = "none";
 		}
-		
-		if ( rootWindow.getChild() == null )
+
+		if ( rootWindow.getChild() === null )
 			rootWindow.replaceChild( messageWindow );
 		else
 			rootWindow.replaceChild( new CMWVSplitNode( messageWindow, rootWindow.getChild() ) );
 	}
-			
+
 	messageWindow.focus();
 }

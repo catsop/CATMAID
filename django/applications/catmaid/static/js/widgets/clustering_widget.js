@@ -101,7 +101,7 @@ var ClusteringWidget = new function()
                         // update the position of the dendrogram handle
                         var canvas = document.getElementById("clustering-canvas");
                         var handle = document.getElementById("dendrogram-handle");
-                        if (canvas != null && handle != null) {
+                        if (canvas !== null && handle !== null) {
                             handle.style.left = (canvas.offsetLeft + canvas.offsetWidth - 10) + "px";
                             handle.style.top = (canvas.offsetTop + canvas.offsetHeight -20) + "px";
                         }
@@ -371,7 +371,7 @@ var ClusteringWidget = new function()
         if (found) {
             // Replace the null values with 1.0 (for the maximum Jaccard
             // distance) to make them drawable and remember the null indices.
-            var nan_clusters = new Array();
+            var nan_clusters = [];
             $.each(dendrogram.dcoord, function(i, val) {
                 var contains_nans = false;
                 $.each(val, function(j, val2) {
@@ -390,7 +390,7 @@ var ClusteringWidget = new function()
             var max_y = null;
             $.each(dendrogram.dcoord, function(i, val) {
                 $.each(val, function(j, val2) {
-                    if (max_y == null)
+                    if (max_y === null)
                         max_y = val2;
                     else if (val2 > max_y)
                         max_y = val2;
@@ -415,8 +415,8 @@ var ClusteringWidget = new function()
 
             // Sort clusters in a way that NaN clusters are drawn first
             // and create color array.
-            var x_coords = new Array();
-            var y_coords = new Array();
+            var x_coords = [];
+            var y_coords = [];
             var colors = [];
             $.each(nan_clusters, function(i, val) {
                 x_coords.push(dendrogram.icoord[val]);
@@ -467,7 +467,7 @@ var ClusteringWidget = new function()
             // draw labels
             var label_center_y = null;
 			var max_label_width = null;
-			var labels = new Array();
+			var labels = [];
             $.each(label_coords, function(i, coord) {
                 // only draw labels for real leaves
                 if (dendrogram.leaves[i] < dendrogram.ivl.length) {
@@ -475,7 +475,7 @@ var ClusteringWidget = new function()
                     var text = r.text(coord.x, coord.y, dendrogram.ivl[i]);
                     // find maximum text width
                     var bb = text.getBBox();
-                    if (max_label_width == null)
+                    if (max_label_width === null)
                         max_label_width = bb.width;
                     else if (bb.width > max_label_width)
                         max_label_width = bb.width;
@@ -488,7 +488,7 @@ var ClusteringWidget = new function()
                         'text-anchor': "end",
                         'font': "11px 'Fontin Sans', Fontin-Sans, sans-serif" });
                     // store vertical label center if not already done
-                    if (label_center_y == null) {
+                    if (label_center_y === null) {
                         label_center_y = bb.y + h;
                     }
                     // remember this label
@@ -531,7 +531,7 @@ var ClusteringWidget = new function()
             rhandle.addEventListener('mousedown',
                 function(e) {
                     // stop default event behaviour to avoid text being selected
-                    stopDefault(e);
+                    e.preventDefault();
                     // proces coordinates
                     start_mouse_x = e.clientX;
                     start_mouse_y = e.clientY;
@@ -555,7 +555,7 @@ var ClusteringWidget = new function()
                     var rel_leaf_x = Math.round(chart.paperToWorldX(this.x) - 5);
                     // Only show tags if a leaf column is hovered, i.e. the relative
                     // x coordinate can be divided by 10 without remainder.
-                    if (rel_leaf_x % 10 == 0) {
+                    if (rel_leaf_x % 10 === 0) {
                         var graph_idx = rel_leaf_x / 10;
                         var graph_name = dendrogram.ivl[graph_idx];
                         // highlight label

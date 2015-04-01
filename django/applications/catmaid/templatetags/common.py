@@ -1,7 +1,8 @@
-from django import template
-from django.utils.safestring import SafeUnicode
+import catmaid
 
-import re
+from django import template
+from django.conf import settings
+from django.utils.safestring import SafeUnicode
 
 register = template.Library()
 
@@ -57,3 +58,11 @@ def natural_sort(l,field):
 @register.filter
 def intersect(set1, set2):
     return set1.intersection(set2)
+
+@register.simple_tag
+def catmaid_version():
+    """
+    Print the current Git commit of this CATMAID instance or "unknown" if the
+    current Git commit is not available.
+    """
+    return settings.VERSION

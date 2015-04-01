@@ -1,5 +1,26 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+/* global
+  ArborParser,
+  CircuitGraphPlot,
+  ConnectorSelection,
+  cytoscape,
+  fetchSkeletons,
+  growlAlert,
+  InstanceRegistry,
+  NeuronNameService,
+  OptionsDialog,
+  parseColorWheel,
+  project,
+  requestQueue,
+  SelectionTable,
+  session,
+  SVGCanvas,
+  SynapseClustering,
+  TracingTool,
+  WebGLApplication,
+  WindowMaker
+*/
 
 "use strict";
 
@@ -7,7 +28,6 @@ var GroupGraph = function() {
   this.widgetID = this.registerInstance();
   this.registerSource();
 
-  this.synaptic_count_edge_filter = 0; // value equal or higher than this number or kept
   this.label_valign = 'top';
   this.label_halign = 'center';
   this.show_node_labels = true;
@@ -24,6 +44,8 @@ var GroupGraph = function() {
   // Edge width is computed as edge_min_width + edge_width_function(weight)
   this.edge_min_width = 0;
   this.edge_width_function = "sqrt"; // choices: identity, log, log10, sqrt
+
+  this.edge_threshold = 1;
 
   this.setState('color_mode', 'source');
 
@@ -50,7 +72,7 @@ var GroupGraph = function() {
 
 GroupGraph.prototype = {};
 $.extend(GroupGraph.prototype, new InstanceRegistry());
-$.extend(GroupGraph.prototype, new SkeletonSource());
+$.extend(GroupGraph.prototype, new CATMAID.SkeletonSource());
 
 GroupGraph.prototype.SUBGRAPH_AXON_DENDRITE =  -1;
 GroupGraph.prototype.SUBGRAPH_AXON_BACKBONE_TERMINALS = -2;
@@ -350,7 +372,48 @@ GroupGraph.prototype.init = function() {
     var edge = this,
         props = edge.data();
     if (props.directed && evt.originalEvent.altKey) {
-      ConnectorSelection.show_shared_connectors( props.source, [props.target], "presynaptic_to" );
+      var source = '' + props.source,
+          target = '' + props.target,
+          isGroup = function(s) { return 0 === s.indexOf('g'); },
+          isSplit = function(s) { return -1 !== s.indexOf('_'); },
+          isSingle = function(s) { return !isGroup(s) && !isSplit(s); },
+          getData = function(s) { return edge.cy().nodes('[id="' + s + '"]').data(); },
+          getSkids = function(s) {
+            return getData(s).skeletons.map(function(model) { return model.id; });
+          };
+      // If both source and target are not split and are not groups:
+      if (isSingle(source) && isSingle(target)) {
+        ConnectorSelection.show_shared_connectors( source, [target], "presynaptic_to" );
+      } else {
+        var source_skids,
+            target_skids,
+            connector_ids;
+        if (isSplit(source)) {
+          // Target can be a group or a split
+          var source_data = getData(source);
+          source_skids = [source_data.skeletons[0].id];
+          target_skids = getSkids(target);
+          connector_ids = target_skids.reduce(function(a, skid) { return a.concat(source_data.downstream_skids[skid]); }, []);
+        } else if (isGroup(source)) {
+          source_skids = getSkids(source);
+          target_skids = getSkids(target);
+          if (isSplit(target)) {
+            connector_ids = getData(target).upstream_skids[target_skids[0]];
+          }
+        }
+      }
+
+      requestQueue.register(django_url + project.id + '/connector/pre-post-info', "POST",
+        {cids: connector_ids,
+         pre: source_skids,
+         post: target_skids},
+        function(status, text) {
+          if (200 !== status) return;
+          var json = $.parseJSON(text);
+          if (json.error) return new CATMAID.ErrorDialog(
+              "Cound not fetch edge data.", json.error);
+          ConnectorSelection.show_connectors(json);
+        });
     }
   });
 
@@ -364,9 +427,9 @@ GroupGraph.prototype.init = function() {
 
   this.cy.on('mouseup', 'node', {}, (function(evt) {
     if (this.grid_snap) {
-      var list = undefined === this.selection.entries[evt.cyTarget.id()] ?
+      var list = (undefined === this.selection.entries[evt.cyTarget.id()] ?
         [evt.cyTarget]
-        : Object.keys(this.selection.entries).map(function(nodeID) { return this.cy.nodes("[id='" + nodeID + "']"); }, this);
+        : Object.keys(this.selection.entries).map(function(nodeID) { return this.cy.nodes("[id='" + nodeID + "']"); }, this));
       list.forEach(function(node) {
         var p = node.position();
         node.position({x: p.x + p.x % this.grid_side,
@@ -608,6 +671,13 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
     if (node.hidden()) hidden[id] = true;
   });
 
+  // Store visibility and selection state of edges as well
+  this.cy.edges().each(function(i, edge) {
+    var id = edge.id();
+    if (edge.selected()) selected[id] = true;
+    if (edge.hidden()) hidden[id] = true;
+  });
+
   // Recreate subgraphs
   var subnodes = {},
       subedges = {}; // map of {connectorID: {pre: graph node ID,
@@ -645,8 +715,8 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
       };
       parts[node_dend2.data.id] = function(treenodeID) {
         return !backbone.contains(treenodeID) && !axon.contains(treenodeID);
-      }
-    }
+      };
+    };
 
     if (mode === this.SUBGRAPH_AXON_DENDRITE
       || mode === this.SUBGRAPH_AXON_BACKBONE_TERMINALS) {
@@ -702,17 +772,9 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
       }
     } else if (mode > 0) {
       // Synapse clustering: mode is the bandwidth
-      var synapse_map = Object.keys(ap.outputs).reduce(function(m, node) {
-        var no = ap.outputs[node],
-            ni = m[node];
-        if (ni) m[node] = ni + no;
-        else m[node] = no;
-        return m;
-      }, $.extend({}, ap.inputs));
-      var sc = new SynapseClustering(ap.arbor, ap.positions, synapse_map, mode),
+      var synapse_map = ap.createSynapseMap(),
+          sc = new SynapseClustering(ap.arbor, ap.positions, synapse_map, mode),
           clusters = sc.clusterMaps(sc.densityHillMap());
-      // TODO the nodes in between clusters get assigned to undefined in SynapseClustering
-      delete clusters[undefined]; // quick fix
       var clusterIDs = Object.keys(clusters);
       // Remove clusters of treenodes that lack synapses
       var synapse_treenodes = Object.keys(synapse_map);
@@ -737,23 +799,20 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
       clusterIDs = Object.keys(clusters);
       // Else, create subgraph
       var orders = ap.arbor.nodesOrderFrom(ap.arbor.root),
-          roots = clusterIDs.reduce(function(o, clusterID) {
-            var nodes = Object.keys(clusters[clusterID]),
-                root = null,
-                min = Number.MAX_VALUE;
-            for (var i=0; i<nodes.length; ++i) {
-              var node = nodes[i],
-                  ord = orders[node];
-              if (ord < min) {
-                root = node;
-                min = ord;
-              }
-            }
-            o[root] = clusterID;
-            return o;
-          }, {}),
-          keepers = Object.keys(roots).reduce(function(o, root) { o[root] = true; return o; }, {}),
-          simple = ap.arbor.simplify(keepers);
+          roots = {},
+          keepers = {};
+      clusterIDs.forEach(function(clusterID) {
+        var cluster_nodes_with_synapses = {};
+        Object.keys(clusters[clusterID]).forEach(function(node) {
+          if (synapse_map[node]) {
+            cluster_nodes_with_synapses[node] = true;
+          }
+        });
+        var common = ap.arbor.nearestCommonAncestor(cluster_nodes_with_synapses);
+        roots[common] = clusterID;
+        keepers[common] = true;
+      });
+      var simple = ap.arbor.simplify(keepers);
 
       simple.nodesArray().forEach(function(node) {
         // Create a node and a part
@@ -798,8 +857,8 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
     m[1].forEach(function(row) {
       // Accumulate connection into the subnode for later use in e.g. grow command
       var treenodeID = row[0],
-          node_id = findPartID(treenodeID),
           other_skid = row[5],
+          node_id = findPartID(treenodeID),
           presynaptic = 0 === row[6],
           ob = presynaptic ? downstream : upstream,
           map = ob[node_id];
@@ -811,12 +870,18 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
         map = {};
         ob[node_id] = map;
       }
-      var n_synapses = map[other_skid];
-      map[other_skid] = n_synapses ? n_synapses + 1 : 1;
-      // Accumulate synapses for an edge with another node in the graph
-      if (!models[other_skid]) return; // other skeleton is not in the graph
+
       var connectorID = row[2],
-          sourceSkid = presynaptic ? skid : other_skid,
+          connector_ids = map[other_skid];
+      if (connector_ids) connector_ids.push(connectorID);
+      else map[other_skid] = [connectorID]; // OK to have some connectors repeated if they connect to it more than once.
+
+      // Stop here if the other skeleton is not in the graph
+      // (The accumulated partners will be used for the grow and find path operations.)
+      if (!models[other_skid]) return;
+
+      // Accumulate synapses for an edge with another node in the graph
+      var sourceSkid = presynaptic ? skid : other_skid,
           targetSkid = presynaptic ? other_skid : skid,
           node_id = findPartID(treenodeID),
           connector = subedges[connectorID];
@@ -921,6 +986,18 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
       node.css('height', 15);
       node.css('width', 15);
     }
+  });
+
+  var edge_threshold = this.edge_threshold;
+
+  this.cy.edges().each(function(i, edge) {
+    var id = edge.id();
+    // Restore selection state
+    if (id in selected) edge.select();
+    // Restore visibility state
+    if (id in hidden) edge.hide();
+    // Hide edge if under threshold
+    if (edge.data('weight') < edge_threshold) edge.hide();
   });
 
   // If hide labels, hide them
@@ -1106,7 +1183,7 @@ GroupGraph.prototype.append = function(models) {
 };
 
 GroupGraph.prototype.appendAsGroup = function() {
-  var models = SkeletonListSources.getSelectedSkeletonModels(this);
+  var models = CATMAID.skeletonListSources.getSelectedSkeletonModels(this);
   if (0 === models.length) {
     growlAlert('Info', 'Selected source is empty.');
     return;
@@ -1356,7 +1433,7 @@ GroupGraph.prototype._findSkeletonsToGrow = function() {
         if (map) {
           var partners = {};
           Object.keys(map).forEach(function(skid) {
-            if (map[skid] >= min) {
+            if (map[skid].length >= min) {
               partners[skid] = true;
               split_partners[skid] = true;
             }
@@ -1648,7 +1725,7 @@ GroupGraph.prototype.colorBy = function(mode, select) {
     // Color by the color given in the SkeletonModel
     var colors = this.getState().colors;
     if (!colors) {
-      ("Oops: color state was not preserved.");
+      // Color state was not preserved. This can occur when updateGraph resets state.
       return;
     }
     this.cy.nodes().each(function(i, node) {
@@ -1657,14 +1734,12 @@ GroupGraph.prototype.colorBy = function(mode, select) {
     this.removeState('colors');
 
   } else if (-1 !== mode.indexOf("review")) {
-    // Color by review status like in the connectivity widget:
-    // greenish '#6fff5c': fully reviewed
-    // orange '#ffc71d': review started
-    // redish '#ff8c8c': not reviewed at all
+    // Color by review status
     var cy = this.cy,
         postData = {skeleton_ids: this.getSkeletons()};
-    // if user_ids is not specified, returns the union
+    // if neither user_ids nor whitelist is specified, returns the union
     if ('own-review' === mode) postData['user_ids'] = [session.userid];
+    else if ('whitelist-review' === mode) postData['whitelist'] = true;
     requestQueue.register(django_url + project.id + "/skeleton/review-status", "POST",
         postData,
         function(status, text) {
@@ -1675,11 +1750,8 @@ GroupGraph.prototype.colorBy = function(mode, select) {
             // Compute average
             var percent_reviewed = skeletons.reduce(function(sum, model) {
               return sum + json[model.id];
-            }, 0) / skeletons.length,
-                hex = '#ff8c8c';
-            if (100 === percent_reviewed) hex = '#6fff5c';
-            else if (percent_reviewed > 0) hex = '#ffc71d';
-            node.data('color', hex);
+            }, 0) / skeletons.length;
+            node.data('color', CATMAID.ReviewSystem.getBackgroundColor(percent_reviewed));
           });
         });
 
@@ -1818,7 +1890,7 @@ GroupGraph.prototype.colorCirclesOfHell = function(upstream) {
   var colors = ['#b0ff72'].concat(circles.slice(1).map(function(circle, i) {
     return '#' + new THREE.Color().setHSL(0.66, 1, 0.55 + 0.45 * (i+1) / circles.length).getHexString();
   }));
-  colors.push['#fff']; // white
+  colors.push('#fff'); // white
 
   circles.push(disconnected);
 
@@ -1940,7 +2012,7 @@ GroupGraph.prototype.loadSVGLibraries = function(callback) {
       var s = document.createElement('script');
       s.type = 'text/javascript';
       s.async = false;
-      s.src = django_url + 'static/libs/' + libs[i];
+      s.src = STATIC_URL_JS + 'libs/' + libs[i];
       var exec = false;
       s.onreadystatechange = function() {
         if (!exec && (!this.readyState || this.readyState === "loaded" || this.readyState === "complete")) {
@@ -1960,7 +2032,7 @@ GroupGraph.prototype.loadSVGLibraries = function(callback) {
       last.parentNode.appendChild(s);
     } catch (e) {
       cleanup();
-      error(e);
+      CATMAID.error(e);
     }
   };
 
@@ -2529,7 +2601,7 @@ GroupGraph.prototype.quantificationDialog = function() {
     ["Number of neurons:", this.getSkeletons().length, ""],
     ["Number of in-graph synapses:", n_synapses, "(edges times their synapse count)"],
   ].map(function(row) {
-    return "<tr>" + row.map(function(cell) { return "<td>" + cell + "</td>"}).join('') + "</tr>";
+    return "<tr>" + row.map(function(cell) { return "<td>" + cell + "</td>"; }).join('') + "</tr>";
   }).join('');
   dialog.appendChild(table);
   $(dialog).dialog({
@@ -2570,12 +2642,12 @@ GroupGraph.prototype.splitBySynapseClustering = function() {
       bandwidth = p;
       break;
     }
-  };
+  }
   var new_bandwidth = prompt("Synapse clustering bandwidth", bandwidth);
   if (new_bandwidth) {
     try {
       new_bandwidth = Number(new_bandwidth);
-      if (Number.NaN === new_bandwidth) throw new Exception("Invalud bandwidth " + new_bandwidth);
+      if (Number.NaN === new_bandwidth) throw ("Invalid bandwidth " + new_bandwidth);
       this.split(new_bandwidth);
     } catch (e) {
       alert("Invalid bandwidth: " + new_bandwidth + "\n" + e);
@@ -2586,4 +2658,137 @@ GroupGraph.prototype.splitBySynapseClustering = function() {
 
 GroupGraph.prototype.unsplit = function() {
   this.split(); // without argument
+};
+
+/** Copies all except the selection state. */
+GroupGraph.prototype.cloneWidget = function() {
+  WindowMaker.create('graph-widget');
+  var copy = GroupGraph.prototype.getLastInstance();
+  if (this.state) copy.state = $.extend(true, {}, this.state);
+  copy.setContent(this.copyContent());
+};
+
+GroupGraph.prototype.setContent = function(p) {
+  $.extend(this, p.properties);
+  this.groups = p.groups;
+  this.subgraphs = p.subgraphs;
+  this.cy.add(p.elements);
+  this.cy.layout(p.layout);
+};
+
+GroupGraph.prototype.copyContent = function() {
+  var properties = {};
+  ['label_valign',
+   'label_halign',
+   'show_node_labels',
+   'trim_node_labels',
+   'node_width',
+   'node_height',
+   'edge_color',
+   'edge_opacity',
+   'edge_text_opacity',
+   'edge_min_width',
+   'edge_width_function',
+   'grid_snap',
+   'grid_side'
+  ].forEach(function(key) {
+    properties[key] = this[key];
+  }, this);
+
+  var layout = {
+    name: 'preset',
+    positions: this.cy.nodes().toArray().reduce(function(p, node) { p[node.id()] = node.position(); return p; }, {}),
+    fit: false,
+    zoom: this.cy.zoom()
+  };
+
+  var copier = function(elem) { return {data: $.extend(true, {}, elem.data())}; };
+
+  return {
+    properties: properties,
+    elements: {nodes: this.cy.nodes().toArray().map(copier),
+               edges: this.cy.edges().toArray().map(copier)},
+    groups: this.groups,
+    subgraphs: this.subgraphs,
+    layout: layout
+  };
+};
+
+GroupGraph.prototype.saveJSON = function() {
+  var filename = prompt("File name", "graph" + this.widgetID + ".json");
+  if (!filename) return;
+  saveAs(new Blob([JSON.stringify(this.copyContent())], {type: 'text/plain'}), filename);
+};
+
+GroupGraph.prototype.loadFromJSON = function(files) {
+  try {
+    if (0 === files.length) return alert("Choose at least one file!");
+    if (files.length > 1) return alert("Choose only one file!");
+    var name = files[0].name;
+    if (name.lastIndexOf('.json') !== name.length - 5) return alert("File extension must be '.json'");
+    var reader = new FileReader();
+    reader.onload = (function(e) {
+      try {
+        var json = $.parseJSON(e.target.result);
+        var skids = {};
+        var asModel = function(ob) {
+          skids[ob.id] = true;
+          var color = new THREE.Color(ob.color.r, ob.color.g, ob.color.b);
+          return $.extend(new SelectionTable.prototype.SkeletonModel(ob.id, ob.baseName, color), ob, {color: color});
+        };
+        // Replace JSON of models with proper SkeletonModel instances
+        json.elements.nodes.forEach(function(node) {
+          node.data.skeletons = node.data.skeletons.map(asModel);
+        });
+        // Replace group colors with proper THREE.Color instances
+        // and group models with proper SkeletonModel instances
+        Object.keys(json.groups).forEach(function(gid) {
+          var g = json.groups[gid];
+          g.color = new THREE.Color(g.color.r, g.color.g, g.color.b);
+          Object.keys(g.models).forEach(function(skid) {
+            g.models[skid] = asModel(g.models[skid]);
+          });
+        });
+        this.clear();
+        this.setContent(json);
+        // Find out which ones exist
+        requestQueue.register(django_url + project.id + '/skeleton/neuronnames', "POST",
+            {skids: Object.keys(skids)},
+            (function(status, text) {
+              if (200 !== status) return;
+              var json = $.parseJSON(text);
+              if (json.error) return alert(json.error);
+              var missing = Object.keys(skids).filter(function(skid) {
+                return undefined === json[skid];
+              });
+              if (missing.length > 0) {
+                this.removeSkeletons(missing);
+                growlAlert("WARNING", "Did NOT load " + missing.length + " missing skeleton" + (1 === missing.length ? "" : "s"));
+              }
+              this.update(); // removes missing ones (but doesn't) and regenerate the data for subgraph nodes
+            }).bind(this));
+      } catch (error) {
+        CATMAID.error("Failed to parse file", error);
+      }
+    }).bind(this);
+    reader.readAsText(files[0]);
+  } catch (e) {
+    alert("Oops: " + e);
+  }
+};
+
+GroupGraph.prototype.hideEdges = function(v) {
+  // TODO refactor _validate into a Util or CATMAID namespace
+  v = WebGLApplication.prototype._validate(v, 'Invalid synaptic count', 1);
+  if (!v) return;
+  v = v | 0; // cast to int
+  this.edge_threshold = v;
+  var edge_threshold = this.edge_threshold;
+  this.cy.edges().each(function(i, edge) {
+    var props = edge.data();
+    if (props.directed) {
+      if (props.weight < edge_threshold) edge.hide();
+      else edge.show();
+    }
+  });
 };

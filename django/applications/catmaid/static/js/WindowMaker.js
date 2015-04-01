@@ -82,62 +82,31 @@ var WindowMaker = new function()
     win.focus();
   };
 
-  var appendButton = function(div, title, onclickFn, attr) {
-    var b = document.createElement('input');
-    if (attr) Object.keys(attr).forEach(function(key) { b.setAttribute(key, attr[key]); });
-    b.setAttribute('type', 'button');
-    b.setAttribute('value', title);
-    b.onclick = onclickFn;
-    div.appendChild(b);
-    return b;
-  };
-
-  var appendSelect = function(div, name, entries) {
-    var select = document.createElement('select');
-    select.setAttribute("id", div.id + "_" + name);
-    entries.forEach(function(title, i) {
-      var option = document.createElement("option");
-      option.text = title;
-      option.value = i;
-      select.appendChild(option);
-    });
-    div.appendChild(select);
-    return select;
-  };
-
-  var appendCheckbox = function(div, title, value, onclickFn, left) {
-    var cb = document.createElement('input');
-    cb.setAttribute('type', 'checkbox');
-    cb.checked = value ? true : false;
-    cb.onclick = onclickFn;
-    var elems = [cb, document.createTextNode(title)];
-    if (left) elems.reverse();
-    elems.forEach(function(elem) { div.appendChild(elem); });
-    return cb;
-  };
-
-  var appendNumericField = function(div, label, value, postlabel, onchangeFn, length) {
-    var nf = document.createElement('input');
-    nf.setAttribute('type', 'text');
-    nf.setAttribute('value', value);
-    if (length) nf.setAttribute('size', length);
-    if (onchangeFn) nf.onchange = onchangeFn;
-    if (label) div.appendChild(document.createTextNode(label));
-    div.appendChild(nf);
-    if (postlabel) div.appendChild(document.createTextNode(postlabel));
-    return nf;
-  };
-
-  var appendToTab = function(tab, elems) {
-    elems.forEach(function(e) {
-      switch (e.length) {
-        case 1: tab.appendChild(e[0]); break;
-        case 2: appendButton(tab, e[0], e[1]); break;
-        case 3: appendButton(tab, e[0], e[1], e[2]); break;
-        case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
-        case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
-      }
-    });
+  /**
+   * Clones the given form into a dynamically created iframe and submits it
+   * there. This can be used to store autocompletion information of a form that
+   * actually isn't submitted (where e.g. an AJAX request is done manually).  A
+   * search term is only added to the autocomplete history if the form is
+   * actually submitted. This, however, triggers a reload (or redirect) of the
+   * current page. To prevent this, an iframe is created where the submit of the
+   * form is done and where a reload doesn't matter. The search term is stored
+   * and the actual search can be executed.
+   * Based on http://stackoverflow.com/questions/8400269.
+   */
+  var submitFormInIFrame = function(form) {
+    // Create a new hidden iframe element as sibling of the form
+    var iframe = document.createElement('iframe');
+    iframe.setAttribute('src', '');
+    iframe.setAttribute('style', 'display:none');
+    form.parentNode.appendChild(iframe);
+    // Submit form in iframe to store autocomplete information
+    var iframeWindow = iframe.contentWindow;
+    iframeWindow.document.body.appendChild(form.cloneNode(true));
+    var frameForm = iframeWindow.document.getElementById(form.id);
+    frameForm.onsubmit = null;
+    frameForm.submit();
+    // Remove the iframe again after the submit (hopefully) run
+    setTimeout(function() { form.parentNode.removeChild(iframe); }, 100);
   };
 
   var createConnectorSelectionWindow = function()
@@ -204,7 +173,7 @@ var WindowMaker = new function()
     var buttons = document.createElement("div");
 
     buttons.appendChild(document.createTextNode('From'));
-    buttons.appendChild(SkeletonListSources.createSelect(SMT));
+    buttons.appendChild(CATMAID.skeletonListSources.createSelect(SMT));
 
     var load = document.createElement('input');
     load.setAttribute("type", "button");
@@ -271,7 +240,7 @@ var WindowMaker = new function()
     var buttons = document.createElement("div");
 
     buttons.appendChild(document.createTextNode('From'));
-    buttons.appendChild(SkeletonListSources.createSelect(AA));
+    buttons.appendChild(CATMAID.skeletonListSources.createSelect(AA));
 
     var load = document.createElement('input');
     load.setAttribute("type", "button");
@@ -290,6 +259,12 @@ var WindowMaker = new function()
     update.setAttribute("value", "Refresh");
     update.onclick = AA.update.bind(AA);
     buttons.appendChild(update);
+
+    var options = document.createElement('input');
+    options.setAttribute("type", "button");
+    options.setAttribute("value", "Options");
+    options.onclick = AA.adjustOptions.bind(AA);
+    buttons.appendChild(options);
 
     var pies = document.createElement('input');
     pies.setAttribute("type", "button");
@@ -344,7 +319,7 @@ var WindowMaker = new function()
 
     addLogic(win);
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
     AA.init();
 
     return win;
@@ -373,18 +348,11 @@ var WindowMaker = new function()
     exportSVG.onclick = ND.exportSVG.bind(ND);
     buttons.appendChild(exportSVG);
 
-    var tag = document.createElement('label');
-    tag.appendChild(document.createTextNode('Tag'));
-    var tagInput = document.createElement('input');
-    tagInput.setAttribute('type', 'text');
-    tagInput.setAttribute('id', 'dendrogram-tag-' + ND.widgetID);
-    tagInput.onkeypress = function(e) {
-      if (13 === e.keyCode) {
-        ND.update();
-      }
-    };
-    tag.appendChild(tagInput);
-    buttons.appendChild(tag);
+    var highlightTags = document.createElement('input');
+    highlightTags.setAttribute("type", "button");
+    highlightTags.setAttribute("value", "Highlight tags");
+    highlightTags.onclick = ND.chooseHighlightTags.bind(ND);
+    buttons.appendChild(highlightTags);
 
     var minStrahler = document.createElement('label');
     minStrahler.appendChild(document.createTextNode('Collapse Strahler <'));
@@ -407,16 +375,18 @@ var WindowMaker = new function()
         ND.setMinStrahler(parseInt(this.value));
       }
     };
-    minStrahlerInput.onmousewheel = function(e) {
-        if (e.wheelDelta < 0) {
-          if (this.value > 0) {
-            ND.setMinStrahler(parseInt(this.value) - 1);
-            ND.update();
+    minStrahlerInput.onwheel = function(e) {
+        if ((e.deltaX + e.deltaY) > 0) {
+          if (this.value > 1) {
+            this.value = parseInt(this.value) - 1;
+            this.onchange();
           }
         } else {
-          ND.setMinStrahler(parseInt(this.value) + 1);
-          ND.update();
+          this.value = parseInt(this.value) + 1;
+          this.onchange();
         }
+
+        return false;
     };
     minStrahler.appendChild(minStrahlerInput);
     buttons.appendChild(minStrahler);
@@ -491,6 +461,22 @@ var WindowMaker = new function()
     showStrahler.appendChild(document.createTextNode('Show Strahler'));
     buttons.appendChild(showStrahler);
 
+    var warnCollapsed = document.createElement('label');
+    var warnCollapsedInput = document.createElement('input');
+    warnCollapsedInput.setAttribute('type', 'checkbox');
+    if (ND.warnCollapsed) {
+      warnCollapsedInput.setAttribute('checked', 'checked');
+    }
+    warnCollapsedInput.onchange = function() {
+      ND.setWarnCollapsed(this.checked);
+      ND.update();
+    };
+    warnCollapsed.appendChild(warnCollapsedInput);
+    warnCollapsed.appendChild(document.createTextNode('Warn if collapsed'));
+    warnCollapsed.setAttribute('alt', 'If activated, a warning is displayed ' +
+        'everytime one tries to select a node that is currently collapsed.');
+    buttons.appendChild(warnCollapsed);
+
     var radial = document.createElement('label');
     var radialInput = document.createElement('input');
     radialInput.setAttribute('type', 'checkbox');
@@ -534,7 +520,7 @@ var WindowMaker = new function()
     buttons.setAttribute('id', 'ST_button_bar' + ST.widgetID);
 
     buttons.appendChild(document.createTextNode('From'));
-    buttons.appendChild(SkeletonListSources.createSelect(ST));
+    buttons.appendChild(CATMAID.skeletonListSources.createSelect(ST));
 
     var load = document.createElement('input');
     load.setAttribute("type", "button");
@@ -545,7 +531,11 @@ var WindowMaker = new function()
     var clear = document.createElement('input');
     clear.setAttribute("type", "button");
     clear.setAttribute("value", "Clear");
-    clear.onclick = ST.clear.bind(ST);
+    clear.onclick = function() {
+      if (confirm("Do you really want to clear the current selection?")) {
+        ST.clear();
+      }
+    };
     buttons.appendChild(clear);
 
     var update = document.createElement('input');
@@ -556,7 +546,6 @@ var WindowMaker = new function()
 
     var prev = document.createElement('input');
     prev.setAttribute("type", "button");
-    prev.setAttribute("id", "selection_table_prev");
     prev.setAttribute("value", "<");
     prev.onclick = ST.showPrevious.bind(ST);
     buttons.appendChild(prev);
@@ -572,24 +561,30 @@ var WindowMaker = new function()
     buttons.appendChild(next);
 
     buttons.appendChild(document.createTextNode(' Sync to:'));
-    var link = SkeletonListSources.createPushSelect(ST, 'link');
+    var link = CATMAID.skeletonListSources.createPushSelect(ST, 'link');
     link.onchange = ST.syncLink.bind(ST, link);
     buttons.appendChild(link);
 
-    buttons.appendChild(document.createElement('br'));
-
     var annotate = document.createElement('input');
     annotate.setAttribute("type", "button");
-    annotate.setAttribute("id", "annotate_skeleton_list");
     annotate.setAttribute("value", "Annotate");
     annotate.style.marginLeft = '1em';
     annotate.onclick = ST.annotate_skeleton_list.bind(ST);
     buttons.appendChild(annotate);
     
+    buttons.appendChild(document.createTextNode(' Color scheme'));
+    var c = appendSelect(buttons, 'ST-color-scheme' + ST.widgetID,
+        ['CATMAID',
+         'category10',
+         'category20',
+         'category20b',
+         'category20c'].concat(Object.keys(colorbrewer)));
+
+
     var random = document.createElement('input');
     random.setAttribute("type", "button");
-    random.setAttribute("value", "Randomize colors");
-    random.onclick = ST.randomizeColorsOfSelected.bind(ST);
+    random.setAttribute("value", "Colorize");
+    random.onclick = function() { ST.colorizeWith(c.options[c.selectedIndex].text); };
     buttons.appendChild(random);
     
     var measure = document.createElement('input');
@@ -611,6 +606,14 @@ var WindowMaker = new function()
     filter.setAttribute('id', 'selection-table-filter' + ST.widgetID);
     filter.onkeyup = function(ev) { if (13 === ev.keyCode) ST.filterBy(filter.value); };
     buttons.appendChild(filter);
+
+    buttons.appendChild(document.createTextNode(' Review filter'));
+    var reviewFilter = appendSelect(buttons, 'ST-review-filter' + ST.widgetID,
+        ['Union', 'Team']);
+    reviewFilter.onchange = function () {
+      ST.review_filter = reviewFilter.options[reviewFilter.selectedIndex].text;
+      ST.update();
+    };
 
     buttons.appendChild(document.createTextNode(' Batch color:'));
     var batch = document.createElement('input');
@@ -634,7 +637,7 @@ var WindowMaker = new function()
     tab.innerHTML =
         '<thead>' +
           '<tr>' +
-            '<th width="60px">action</th>' +
+            '<th>action</th>' +
             '<th>name</th>' +
             '<th>% reviewed</th>' +
             '<th>selected</th>' +
@@ -728,11 +731,23 @@ var WindowMaker = new function()
         }
     }
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
     ST.init();
     win.focus();
 
     return win;
+  };
+
+  var appendToTab = function(tab, elems) {
+    elems.forEach(function(e) {
+      switch (e.length) {
+        case 1: tab.appendChild(e[0]); break;
+        case 2: appendButton(tab, e[0], e[1]); break;
+        case 3: appendButton(tab, e[0], e[1], e[2]); break;
+        case 4: appendCheckbox(tab, e[0], e[1], e[2], e[3]); break;
+        case 5: appendNumericField(tab, e[0], e[1], e[2], e[3], e[4]); break;
+      }
+    });
   };
 
   /** Creates and returns a new 3d webgl window */
@@ -756,7 +771,7 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Main', 'View', 'Shading', 'Skeleton filters', 'View settings', 'Shading parameters', 'Export'].reduce(function(o, name) {
+    var tabs = ['Main', 'View', 'Shading', 'Skeleton filters', 'View settings', 'Shading parameters', 'Animation', 'Export'].reduce(function(o, name) {
           var id = name.replace(/ /, '') + WA.widgetID;
           titles.appendChild($('<li><a href="#' + id + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
@@ -766,7 +781,7 @@ var WindowMaker = new function()
           return o;
     }, {});
 
-    var select_source = SkeletonListSources.createSelect(WA);
+    var select_source = CATMAID.skeletonListSources.createSelect(WA);
 
     appendToTab(tabs['Main'],
         [
@@ -781,6 +796,9 @@ var WindowMaker = new function()
 
     var storedViewsSelect = document.createElement('select');
 
+    var orthographicCbElems = createCheckbox('Orthographic mode', false,
+        function() { WA.updateCameraView(this.checked); });
+
     appendToTab(tabs['View'],
         [
           ['Center active', WA.look_at_active_node.bind(WA)],
@@ -794,7 +812,8 @@ var WindowMaker = new function()
           ['Restrict connectors', WA.toggleConnectors.bind(WA)],
           ['Fullscreen', WA.fullscreenWebGL.bind(WA)],
           ['Refresh active skeleton', WA.updateActiveSkeleton.bind(WA)],
-          ['Orthographic mode', false, function() { WA.updateCameraView(this.checked); }, false],
+          [orthographicCbElems[0]],
+          [orthographicCbElems[1]],
         ]);
 
     // Wait for the 3D viewer to have initialized to get existing views
@@ -812,6 +831,8 @@ var WindowMaker = new function()
       }
       var name = this.options[this.selectedIndex].value;
       WA.activateView(name);
+      // Update orthographic view checkbox
+      orthographicCbElems[0].checked = ('orthographic' === WA.options.camera_view);
     };
     storedViewsSelect.onclick = storedViewsSelect.onchange;
     // Update the list when the element is focused
@@ -823,7 +844,7 @@ var WindowMaker = new function()
         updateAvailableViews();
         storedViewsSelect.selectedIndex = storedViewsSelect.options.length - 1;
       });
-    };
+    }
 
     function updateAvailableViews()
     {
@@ -851,19 +872,21 @@ var WindowMaker = new function()
         storedViewsSelect.options.add(new Option("(None)", -1));
         storedViewsSelect.selectedIndex = 0;
       }
-    };
+    }
     
     var shadingMenu = document.createElement('select');
     shadingMenu.setAttribute("id", "skeletons_shading" + WA.widgetID);
     [['none', 'None'],
      ['active_node_split', 'Active node split'],
      ['near_active_node', 'Near active node'],
+     ['synapse-free', 'Synapse-free chunks'],
      ['downstream_amount', 'Downstream cable'],
      ['betweenness_centrality', 'Betweenness centrality'],
      ['slab_centrality', 'Slab centrality'],
      ['flow_centrality', 'Flow centrality'],
      ['centrifugal flow_centrality', 'Centrifugal flow centrality'],
      ['centripetal flow_centrality', 'Centripetal flow centrality'],
+     ['dendritic-backbone', 'Dendritic backbone'],
      ['distance_to_root', 'Distance to root'],
      ['partitions', 'Principal branch length'],
      ['strahler', 'Strahler analysis']
@@ -878,6 +901,7 @@ var WindowMaker = new function()
     [['none', 'Source'],
      ['creator', 'By Creator'],
      ['all-reviewed', 'All Reviewed'],
+     ['whitelist-reviewed', 'Team Reviewed'],
      ['own-reviewed', 'Own Reviewed'],
      ['axon-and-dendrite', 'Axon and dendrite'],
      ['downstream-of-tag', 'Downstream of tag']
@@ -916,7 +940,7 @@ var WindowMaker = new function()
 
     appendToTab(tabs['View settings'],
         [
-          ['Meshes ', false, function() { WA.options.show_meshes = this.checked; WA.adjustContent()}, false],
+          ['Meshes ', false, function() { WA.options.show_meshes = this.checked; WA.adjustContent(); }, false],
           [WA.createMeshColorButton()],
           ['Active node', true, function() { WA.options.show_active_node = this.checked; WA.adjustContent(); }, false],
           ['Black background -', true, adjustFn('show_background'), false],
@@ -931,6 +955,13 @@ var WindowMaker = new function()
           ['Line width ', o.skeleton_line_width, null, function() { WA.updateSkeletonLineWidth(this.value); }, 10],
         ]);
 
+    var nodeScalingInput = appendNumericField(tabs['View settings'],
+        'Node handle scaling ', o.skeleton_node_scaling, null, function() {
+              WA.options.skeleton_node_scaling = Math.max(0, this.value) || 1.0;
+              WA.adjustContent();
+              WA.updateSkeletonNodeHandleScaling(this.value);
+        }, 5);
+
     appendToTab(tabs['Skeleton filters'],
         [
           ['Smooth ', o.smooth_skeletons, function() { WA.options.smooth_skeletons = this.checked; WA.updateSkeletons(); }, false],
@@ -942,9 +973,48 @@ var WindowMaker = new function()
 
     appendToTab(tabs['Shading parameters'],
         [
-          ['Synapse clustering bandwidth ', o.synapse_clustering_bandwidth, ' nm - ', function() { WA.updateSynapseClusteringBandwidth(this.value); }, 8],
-          ['Near active node ', o.distance_to_active_node, ' nm', function() {
-            WA.updateActiveNodeNeighborhoodRadius(this.value); }, 8]
+          ['Synapse clustering bandwidth ', o.synapse_clustering_bandwidth, ' nm - ', function() { WA.updateSynapseClusteringBandwidth(this.value); }, 6],
+          ['Near active node ', o.distance_to_active_node, ' nm - ', function() {
+            WA.updateActiveNodeNeighborhoodRadius(this.value); }, 6],
+          ['Min. synapse-free cable ', o.min_synapse_free_cable, 'nm - ', function() {
+            WA.updateShadingParameter('min_synapse_free_cable', this.value, 'synapse-free'); }, 6],
+          ['Strahler number ', o.strahler_cut, '', function() { WA.updateShadingParameter('strahler_cut', this.value, 'dendritic-backbone'); }, 4]
+        ]);
+
+    var axisOptions = document.createElement('select');
+    axisOptions.options.add(new Option("Camera Up", "up"));
+    axisOptions.options.add(new Option("X", "x"));
+    axisOptions.options.add(new Option("Y", "y"));
+    axisOptions.options.add(new Option("Z", "z"));
+    axisOptions.onchange = function() {
+      WA.options.animation_axis = this.value;
+    };
+
+    appendToTab(tabs['Animation'],
+        [
+          ['Play', function() {
+            try {
+              WA.startAnimation(WA.createAnimation());
+            } catch(e) {
+              if (e instanceof CATMAID.ValueError) {
+                CATMAID.msg("Error", e.message);
+              } else {
+                throw e;
+              }
+            }
+          }],
+          ['Stop', WA.stopAnimation.bind(WA)],
+          [document.createTextNode(' Rotation axis:')],
+          [axisOptions],
+          [' Rotation speed', o.animation_rotation_speed, '', function() {
+            WA.options.animation_rotation_speed = parseFloat(this.value);
+           }, 5],
+          ['Back and forth ', o.animation_back_forth, function() {
+            WA.options.animation_back_forth = this.checked;
+          }, false],
+          ['Stepwise neuron visibility ', o.animation_stepwise_visibility, function() {
+            WA.options.animation_stepwise_visibility = this.checked;
+          }, false]
         ]);
 
     appendToTab(tabs['Export'],
@@ -952,15 +1022,13 @@ var WindowMaker = new function()
           ['Export PNG', WA.exportPNG.bind(WA)],
           ['Export SVG', WA.exportSVG.bind(WA)],
           ['Export catalog SVG', WA.exportCatalogSVG.bind(WA)],
+          ['Export skeletons as CSV', WA.exportSkeletonsAsCSV.bind(WA)],
+          ['Export animation', WA.exportAnimation.bind(WA)],
         ]);
 
     content.appendChild( bar );
 
     $(bar).tabs();
-
-    var buttons = document.createElement( "div" );
-    buttons.id = "buttons_in_3d_webgl_widget";
-    content.appendChild(buttons);
 
     var container = createContainer("view_in_3d_webgl_widget" + WA.widgetID);
     content.appendChild(container);
@@ -983,6 +1051,12 @@ var WindowMaker = new function()
     // initialized.
     addLogic(win);
     WA.init( 800, 600, canvas.getAttribute("id") );
+
+    // Since the initialization can potentially change the node scaling, the is
+    // updated here explicitly. At some point we might want to have some sort of
+    // observer for this.
+    nodeScalingInput.value = WA.options.skeleton_node_scaling;
+
     // Create a Selection Table, preset as the sync target
     createStagingListWindow( null, win, WA.getName() );
 
@@ -1010,7 +1084,7 @@ var WindowMaker = new function()
           case CMWWindow.RESIZE:
             var frame = win.getFrame();
             var w = win.getAvailableWidth();
-            var h = win.getContentHeight() - buttons.offsetHeight;
+            var h = win.getContentHeight() - bar.offsetHeight;
             container.style.width = w + "px";
             container.style.height = h + "px";
             WA.resizeView( w, h );
@@ -1024,7 +1098,11 @@ var WindowMaker = new function()
     // Resize WebGLView after staging list has been added
     win.callListeners( CMWWindow.RESIZE );
 
-    SkeletonListSources.updateGUI();
+    // Make slection table smaller so that it only occupies about 25% of the
+    // available vertical space (instead of 50%).
+    win.getParent().changeHeight(Math.abs(win.getHeight() * 0.5));
+
+    CATMAID.skeletonListSources.updateGUI();
 
     // Now that a Selection Table exists, set it as the default pull source
     for (var i=select_source.length; --i; ) {
@@ -1129,7 +1207,7 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Main', 'Grow', 'Layout', 'Selection', 'Subgraphs', 'Align', 'Export'].reduce(function(o, name) {
+    var tabs = ['Main', 'Grow', 'Graph', 'Selection', 'Subgraphs', 'Align', 'Export'].reduce(function(o, name) {
           titles.appendChild($('<li><a href="#' + name + GG.widgetID + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
           div.setAttribute('id', name + GG.widgetID);
@@ -1140,17 +1218,25 @@ var WindowMaker = new function()
 
     appendToTab(tabs['Main'],
         [[document.createTextNode('From')],
-         [SkeletonListSources.createSelect(GG)],
+         [CATMAID.skeletonListSources.createSelect(GG)],
          ['Append', GG.loadSource.bind(GG)],
          ['Append as group', GG.appendAsGroup.bind(GG)],
          ['Clear', GG.clear.bind(GG)],
          ['Refresh', GG.update.bind(GG)],
-         ['Properties', GG.graph_properties.bind(GG)]]);
+         ['Properties', GG.graph_properties.bind(GG)],
+         ['Clone', GG.cloneWidget.bind(GG)],
+         ['Save', GG.saveJSON.bind(GG)],
+         ['Open...', function() { document.querySelector('#gg-file-dialog-' + GG.widgetID).click(); }]]);
+
+    appendHiddenFileButton(tabs['Export'], 'gg-file-dialog-' + GG.widgetID,
+        function(evt) { GG.loadFromJSON(evt.target.files); }
+    );
 
     var color = document.createElement('select');
     color.setAttribute('id', 'graph_color_choice' + GG.widgetID);
     color.options.add(new Option('source', 'source'));
     color.options.add(new Option('review status (union)', 'union-review'));
+    color.options.add(new Option('review status (team)', 'whitelist-review'));
     color.options.add(new Option('review status (own)', 'own-review'));
     color.options.add(new Option('input/output', 'I/O'));
     color.options.add(new Option('betweenness centrality', 'betweenness_centrality'));
@@ -1158,15 +1244,23 @@ var WindowMaker = new function()
     color.options.add(new Option('circles of hell (downstream)', 'circles_of_hell_downstream'));
     color.onchange = GG._colorize.bind(GG, color);
 
-    var layout = appendSelect(tabs['Layout'], "compartment_layout",
+    var layout = appendSelect(tabs['Graph'], "compartment_layout",
         ["Force-directed", "Hierarchical", "Grid", "Circle",
          "Concentric (degree)", "Concentric (out degree)", "Concentric (in degree)",
          "Random", "Compound Spring Embedder", "Manual"]);
 
-    appendToTab(tabs['Layout'],
+    var edges = document.createElement('select');
+    for (var i=1; i<101; ++i) edges.appendChild(new Option(i, i));
+    edges.onchange = function() { GG.hideEdges(this.value); };
+
+    appendToTab(tabs['Graph'],
         [['Re-layout', GG.updateLayout.bind(GG, layout)],
          [document.createTextNode(' - Color: ')],
-         [color]]);
+         [color],
+         [document.createTextNode(' - Hide edges with less than ')],
+         [edges],
+         [document.createTextNode(' synapses ')]
+        ]);
 
     appendToTab(tabs['Selection'],
         [['Annotate', GG.annotate_skeleton_list.bind(GG)],
@@ -1275,7 +1369,7 @@ var WindowMaker = new function()
 
     GG.init();
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
 
     return win;
   };
@@ -1290,9 +1384,10 @@ var WindowMaker = new function()
 
     var buttons = document.createElement('div');
     buttons.setAttribute('id', 'circuit_graph_plot_buttons' + GP.widgetID);
+    buttons.setAttribute('class', 'buttonpanel');
 
     buttons.appendChild(document.createTextNode('From'));
-    buttons.appendChild(SkeletonListSources.createSelect(GP));
+    buttons.appendChild(CATMAID.skeletonListSources.createSelect(GP));
 
     var add = document.createElement('input');
     add.setAttribute("type", "button");
@@ -1371,6 +1466,7 @@ var WindowMaker = new function()
     content.appendChild(buttons);
 
     var container = createContainer('circuit_graph_plot_div' + GP.widgetID);
+    container.style.overflow = 'hidden';
     content.appendChild(container);
 
     var plot = document.createElement('div');
@@ -1384,7 +1480,7 @@ var WindowMaker = new function()
 
     addLogic(win);
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
 
     return win;
   };
@@ -1402,7 +1498,7 @@ var WindowMaker = new function()
     buttons.setAttribute('id', 'morphology_plot_buttons' + MA.widgetID);
 
     buttons.appendChild(document.createTextNode('From'));
-    buttons.appendChild(SkeletonListSources.createSelect(MA));
+    buttons.appendChild(CATMAID.skeletonListSources.createSelect(MA));
 
     var add = document.createElement('input');
     add.setAttribute("type", "button");
@@ -1485,7 +1581,7 @@ var WindowMaker = new function()
 
     addLogic(win);
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
 
     return win;
   };
@@ -1502,7 +1598,7 @@ var WindowMaker = new function()
     buttons.setAttribute('id', 'venn_diagram_buttons' + VD.widgetID);
 
     buttons.appendChild(document.createTextNode('From'));
-    buttons.appendChild(SkeletonListSources.createSelect(VD));
+    buttons.appendChild(CATMAID.skeletonListSources.createSelect(VD));
 
     var add = document.createElement('input');
     add.setAttribute("type", "button");
@@ -1535,7 +1631,7 @@ var WindowMaker = new function()
 
     addLogic(win);
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
 
     return win;
   };
@@ -1744,6 +1840,7 @@ var WindowMaker = new function()
             '<th>y</th>' +
             '<th>z</th>' +
             '<th>s</ht>' +
+            '<th>confidence</ht>' +
             '<th>tags</th>' +
             '<th id="connector_nr_nodes_top' + CT.widgetID + '"># nodes for target(s)</th>' +
             '<th>username</th>' +
@@ -1759,6 +1856,7 @@ var WindowMaker = new function()
             '<th>y</th>' +
             '<th>z</th>' +
             '<th>s</ht>' +
+            '<th>confidence</ht>' +
             '<th>tags</th>' +
             '<th id="connector_nr_nodes_bottom' + CT.widgetID + '"># nodes for target(s)</th>' +
             '<th>username</th>' +
@@ -1778,6 +1876,67 @@ var WindowMaker = new function()
     return win;
   };
 
+  var appendSelect = function(div, name, entries) {
+    var select = document.createElement('select');
+    select.setAttribute("id", div.id + "_" + name);
+    entries.forEach(function(title, i) {
+      var option = document.createElement("option");
+      option.text = title;
+      option.value = i;
+      select.appendChild(option);
+    });
+    div.appendChild(select);
+    return select;
+  };
+
+  var appendButton = function(div, title, onclickFn, attr) {
+    var b = document.createElement('input');
+    if (attr) Object.keys(attr).forEach(function(key) { b.setAttribute(key, attr[key]); });
+    b.setAttribute('type', 'button');
+    b.setAttribute('value', title);
+    b.onclick = onclickFn;
+    div.appendChild(b);
+    return b;
+  };
+
+  var appendHiddenFileButton = function(div, id, onchangeFn) {
+    var fb = document.createElement('input');
+    fb.setAttribute('type', 'file');
+    fb.setAttribute('id', id);
+    fb.setAttribute('name', 'files[]');
+    fb.style.display = 'none';
+    fb.onchange = onchangeFn;
+    div.appendChild(fb);
+    return fb;
+  };
+
+  var createCheckbox = function(title, value, onclickFn) {
+    var cb = document.createElement('input');
+    cb.setAttribute('type', 'checkbox');
+    cb.checked = value ? true : false;
+    cb.onclick = onclickFn;
+    return [cb, document.createTextNode(title)];
+  };
+
+  var appendCheckbox = function(div, title, value, onclickFn, left) {
+    var elems = createCheckbox(title, value, onclickFn);
+    if (left) elems.reverse();
+    elems.forEach(function(elem) { div.appendChild(elem); });
+    return left ? elems[elems.length - 1] : elems[0];
+  };
+
+  var appendNumericField = function(div, label, value, postlabel, onchangeFn, length) {
+    var nf = document.createElement('input');
+    nf.setAttribute('type', 'text');
+    nf.setAttribute('value', value);
+    if (length) nf.setAttribute('size', length);
+    if (onchangeFn) nf.onchange = onchangeFn;
+    if (label) div.appendChild(document.createTextNode(label));
+    div.appendChild(nf);
+    if (postlabel) div.appendChild(document.createTextNode(postlabel));
+    return nf;
+  };
+
   var createSkeletonAnalyticsWindow = function()
   {
     var SA = new SkeletonAnalytics();
@@ -1790,7 +1949,7 @@ var WindowMaker = new function()
     div.setAttribute('id', 'skeleton_analytics');
     content.appendChild(div);
 
-    div.appendChild(SkeletonListSources.createSelect(SA));
+    div.appendChild(CATMAID.skeletonListSources.createSelect(SA));
 
     appendSelect(div, "extra" + SA.widgetID, ["No others", "Downstream skeletons", "Upstream skeletons", "Both upstream and downstream"]);
     var adjacents = [];
@@ -1834,7 +1993,7 @@ var WindowMaker = new function()
     addLogic(win);
 
     SA.init(); // must be called after the above placeholder table is created
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
 
     return win;
   };
@@ -1969,21 +2128,23 @@ var WindowMaker = new function()
         start.setAttribute("type", "button");
         start.setAttribute("id", "start_review_whole skeleton");
         start.setAttribute("value", "Start to review skeleton");
-        start.onclick = ReviewSystem.startReviewActiveSkeleton.bind(ReviewSystem, false);
+        start.onclick = CATMAID.ReviewSystem.startReviewActiveSkeleton.bind(
+            CATMAID.ReviewSystem, false);
         contentbutton.appendChild(start);
 
         var start = document.createElement('input');
         start.setAttribute("type", "button");
         start.setAttribute("id", "start_review_subarbor");
         start.setAttribute("value", "Start to review current sub-arbor");
-        start.onclick = ReviewSystem.startReviewActiveSkeleton.bind(ReviewSystem, true);
+        start.onclick = CATMAID.ReviewSystem.startReviewActiveSkeleton.bind(
+            CATMAID.ReviewSystem, true);
         contentbutton.appendChild(start);
 
         var end = document.createElement('input');
         end.setAttribute("type", "button");
         end.setAttribute("id", "end_review_skeleton");
         end.setAttribute("value", "End review");
-        end.onclick = ReviewSystem.endReview;
+        end.onclick = CATMAID.ReviewSystem.endReview;
         contentbutton.appendChild(end);
 
         content.appendChild( contentbutton );
@@ -2005,14 +2166,14 @@ var WindowMaker = new function()
         resetOwns.setAttribute("type", "button");
         resetOwns.setAttribute("id", "reset_skeleton_review_owns");
         resetOwns.setAttribute("value", "Reset own revisions");
-        resetOwns.onclick = ReviewSystem.resetOwnRevisions;
+        resetOwns.onclick = CATMAID.ReviewSystem.resetOwnRevisions;
         contentbutton.appendChild(resetOwns);
 
         var cacheImages = document.createElement('input');
         cacheImages.setAttribute("type", "button");
         cacheImages.setAttribute("id", "cache_images_of_skeleton");
         cacheImages.setAttribute("value", "Cache tiles");
-        cacheImages.onclick = ReviewSystem.cacheImages;
+        cacheImages.onclick = CATMAID.ReviewSystem.cacheImages;
         contentbutton.appendChild(cacheImages);
 
         var autoCenter = document.createElement('input');
@@ -2020,7 +2181,7 @@ var WindowMaker = new function()
         autoCenter.setAttribute('id', 'review_auto_center');
         autoCenter.setAttribute('checked', 'checked');
         autoCenter.onchange = function() {
-          ReviewSystem.setAutoCentering(this.checked);
+          CATMAID.ReviewSystem.setAutoCentering(this.checked);
         };
         var autoCenterLabel = document.createElement('label');
         autoCenterLabel.appendChild(autoCenter);
@@ -2046,7 +2207,7 @@ var WindowMaker = new function()
 
         addLogic(win);
 
-        ReviewSystem.init();
+        CATMAID.ReviewSystem.init();
 
         return win;
     };
@@ -2065,7 +2226,7 @@ var WindowMaker = new function()
         contentbutton.setAttribute("id", 'skeleton_connectivity_buttons' + widgetID);
 
         contentbutton.appendChild(document.createTextNode('From'));
-        contentbutton.appendChild(SkeletonListSources.createSelect(SC));
+        contentbutton.appendChild(CATMAID.skeletonListSources.createSelect(SC));
 
         var op = document.createElement('select');
         op.setAttribute('id', 'connectivity_operation' + widgetID);
@@ -2092,7 +2253,7 @@ var WindowMaker = new function()
         contentbutton.appendChild(update);
 
         contentbutton.appendChild(document.createTextNode(' Sync to:'));
-        var link = SkeletonListSources.createPushSelect(SC, 'link');
+        var link = CATMAID.skeletonListSources.createPushSelect(SC, 'link');
         link.onchange = SC.syncLink.bind(SC, link);
         contentbutton.appendChild(link);
 
@@ -2116,6 +2277,20 @@ var WindowMaker = new function()
         layoutLabel.appendChild(layoutToggle);
         contentbutton.appendChild(layoutLabel);
 
+        var autoUpdate = document.createElement('input');
+        autoUpdate.setAttribute('id', 'connectivity-auto-update-' + widgetID);
+        autoUpdate.setAttribute('type', 'checkbox');
+        if (SC.autoUpdate) {
+          autoUpdate.setAttribute('checked', 'checked');
+        }
+        autoUpdate.onchange = function(e) {
+          SC.autoUpdate = this.checked;
+        };
+        var autoUpdateLabel = document.createElement('label');
+        autoUpdateLabel.appendChild(document.createTextNode('Auto update'));
+        autoUpdateLabel.appendChild(autoUpdate);
+        contentbutton.appendChild(autoUpdateLabel);
+
         content.appendChild( contentbutton );
 
         var container = createContainer( "connectivity_widget" + widgetID );
@@ -2125,7 +2300,7 @@ var WindowMaker = new function()
         addListener(win, container, 'skeleton_connectivity_buttons' + widgetID, SC.destroy.bind(SC));
 
         addLogic(win);
-        SkeletonListSources.updateGUI();
+        CATMAID.skeletonListSources.updateGUI();
 
         return win;
     };
@@ -2229,6 +2404,11 @@ var WindowMaker = new function()
             $(this).find('#export-connector-archive').click(function() {
               // Show dialog to select
               export_connectors();
+            });
+            // Bind tree geometry export link to handler
+            $(this).find('#export-tree-geometry').click(function() {
+              // Show dialog to select
+              export_tree_geometry();
             });
           }
         });
@@ -2398,6 +2578,11 @@ var WindowMaker = new function()
     }
     keysHTML += '</p>';
 
+    // If on Mac OS, replace all occurences of 'Ctrl' with '⌘'
+    if ('MAC' === CATMAID.tools.getOS()) {
+      keysHTML = keysHTML.replace(/Ctrl/gi, '⌘');
+    }
+
     container.innerHTML = keysHTML;
     return container;
   };
@@ -2423,14 +2608,25 @@ var WindowMaker = new function()
       content.appendChild( container );
     }
 
-    var keysHTML = '<form onsubmit="TracingTool.search(); return false">';
-    keysHTML += '<input type="text" id="search-box" name="search-box">';
-    keysHTML += '<input type="submit" style="display: hidden">';
-    keysHTML += '</form>';
-    keysHTML += '<div id="search-results">';
-    keysHTML += '</div>';
+    $(container).empty()
+      .append($('<form />')
+          .attr('id', 'search-form')
+          .attr('autocomplete', 'on')
+          .on('submit', function(e) {
+            // Submit form in iframe to store autocomplete information
+            submitFormInIFrame(document.getElementById('search-form'));
+            // Do actual search
+            TracingTool.search();
+            // Cancel submit in this context to not reload the page
+            return false;
+          })
+          .append($('<input type="text" id="search-box" name="search-box" />'))
+          .append($('<input type="submit" />')))
+      .append('<div id="search-results" />');
 
-    container.innerHTML = keysHTML;
+    // Focus search box
+    setTimeout(function() { $('input#search-box', container).focus(); }, 10);
+
     return container;
   };
 
@@ -2441,12 +2637,13 @@ var WindowMaker = new function()
 
     $(container)
       .append($('<h4 />').text('Contributors'))
-      .append('CATMAID v0.24, &copy;&nbsp;2007&ndash;2014 ' +
+      .append('CATMAID &copy;&nbsp;2007&ndash;2015 ' +
           '<a href="http://fly.mpi-cbg.de/~saalfeld/">Stephan Saalfeld</a>, ' +
           '<a href="http://www.unidesign.ch/">Stephan Gerhard</a>, ' +
           '<a href="http://longair.net/mark/">Mark Longair</a>, ' +
-          '<a href="http://albert.rierol.net/">Albert Cardona</a> and ' +
-          'Tom Kazimiers.<br /><br />' +
+          '<a href="http://albert.rierol.net/">Albert Cardona</a>, ' +
+          '<a href="https://github.com/tomka">Tom Kazimiers</a> and ' +
+          '<a href="https://github.com/aschampion">Andrew Champion</a>.<br /><br />' +
           'Funded by <a href="http://www.mpi-cbg.de/research/research-groups/pavel-tomancak.html">' +
           'Pavel Toman&#x010d;&aacute;k</a>, MPI-CBG, Dresden, Germany and ' +
           '<a href="http://albert.rierol.net/">Albert Cardona</a>, ' +
@@ -2572,7 +2769,7 @@ var WindowMaker = new function()
     // Create the query fields HTML and use {{NA-ID}} as template for the
     // actual NA.widgetID which will be replaced afterwards.
     var queryFields_html =
-      '<form id="neuron_query_by_annotations{{NA-ID}}">' +
+      '<form id="neuron_query_by_annotations{{NA-ID}}" autocomplete="on">' +
       '<table cellpadding="0" cellspacing="0" border="0" ' +
           'class="neuron_annotations_query_fields" ' +
           'id="neuron_annotations_query_fields{{NA-ID}}">' +
@@ -2587,7 +2784,7 @@ var WindowMaker = new function()
         '<tr id="neuron_query_by_annotation{{NA-ID}}">' +
           '<td class="neuron_annotations_query_field_label">annotated:</td> ' +
           '<td class="neuron_annotations_query_field">' +
-            '<input type="text" name="neuron_query_by_annotation" ' +
+            '<input type="text" name="neuron_query_by_annotation" autocomplete="off" ' +
                 'class="neuron_query_by_annotation_name{{NA-ID}}" value="" />' +
             '<input type="checkbox" name="neuron_query_include_subannotation" ' +
                 'class="neuron_query_include_subannotation{{NA-ID}}" value="" />' +
@@ -2695,8 +2892,14 @@ var WindowMaker = new function()
     $('#neuron_annotations_add_annotation' + NA.widgetID)[0].onclick =
         NA.add_query_field.bind(NA);
     $('#neuron_query_by_annotations' + NA.widgetID).submit(function(event) {
+          // Submit form in iframe to make browser save search terms for
+          // autocompletion.
+          var form = document.getElementById('neuron_query_by_annotations' + NA.widgetID);
+          submitFormInIFrame(form);
+          // Do actual query
           NA.query.call(NA, true);
           event.preventDefault();
+          return false;
         });
     $('#neuron_annotations_annotate' + NA.widgetID)[0].onclick = (function() {
         // Get IDs of selected entities
@@ -2714,7 +2917,7 @@ var WindowMaker = new function()
 
     $('#neuron_annotations_toggle_neuron_selections_checkbox' + NA.widgetID)[0].onclick =
         NA.toggle_neuron_selections.bind(NA);
-    var select = SkeletonListSources.createPushSelect(NA, 'link');
+    var select = CATMAID.skeletonListSources.createPushSelect(NA, 'link');
     select.onchange = NA.syncLink.bind(NA, select);
     $('#neuron_annotations_add_to_selection' + NA.widgetID).append(select);
 
@@ -2760,7 +2963,12 @@ var WindowMaker = new function()
     // the filter select box doesn't work when it is hidden.
     $(container).hide();
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
+
+    // Focus search box
+    setTimeout(function() {
+      $('input#neuron_query_by_name' + NA.widgetID).focus();
+    }, 10);
 
     return win;
   };
@@ -2787,7 +2995,7 @@ var WindowMaker = new function()
     // the created container.
     NN.init_ui(container);
 
-    SkeletonListSources.updateGUI();
+    CATMAID.skeletonListSources.updateGUI();
 
     return win;
   };

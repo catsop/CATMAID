@@ -4,7 +4,6 @@
  *
  * requirements:
  *	 tools.js
- *	 ui.js
  *	 slider.js
  */
 
@@ -76,7 +75,6 @@ function Stack(
 		scaleBar.firstChild.firstChild.replaceChild(
 			document.createTextNode( text + " " + Stack.SCALE_BAR_UNITS[ ui ] ),
 			scaleBar.firstChild.firstChild.firstChild );
-		return;
 	};
 
 
@@ -85,19 +83,14 @@ function Stack(
 	 */
 	var update = function( completionCallback )
 	{
-		
 		self.overview.redraw();
-		updateScaleBar();
-
-		//statusBar.replaceLast( "[" + ( Math.round( x * 10000 * resolution.x ) / 10000 ) + ", " + ( Math.round( y * 10000 * resolution.y ) / 10000 ) + "]" );
+		if (self.s !== self.old_s) updateScaleBar();
 
 		self.redraw(completionCallback);
 
 		if( tool ) {
 			tool.redraw();
 		}
-
-		return;
 	};
 	this.update = update;
 
@@ -396,16 +389,14 @@ function Stack(
 
 
 		// Semaphore pattern from: http://stackoverflow.com/a/3709809/223092
-		for ( var key in layers ) {
-			if (layers.hasOwnProperty(key)) {
-				layer = layers[key];
-				// If a layer is invisble, continue with the next one.
-				if (layer.hasOwnProperty('visible') && !layer.visible) {
-					continue;
-				}
-				++ semaphore;
-				layer.redraw(onAnyCompletion);
+		for (var i = 0; i < layerOrder.length; i++) {
+			layer = layers[layerOrder[i]];
+			// If a layer is invisble, continue with the next one.
+			if (layer.hasOwnProperty('visible') && !layer.visible) {
+				continue;
 			}
+			++ semaphore;
+			layer.redraw(onAnyCompletion);
 		}
 
 		allQueued = true;
@@ -424,8 +415,6 @@ function Stack(
 		self.old_scale = self.scale;
 		self.old_yc = self.yc;
 		self.old_xc = self.xc;
-
-		return 2;
 	};
 
 	/**
@@ -434,6 +423,14 @@ function Stack(
 	this.getView = function()
 	{
 		return view;
+	};
+
+	/**
+	 * Get the view element containing layer views.
+	 * @return {Element} An element whose children are layer views.
+	 */
+	this.getLayersView = function () {
+		return layersView;
 	};
 
     /**
@@ -535,7 +532,7 @@ function Stack(
 	{
 		var layerWithBeforeMove;
 
-		if ( layersWithBeforeMove.length == 0 )
+		if ( layersWithBeforeMove.length === 0 )
 		{
 			// Then carry on to the actual move:
 
@@ -610,9 +607,9 @@ function Stack(
 			}
 		}
 
-		self.overview.redraw();
+		updateScaleBar();
 
-		return;
+		self.overview.redraw();
 	};
 	this.resize = resize;
 
@@ -647,7 +644,14 @@ function Stack(
 	{
 		if ( layers[ key ] )
 			return layers[key];
-        return;
+	};
+
+	/**
+	 * Get an array of layer keys in their rendering order (back to front).
+	 * @return {[]} An array of layer keys.
+	 */
+	this.getLayerOrder = function () {
+		return layerOrder;
 	};
 
 	/**
@@ -662,8 +666,8 @@ function Stack(
 		if ( layers[ key ] )
 			layers[ key ].unregister();
 		layers[ key ] = layer;
+		if (layerOrder.indexOf(key) === -1) layerOrder.push(key);
 		self.tilelayercontrol.refresh();
-		return;
 	};
 
 	/**
@@ -674,10 +678,11 @@ function Stack(
 	this.removeLayer = function( key )
 	{
 		var layer = layers[ key ];
-		if ( typeof layer != "undefined" && layer )
+		if ( typeof layer !== "undefined" && layer )
 		{
 			layer.unregister();
 			delete layers[ key ];
+			layerOrder.splice(layerOrder.indexOf(key), 1);
 			self.tilelayercontrol.refresh();
 			return layer;
 		}
@@ -685,6 +690,34 @@ function Stack(
 			return null;
 	};
 
+	/**
+	 * Move a layer to a new position in the layer order.
+	 * @param {*} key       Key of the layer to move.
+	 * @param {*} beforeKey Key of the layer to move the layer before or null to
+	 *                      move to the end.
+	 */
+	this.moveLayer = function (key, beforeKey) {
+		var currIndex = layerOrder.indexOf(key);
+		var newIndex = beforeKey === null ? layerOrder.length - 1 : layerOrder.indexOf(beforeKey);
+
+		if (currIndex === -1 || newIndex === -1) return; // Invalid arguments.
+
+		var layerA = layers[key],
+			layerB = beforeKey === null ? null : layers[beforeKey];
+
+		if (layerB !== null && layerB.getView) {
+			var viewA = layerA.getView(),
+				viewB = layerB.getView();
+			if (!layersView.contains(viewA) || !layersView.contains(viewB)) return;
+			layersView.insertBefore(viewA, viewB);
+		} else layersView.appendChild(layerA.getView());
+
+		if (typeof layerA.notifyReorder !== 'undefined')
+			layerA.notifyReorder(layerB);
+
+		layerOrder.splice(newIndex, 0, layerOrder.splice(currIndex, 1)[0]);
+		self.tilelayercontrol.refresh();
+	};
 
 	/**
 	 * Register a tool at this stack.  Unregisters the current tool and then
@@ -694,6 +727,8 @@ function Stack(
 	{
 //		if ( typeof tool != "undefined" && tool )
 //			tool.unregister();
+		// If this tool is already registered to this stack, do nothing.
+		if ( tool === newTool ) return;
 		tool = newTool;
 		if ( typeof tool != "undefined" && tool )
 			tool.register( self );
@@ -716,7 +751,6 @@ function Stack(
 
 	// initialize
 	var self = this;
-	if ( typeof ui == "undefined" ) ui = new UI();
 
 	self.id = id;
 
@@ -729,6 +763,7 @@ function Stack(
 
 	var tool = null;
 	var layers = {};
+	var layerOrder = [];
 
 	var MAX_X = dimension.x - 1;   //!< the last possible x-coordinate
 	var MAX_Y = dimension.y - 1;   //!< the last possible y-coordinate
@@ -748,8 +783,8 @@ function Stack(
 	self.MIN_S = max_zoom_level;
 
 	//! all possible slices
-	self.slices = new Array();
-	self.broken_slices = new Array();
+	self.slices = [];
+	self.broken_slices = [];
 	for ( var i = 0; i < dimension.z; ++i )
 	{
 		if ( !skip_planes[ i ] )
@@ -762,6 +797,8 @@ function Stack(
 
 	var stackWindow = new CMWWindow( title );
 	var view = stackWindow.getFrame();
+	var layersView = document.createElement("div");
+	view.appendChild(layersView);
 
 	var viewWidth = stackWindow.getFrame().offsetWidth;
 	var viewHeight = stackWindow.getFrame().offsetHeight;
@@ -785,10 +822,7 @@ function Stack(
 				// treenode table. setting the focus to a dummy
 				// href element does not work
 				$('#search_labels').blur();
-				// only update the project's focused stack if the stack
-				// isn't already focused
-				if ( self !== project.focusedStack )
-					project.setFocusedStack( self );
+				project.setFocusedStack( self );
 				break;
 			case CMWWindow.BLUR:
 				self.overview.getView().style.zIndex = "5";
@@ -805,8 +839,16 @@ function Stack(
 	self.overview = new Overview( self );
 	view.appendChild( self.overview.getView() );
 
-	self.tilelayercontrol = new TilelayerControl( self );
+	self.tilelayercontrol = new CATMAID.TilelayerControl( self );
+	$(self.tilelayercontrol.getView()).hide();
 	view.appendChild( self.tilelayercontrol.getView() );
+
+	// Ask for confirmation before closing the stack via the close button
+	$(view).find('.stackClose').get(0).onmousedown = function (e) {
+		if (project.getStacks().length > 1 || confirm('Closing this window will exit the project. Proceed?'))
+			stackWindow.close(e);
+		else e.stopPropagation();
+	};
 
 	var scaleBar = document.createElement( "div" );
 	scaleBar.className = "sliceBenchmark";
@@ -816,14 +858,14 @@ function Stack(
 	view.appendChild( scaleBar );
 
 	var controlToggle = document.createElement( "div" );
-	controlToggle.className = "stackControlToggle";
-	controlToggle.title = "show/hide slice controls";
+	controlToggle.className = "stackControlToggle_hidden";
+	controlToggle.title = "show/hide layer controls";
 	controlToggle.onmousedown = function(e) {
 		if ( typeof event != "undefined" && event )
 			event.cancelBubble = true;
 		if ( e && e.stopPropagation )
 			e.stopPropagation();
-		var state = $(this).siblings('.TilelayerControl, .sliceBenchmark').toggle().is(':visible');
+		var state = $(this).siblings('.TilelayerControl').toggle().is(':visible');
 		$(this).attr('class', state ? 'stackControlToggle' : 'stackControlToggle_hidden');
 	};
 	view.appendChild( controlToggle );

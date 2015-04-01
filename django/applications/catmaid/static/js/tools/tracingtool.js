@@ -6,7 +6,6 @@
  *
  * requirements:
  *	 tools.js
- *	 ui.js
  *	 slider.js
  *   stack.js
  */
@@ -72,19 +71,19 @@ function TracingTool()
 
     var proto_onmousedown = view.onmousedown;
     view.onmousedown = function( e ) {
-      switch ( ui.getMouseButton( e ) )
+      switch ( CATMAID.ui.getMouseButton( e ) )
       {
         case 1:
           tracingLayer.svgOverlay.whenclicked( e );
           break;
         case 2:
           proto_onmousedown( e );
-          ui.registerEvent( "onmousemove", updateStatusBar );
-          ui.registerEvent( "onmouseup",
+          CATMAID.ui.registerEvent( "onmousemove", updateStatusBar );
+          CATMAID.ui.registerEvent( "onmouseup",
             function onmouseup (e) {
-              ui.releaseEvents();
-              ui.removeEvent( "onmousemove", updateStatusBar );
-              ui.removeEvent( "onmouseup", onmouseup );
+              CATMAID.ui.releaseEvents();
+              CATMAID.ui.removeEvent( "onmousemove", updateStatusBar );
+              CATMAID.ui.removeEvent( "onmouseup", onmouseup );
               // Recreate nodes by feching them from the database for the new field of view
               tracingLayer.svgOverlay.updateNodes();
             });
@@ -203,24 +202,16 @@ function TracingTool()
     return;
   };
 
-  this.prototype.changeScale = function( val )
-  {
-    SkeletonAnnotations.Tag.changeScale();
-    stack.moveToPixel( stack.z, stack.y, stack.x, val );
-    return;
-  };
-
   this.prototype.changeSlice = function( val )
   {
     WebGLApplication.prototype.staticUpdateZPlane();
 
-    SkeletonAnnotations.Tag.changeSlice();
     stack.moveToPixel( val, stack.y, stack.x, stack.s );
   };
 
 
   var updateStatusBar = function( e ) {
-    var m = ui.getMouse(e, tracingLayer.svgOverlay.view, true);
+    var m = CATMAID.ui.getMouse(e, tracingLayer.svgOverlay.view, true);
     var offX, offY, pos_x, pos_y;
     if (m) {
       offX = m.offsetX;
@@ -229,7 +220,7 @@ function TracingTool()
       // TODO pos_x and pos_y never change
       pos_x = stack.translation.x + (stack.x + (offX - stack.viewWidth / 2) / stack.scale) * stack.resolution.x;
       pos_y = stack.translation.x + (stack.y + (offY - stack.viewHeight / 2) / stack.scale) * stack.resolution.y;
-      statusBar.replaceLast("[" + pos_x.toFixed(3) + ", " + pos_y.toFixed(3) + "]" + " stack.x,y: " + stack.x + ", " + stack.y);
+      CATMAID.statusBar.replaceLast("[" + pos_x.toFixed(3) + ", " + pos_y.toFixed(3) + "]" + " stack.x,y: " + stack.x + ", " + stack.y);
     }
     return true;
   };
@@ -279,15 +270,19 @@ function TracingTool()
     var tagFn = function(tag) {
       return function(e) {
         if (!mayEdit()) return false;
-        if (e.ctrlKey) return false;
-        var modifier = e.metaKey || e.shiftKey;
+        if (e.altKey || e.ctrlKey || e.metaKey) return false;
+        var modifier = e.shiftKey;
         if (null === SkeletonAnnotations.getActiveNodeId()) {
           alert('Must activate a treenode or connector before '
               + (modifier ? 'removing the tag' : 'tagging with') + ' "' + tag + '"!');
           return true;
         }
-        // If any modifier key is pressed, remove all tags
-        SkeletonAnnotations.Tag.tagATNwithLabel( modifier ? '' : tag, tracingLayer.svgOverlay);
+        // If any modifier key is pressed, remove the tag
+        if (modifier) {
+          SkeletonAnnotations.Tag.removeATNLabel(tag, tracingLayer.svgOverlay);
+        } else {
+          SkeletonAnnotations.Tag.tagATNwithLabel(tag, tracingLayer.svgOverlay, false);
+        }
         return true;
       };
     };
@@ -330,18 +325,23 @@ function TracingTool()
     run: function (e) {
       if (!mayView())
         return false;
-      tracingLayer.svgOverlay.moveToAndSelectNode(SkeletonAnnotations.getActiveNodeId());
+      if (e.shiftKey) {
+        var skid = SkeletonAnnotations.getActiveSkeletonId();
+        if (Number.isInteger(skid)) WebGLApplication.prototype.staticReloadSkeletons([skid]);
+      } else {
+        tracingLayer.svgOverlay.moveToAndSelectNode(SkeletonAnnotations.getActiveNodeId());
+      }
       return true;
     }
   } ) );
 
   this.addAction( new Action({
-    helpText: "Next open leaf node",
+    helpText: "Go to nearest open leaf or untagged root node (subsequent shift+R: cycle through other open leaves; with alt: most recent rather than nearest)",
     keyShortcuts: { "R": [ 82 ] },
     run: function (e) {
       if (!mayView())
         return false;
-      tracingLayer.svgOverlay.goToNearestOpenEndNode(SkeletonAnnotations.getActiveNodeId());
+      tracingLayer.svgOverlay.goToNextOpenEndNode(SkeletonAnnotations.getActiveNodeId(), e.shiftKey, e.altKey);
       return true;
     }
   } ) );
@@ -426,12 +426,40 @@ function TracingTool()
   }) );
 
   this.addAction( new Action({
-    helpText: "Append the active skeleton to the last used selection widget",
+    helpText: "Append the active skeleton to the last used selection widget (Ctrl: remove from selection; Shift: select by radius)",
     keyShortcuts: {
       "Y": [ 89 ]
     },
     run: function (e) {
-      SelectionTable.getLastFocused().append(SkeletonAnnotations.sourceView.getSelectedSkeletonModels());
+      if (e.shiftKey) { // Select skeletons by radius.
+        var selectionCallback = (e.ctrlKey || e.metaKey) ?
+            function (skids) { SelectionTable.getLastFocused().removeSkeletons(skids); } :
+            function (skids) { SelectionTable.getLastFocused().addSkeletons(skids); };
+        var atnID = SkeletonAnnotations.getActiveNodeId();
+
+        tracingLayer.svgOverlay.selectRadius(
+            atnID,
+            function (radius) {
+              if (typeof radius === 'undefined') return;
+
+              var node = tracingLayer.svgOverlay.nodes[atnID];
+              var selectedIDs = tracingLayer.svgOverlay.findAllNodesWithinRadius(
+                  node.x, node.y, node.z, radius);
+              selectedIDs = selectedIDs.map(function (nodeID) {
+                  return tracingLayer.svgOverlay.nodes[nodeID].skeleton_id;
+              }).filter(function (s) { return !isNaN(s); });
+
+              selectionCallback(selectedIDs);
+            });
+      } else { // Select active skeleton.
+        if (e.ctrlKey || e.metaKey) {
+          SelectionTable.getLastFocused().removeSkeletons([
+              SkeletonAnnotations.getActiveSkeletonId()]);
+        } else {
+          SelectionTable.getLastFocused().append(
+              SkeletonAnnotations.sourceView.getSelectedSkeletonModels());
+        }
+      }
     }
   }) );
 
@@ -502,7 +530,11 @@ function TracingTool()
     run: function (e) {
       if (!mayEdit())
         return false;
-      if (!(e.ctrlKey || e.metaKey)) {
+      if (e.shiftKey) {
+        // Delete all tags
+        SkeletonAnnotations.Tag.tagATNwithLabel('', tracingLayer.svgOverlay, true);
+        return true;
+      } else if (! (e.ctrlKey || e.metaKey)) {
         SkeletonAnnotations.Tag.tagATN(tracingLayer.svgOverlay);
         return true;
       } else {
@@ -634,8 +666,8 @@ function TracingTool()
       run: function (e) {
           if (!mayEdit())
               return false;
-          if (ReviewSystem.validSegment())
-              ReviewSystem.moveNodeInSegmentBackward();
+          if (CATMAID.ReviewSystem.validSegment())
+              CATMAID.ReviewSystem.moveNodeInSegmentBackward();
           return true;
       }
   }) );
@@ -646,8 +678,8 @@ function TracingTool()
       run: function (e) {
           if (!mayEdit())
               return false;
-          if (ReviewSystem.validSegment())
-              ReviewSystem.moveNodeInSegmentForward(e.shiftKey);
+          if (CATMAID.ReviewSystem.validSegment())
+              CATMAID.ReviewSystem.moveNodeInSegmentForward(e.shiftKey);
           return true;
       }
   }) );
@@ -658,8 +690,8 @@ function TracingTool()
       run: function (e) {
           if (!mayEdit())
               return false;
-          if (ReviewSystem.validSegment())
-              ReviewSystem.selectNextSegment();
+          if (CATMAID.ReviewSystem.validSegment())
+              CATMAID.ReviewSystem.selectNextSegment();
           return true;
       }
   }) );
@@ -742,7 +774,7 @@ function TracingTool()
     result += '<strong>click on a node:</strong> make that node active<br />';
     result += '<strong>ctrl-click in space:</strong> deselect the active node<br />';
     result += '<strong>ctrl-shift-click on a node:</strong> delete that node<br />';
-    result += '<strong>ctrl-shift-click on an arrowhead:</strong> delete that link<br />';
+    result += '<strong>ctrl-shift-click on an arrow:</strong> delete that link<br />';
     result += '<strong>shift-click in space:</strong> create a synapse with the active treenode being presynaptic.<br />';
     result += '<strong>shift-alt-click in space:</strong> create a synapse with the active treenode as postsynaptic.<br />';
     result += '<strong>shift-click in space:</strong> create a post-synaptic node (if there was an active connector)<br />';
@@ -751,7 +783,7 @@ function TracingTool()
     result += '</p>';
     return result;
   };
-  
+
   this.redraw = function()
   {
     self.prototype.redraw();
@@ -771,7 +803,6 @@ TracingTool.goToNearestInNeuronOrSkeleton = function(type, objectID) {
     z: projectCoordinates.z
   }, nodeIDToSelect, skeletonIDToSelect;
   parameters[type + '_id'] = objectID;
-  //requestQueue.register("model/node.nearest.php", "GET",
   requestQueue.register(django_url + project.id + "/node/nearest", "POST",
                         parameters, function (status, text) {
     var data;
@@ -784,7 +815,6 @@ TracingTool.goToNearestInNeuronOrSkeleton = function(type, objectID) {
       } else {
         nodeIDToSelect = data.treenode_id;
         skeletonIDToSelect = data.skeleton_id;
-        //console.log('goToNearestInNeuronOrSkeleton', type, objectID )
         SkeletonAnnotations.staticMoveTo(data.z, data.y, data.x,
           function () {
             SkeletonAnnotations.staticSelectNode(nodeIDToSelect, skeletonIDToSelect);
@@ -900,7 +930,7 @@ TracingTool.search = function()
                            })
                            .text("[" + index + "]")
                   ).append("&nbsp;");
-                if( index % 20 == 0)
+                if( index % 20 === 0)
                   td.append('<br />');
                 return index + 1;
               }, 1);

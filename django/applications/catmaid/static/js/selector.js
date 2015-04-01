@@ -3,7 +3,6 @@
  *
  * requirements:
  *	 tools.js
- *	 ui.js
  *	 slider.js
  *   stack.js
  */
@@ -19,13 +18,11 @@ function Selector()
 {
 	var self = this;
 	var stack = null;
-	var position_markers = new Array();
+	var position_markers = [];
 	// settings for duplicated cursors
 	var img_path = STATIC_URL_JS + "images/svg-cursor-light-30px.png";
 	var img_width = 30;
 	var img_height = 30;
-
-	if ( !ui ) ui = new UI();
 
 	//! mouse catcher
 	var mouseCatcher = document.createElement( "div" );
@@ -50,7 +47,7 @@ function Selector()
 		{
 			var xp;
 			var yp;
-			var m = ui.getMouse( e, stack.getView() );
+			var m = CATMAID.ui.getMouse( e, stack.getView() );
 			if ( m )
 			{
 				var mouseStackX = stack.x + ( m.offsetX - stack.viewWidth / 2 ) / stack.scale;
@@ -60,7 +57,7 @@ function Selector()
 				var project_pos_y = stack.stackToProjectY( stack.z, mouseStackY, mouseStackX );
 				var project_pos_z = stack.stackToProjectZ( stack.z, mouseStackY, mouseStackX );
 
-				statusBar.replaceLast( "[" + project_pos_x.toFixed( 3 ) + ", " + project_pos_y.toFixed( 3 ) + ", " + project_pos_z.toFixed( 3 ) + "]" );
+				CATMAID.statusBar.replaceLast( "[" + project_pos_x.toFixed( 3 ) + ", " + project_pos_y.toFixed( 3 ) + ", " + project_pos_z.toFixed( 3 ) + "]" );
 
 				// update position marks in other open stacks as well
 				for ( var i = 0; i < position_markers.length; ++i )
@@ -85,21 +82,24 @@ function Selector()
 		},
 		move : function( e )
 		{
-			stack.moveToPixel( stack.z, stack.y - ui.diffY / stack.scale, stack.x - ui.diffX / stack.scale, stack.s );
+			stack.moveToPixel( stack.z,
+                               stack.y - CATMAID.ui.diffY / stack.scale,
+                               stack.x - CATMAID.ui.diffX / stack.scale,
+                               stack.s );
 			return false;
 		}
 	};
 	
 	var onmouseup = function( e )
 	{
-		switch ( ui.getMouseButton( e ) )
+		switch ( CATMAID.ui.getMouseButton( e ) )
 		{
 		case 1:
 			break;
 		case 2:
-			ui.releaseEvents();
-			ui.removeEvent( "onmousemove", onmousemove.move );
-			ui.removeEvent( "onmouseup", onmouseup );
+			CATMAID.ui.releaseEvents();
+			CATMAID.ui.removeEvent( "onmousemove", onmousemove.move );
+			CATMAID.ui.removeEvent( "onmouseup", onmouseup );
 			break;
 		case 3:
 			break;
@@ -109,17 +109,17 @@ function Selector()
 	
 	var onmousedown = function( e )
 	{
-		switch ( ui.getMouseButton( e ) )
+		switch ( CATMAID.ui.getMouseButton( e ) )
 		{
 		case 1:
 			// select something ...
 			break;
 		case 2:			
-			ui.registerEvent( "onmousemove", onmousemove.move );
-			ui.registerEvent( "onmouseup", onmouseup );
-			ui.catchEvents( "move" );
-			ui.onmousedown( e );
-			ui.catchFocus();
+			CATMAID.ui.registerEvent( "onmousemove", onmousemove.move );
+			CATMAID.ui.registerEvent( "onmouseup", onmouseup );
+			CATMAID.ui.catchEvents( "move" );
+			CATMAID.ui.onmousedown( e );
+			CATMAID.ui.catchFocus();
 			break;
 		case 3:
 			break;
@@ -131,13 +131,12 @@ function Selector()
 	{
 		var xp = stack.x;
 		var yp = stack.y;
-		var m = ui.getMouse( e, stack.getView() );
-		var w = ui.getMouseWheel( e );
+		var m = CATMAID.ui.getMouse( e, stack.getView() );
+		var w = CATMAID.ui.getMouseWheel( e );
 		if ( m )
 		{
 			xp = m.offsetX - stack.viewWidth / 2;
 			yp = m.offsetY - stack.viewHeight / 2;
-			//statusBar.replaceLast( ( m.offsetX - viewWidth / 2 ) + " " + ( m.offsetY - viewHeight / 2 ) );
 		}
 		if ( w )
 		{
@@ -242,21 +241,7 @@ function Selector()
 
 		mouseCatcher.onmousedown = onmousedown;
 		mouseCatcher.onmousemove = onmousemove.pos;
-
-		try
-		{
-			mouseCatcher.addEventListener( "DOMMouseScroll", onmousewheel, false );
-			/* Webkit takes the event but does not understand it ... */
-			mouseCatcher.addEventListener( "mousewheel", onmousewheel, false );
-		}
-		catch ( error )
-		{
-			try
-			{
-				mouseCatcher.onmousewheel = onmousewheel;
-			}
-			catch ( error ) {}
-		}
+		mouseCatcher.addEventListener( "wheel", onmousewheel, false );
 
 		mouseCatcher.style.cursor = "url(" + STATIC_URL_JS + "images/svg-circle.cur) 15 15, crosshair";
 		stack.getView().appendChild( mouseCatcher );

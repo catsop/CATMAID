@@ -493,6 +493,18 @@ class Review(models.Model):
     skeleton = models.ForeignKey(ClassInstance)
     treenode = models.ForeignKey(Treenode)
 
+class ReviewerWhitelist(models.Model):
+    """ This model represents that a user trusts the reviews of a partciular
+    reviewer for a specific project created after a specified time.
+    """
+    class Meta:
+        db_table = "reviewer_whitelist"
+        unique_together = ('project', 'user', 'reviewer')
+    project = models.ForeignKey(Project)
+    user = models.ForeignKey(User)
+    reviewer = models.ForeignKey(User, related_name='+')
+    accept_after = models.DateTimeField(default=datetime.min)
+
 class RegionOfInterest(UserFocusedModel):
     class Meta:
         db_table = "region_of_interest"
@@ -776,11 +788,15 @@ class UserProfile(models.Model):
         default=settings.PROFILE_SHOW_TRACING_TOOL)
     show_ontology_tool = models.BooleanField(
         default=settings.PROFILE_SHOW_ONTOLOGY_TOOL)
+    show_roi_tool = models.BooleanField(
+        default=settings.PROFILE_SHOW_ROI_TOOL)
     color = RGBAField(default=distinct_user_color)
     tracing_overlay_screen_scaling = models.BooleanField(
         default=settings.PROFILE_TRACING_OVERLAY_SCREEN_SCALING)
     tracing_overlay_scale = models.FloatField(
         default=settings.PROFILE_TRACING_OVERLAY_SCALE)
+    prefer_webgl_layers = models.BooleanField(
+        default=settings.PROFILE_PREFER_WEBGL_LAYERS)
 
     def __unicode__(self):
         return self.user.username
@@ -800,8 +816,10 @@ class UserProfile(models.Model):
         pdict['show_segmentation_tool'] = self.show_segmentation_tool
         pdict['show_tracing_tool'] = self.show_tracing_tool
         pdict['show_ontology_tool'] = self.show_ontology_tool
+        pdict['show_roi_tool'] = self.show_roi_tool
         pdict['tracing_overlay_screen_scaling'] = self.tracing_overlay_screen_scaling
         pdict['tracing_overlay_scale'] = self.tracing_overlay_scale
+        pdict['prefer_webgl_layers'] = self.prefer_webgl_layers
         return pdict
 
     # Fix a problem with duplicate keys when new users are added.

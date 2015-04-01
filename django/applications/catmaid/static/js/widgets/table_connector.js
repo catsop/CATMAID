@@ -9,7 +9,7 @@ var ConnectorTable = function(optionalSkid)
   this.connectorTable = null;
 
   var self = this;
-  var asInitValsSyn = new Array();
+  var asInitValsSyn = [];
   var skeletonID = optionalSkid ? optionalSkid : -1;
   var possibleLengths = [25, 100, -1];
   var possibleLengthsLabels = possibleLengths.map(
@@ -120,6 +120,10 @@ var ConnectorTable = function(optionalSkid)
           {
             "bSearchable": false,
             "bSortable": true
+          }, // confidence
+          {
+            "bSearchable": false,
+            "bSortable": true
           }, // number of nodes
           {
             "bVisible": true,
@@ -158,7 +162,7 @@ var ConnectorTable = function(optionalSkid)
     });
 
     $(tableid + " tfoot input").blur(function (i) {
-      if (this.value == "") {
+      if (this.value == "") { // jshint ignore:line
         this.className = "search_init";
         this.value = asInitValsSyn[$("tfoot input").index(this)];
       }
@@ -174,8 +178,8 @@ var ConnectorTable = function(optionalSkid)
 
       // If there is a partner treenode, activate that - otherwise
       // activate the connector itself:
-      if (aData[9]) {
-        idToActivate = parseInt(aData[9], 10);
+      if (aData[10]) {
+        idToActivate = parseInt(aData[10], 10);
         skeletonID = parseInt(aData[1], 10);
       } else {
         idToActivate = parseInt(aData[0], 10);

@@ -9,7 +9,20 @@ from catmaid.models import Project, DataView, Stack, ProjectStack, UserProfile
 from catmaid.models import BrokenSlice, Overlay
 from catmaid.control.importer import importer_admin_view
 from catmaid.control.classificationadmin import classification_admin_view
+from catmaid.control.annotationadmin import ImportingWizard
 from catmaid.views import UseranalyticsView, UserProficiencyView
+
+
+def duplicate_action(modeladmin, request, queryset):
+    """
+    An action that can be added to individual model admin forms to duplicate
+    selected entries. Currently, it only duplicates each object without any
+    foreign key or many to many relationships.
+    """
+    for object in queryset:
+        object.id = None
+        object.save()
+duplicate_action.short_description = "Duplicate selected without relations"
 
 
 class BrokenSliceModelForm(forms.ModelForm):
@@ -87,6 +100,8 @@ class ProjectAdmin(GuardedModelAdmin):
     list_display = ('title',)
     search_fields = ['title','comment']
     inlines = [ProjectStackInline]
+    save_as = True
+    actions = (duplicate_action,)
 
 
 class StackAdmin(GuardedModelAdmin):
@@ -94,6 +109,15 @@ class StackAdmin(GuardedModelAdmin):
                     'image_base')
     search_fields = ['title', 'comment', 'image_base']
     inlines = [ProjectStackInline]
+    save_as = True
+    actions = (duplicate_action,)
+
+
+class OverlayAdmin(GuardedModelAdmin):
+    list_display = ('title', 'image_base')
+    search_fields = ['title', 'image_base']
+    save_as = True
+    actions = (duplicate_action,)
 
 
 class DataViewConfigWidget(forms.widgets.Textarea):
@@ -148,6 +172,8 @@ class DataViewAdmin(GuardedModelAdmin):
     # provides a custiom change_form.html template as well, we need
     # to explicitely refer to our wanted template.
     change_form_template = 'catmaid/admin/dataview/change_form.html'
+    save_as = True
+    actions = (duplicate_action,)
 
 
 class ProfileInline(admin.StackedInline):
@@ -200,13 +226,16 @@ admin.site.register(BrokenSlice, BrokenSliceAdmin)
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(DataView, DataViewAdmin)
 admin.site.register(Stack, StackAdmin)
+admin.site.register(Overlay, OverlayAdmin)
 admin.site.register(ProjectStack)
 
 # Replace the user admin view with custom view
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
 # Register additional views
-admin.site.register_view('importer', 'Importer',
+admin.site.register_view('annotationimporter', 'Annotation data importer',
+                         view=ImportingWizard.as_view())
+admin.site.register_view('importer', 'Image data importer',
                          view=importer_admin_view)
 admin.site.register_view('useranalytics', 'User Analytics',
                          view=UseranalyticsView.as_view())
@@ -215,4 +244,3 @@ admin.site.register_view('userproficiency', 'User Proficiency',
 admin.site.register_view('classificationadmin',
                          'Tag Based Classification Graph Linker',
                          view=classification_admin_view)
-admin.site.register(Overlay)

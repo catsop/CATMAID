@@ -302,7 +302,7 @@ function BoxSelectionLayer( stack, tool, crop_box)
 
         // let active crop box show status info
         if (is_active) {
-            statusBar.replaceLast(
+            CATMAID.statusBar.replaceLast(
                 tool.convertWorld(cropBoxBB.left_world).toFixed( 3 ) + ", " +
                 tool.convertWorld( cropBoxBB.top_world ).toFixed( 3 ) + " -> " +
                 tool.convertWorld( cropBoxBB.right_world ).toFixed( 3 ) + "," +
@@ -350,18 +350,6 @@ function BoxSelectionLayer( stack, tool, crop_box)
             view.className = "cropBox";
         else
             view.className = "cropBoxNonActive";
-    };
-
-    this.isolateTileLayer = function()
-    {
-        stack.getView().removeChild( view );
-        self.visible = false;
-    };
-
-    this.reattachTileLayer = function()
-    {
-        stack.getView().appendChild( view );
-        self.visible = true;
     };
 
     var self = this;

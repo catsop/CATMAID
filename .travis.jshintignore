@@ -1,0 +1,8 @@
+*
+!django/applications/**
+django/applications/vncbrowser/**
+**/*.min.js
+**/libs/**
+!**/libs/catmaid/**
+**/static/apps/**
+**/static/tests/libs/**

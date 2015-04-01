@@ -1,6 +1,9 @@
 # General Django settings for mysite project.
 
+import os
+import sys
 import django.conf.global_settings as DEFAULT_SETTINGS
+import utils
 from pipelinefiles import *
 
 # A list of people who get code error notifications. They will get an email
@@ -48,10 +51,42 @@ INSTALLED_APPS = (
     'catmaid',
     'djsopnet',
     'vncbrowser',
+    'performancetests',
     'guardian',
     'south',
     'pipeline',
 )
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
+        },
+        'simple': {
+            'format': '%(levelname)s %(message)s'
+        },
+    },
+    'handlers': {
+        'null': {
+            'level': 'DEBUG',
+            'class': 'django.utils.log.NullHandler',
+        },
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple'
+        }
+    },
+    'loggers': {
+        'catmaid.frontend': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
 
 # Use the default template context processors. If custom ones should be
 # added, please append it to the tuple to make sure the default processors
@@ -95,8 +130,10 @@ PROFILE_SHOW_CROPPING_TOOL = False
 PROFILE_SHOW_SEGMENTATION_TOOL = False
 PROFILE_SHOW_TRACING_TOOL = False
 PROFILE_SHOW_ONTOLOGY_TOOL = False
+PROFILE_SHOW_ROI_TOOL = False
 PROFILE_TRACING_OVERLAY_SCREEN_SCALING = True
 PROFILE_TRACING_OVERLAY_SCALE = 1
+PROFILE_PREFER_WEBGL_LAYERS = False
 
 # Defines if a cropped image of a ROI should be created
 # automatically when the ROI is created. If set to False
@@ -157,6 +194,9 @@ PIPELINE_JS_COMPRESSOR = None
 # yet.
 PIPELINE_DISABLE_WRAPPER = True
 
+# Make Git based version of CATMAID available as a settings field
+VERSION = utils.get_version()
+
 # FlyTEM rendering service. To activate add the following lines to your
 # settings.py file:
 # MIDDLEWARE_CLASSES += ('catmaid.middleware.FlyTEMMiddleware',)
@@ -165,33 +205,9 @@ PIPELINE_DISABLE_WRAPPER = True
 # FLYTEM_STACK_TILE_WIDTH = 512
 # FLYTEM_STACK_TILE_HEIGHT = 512
 
-# A couple of functions useful for generating default directories to
-# be used in the settings files:
-
-import os, errno
-
-def relative(*path_components):
-    '''Returns a path relative to the directory this file is in'''
-
-    base = os.path.abspath(os.path.dirname(__file__))
-    all_parts = [base] + list(path_components)
-    return os.path.realpath(os.path.join(*all_parts))
-
-# From: http://stackoverflow.com/q/600268/223092
-
-def mkdir_p(path):
-    try:
-        os.makedirs(path)
-    except OSError as exc:
-        if exc.errno == errno.EEXIST and os.path.isdir(path):
-            pass
-        else:
-            raise
-
-import sys
-from os.path import realpath
-
-PROJECT_ROOT = relative('..', '..')
+# Make Django root folder available
+PROJECT_ROOT = utils.relative('..', '..')
+# Add all subdirectories of project, applications and lib to sys.path
 for subdirectory in ('projects', 'applications', 'lib'):
     full_path = os.path.join(PROJECT_ROOT, subdirectory)
     sys.path.insert(0, full_path)

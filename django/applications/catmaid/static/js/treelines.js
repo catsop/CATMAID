@@ -1,7 +1,6 @@
 /* -*- mode: espresso; espresso-indent-level: 4; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=4 shiftwidth=4 tabstop=4 expandtab: */
 /*global Raphael, $M, $V, staticURLPrefix, $, requestQueue */
-/*jslint white: true, devel: true, onevar: true, browser: true, undef: true, nomen: true, regexp: false, plusplus: false, bitwise: false, newcap: true, maxerr: 50, indent: 4 */
 
 var Treelines = new function() 
 {
@@ -762,7 +761,7 @@ var Treelines = new function()
       treenode_id: atn_id
     }, function (status, text, xml) {
       if (status == 200) {
-        var e = eval("(" + text + ")");
+        var e = JSON.parse(text);
         if (e.error) {
           alert(e.error);
         } else {

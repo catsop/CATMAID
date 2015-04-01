@@ -1,493 +1,516 @@
-/* -*- mode: espresso; espresso-indent-level: 8; indent-tabs-mode: t -*- */
-/**
- * tilelayer.js
- *
- * requirements:
- *	 tools.js
- *	 ui.js
- *	 slider.js
- *
- * @todo redo all public interfaces to use physical coordinates instead of pixel coordinates
- */
+/* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 
-/**
- * Get the part of the tile name that consists of dimensions z, t, ...
- * For a 3D stack this will return "z/", for a 4D stack "t/z/", etc.
- *
- * @param pixelPos pixel position of the stack [x, y, z, t, ...]
- */
-function getTileBaseName( pixelPos )
-{
-	var n = pixelPos.length;
-	var dir = "";
-	for ( var i = n - 1; i > 1; --i )
-	{
-		dir += pixelPos[ i ] + "/";
-	}
-	return dir;
-}
+(function(CATMAID) {
 
-function getTileBaseName3D( stack, pixelPos, adjacent )
-{
-  if(!adjacent) {
-    adjacent = 0;
+  "use strict";
+
+  /**
+   * Get the part of the tile name that consists of dimensions z, t, ...
+   * For a 3D stack this will return 'z/', for a 4D stack 't/z/', etc.
+   *
+   * @param pixelPos pixel position of the stack [x, y, z, t, ...]
+   */
+  CATMAID.getTileBaseName = function (pixelPos) {
+    var n = pixelPos.length;
+    var dir = '';
+    for (var i = n - 1; i > 1; --i) {
+      dir += pixelPos[i] + '/';
+    }
+    return dir;
+  };
+
+  /**
+   * Displays a grid of tiles from an image stack.
+   * @constructor
+   * @param {string}  displayname  Name displayed in window controls.
+   * @param {Stack}   stack        Image stack from which to draw tiles.
+   * @param {number}  tileWidth    Width of tile images in pixels.
+   * @param {number}  tileHeight   Height of tile images in pixel.
+   * @param {Object}  tileSource   Tile source for generating image URLs.
+   * @param {boolean} visibility   Whether the tile layer is initially visible.
+   * @param {number}  opacity      Opacity to draw the layer.
+   * @param {boolean} showOverview Whether to show a "minimap" overview of the
+   *                               stack.
+   */
+  function TileLayer(
+      displayname,
+      stack,
+      tileWidth,
+      tileHeight,
+      tileSource,
+      visibility,
+      opacity,
+      showOverview) {
+    this.displayname = displayname;
+    this.stack = stack;
+    this.tileWidth = tileWidth;
+    this.tileHeight = tileHeight;
+    this.tileSource = tileSource;
+    this.opacity = opacity; // in the range [0,1]
+    this.visible = visibility;
+    this.isOrderable = true;
+
+    /** @type {[[Element]]} Contains all tiles in a 2D toroidal array */
+    this._tiles = [];
+    /** @type {number} Current origin row in the tiles array. */
+    this._tileOrigR = 0;
+    /** @type {number} Current origin column in the tiles array. */
+    this._tileOrigC = 0;
+    this._tilesBuffer = [];
+    this._buffering = false;
+    this._swapBuffersTimeout = null;
+
+    this.tilesContainer = document.createElement('div');
+    this.tilesContainer.className = 'sliceTiles';
+
+    stack.getLayersView().appendChild(this.tilesContainer);
+
+    if (showOverview) {
+      // Initialize the OverviewLayer on the bottom-right with the correct
+      // path to the small thumbnail images depending on the tile source type
+      // This is only run for the TileLayer which usually holds the primary
+      // raw data, and not for additional overlay layers. Overlay layers are
+      // currently not shown with a small image.
+      this.overviewLayer = tileSource.getOverviewLayer(this);
+    }
   }
-  var z = pixelPos[ 2 ] + adjacent;
-  if( z < 0 ) {
-    z = 0;
-  }
-  if( z > stack.slices[stack.slices.length-1] ) {
-    z = stack.slices[stack.slices.length-1];
-  }
-  if( $.inArray(z, stack.slices) === -1 ) {
-    return null;
-  }
-  return z + "/";
-}
 
-/**
- * 
- */
-function TileLayer(
-		displayname,
-		stack,						//!< reference to the parent stack
-		tileWidth,
-		tileHeight,
-		tileSource,
-		visibility,
-		opacity,
-		showOverview
-		)
-{
-	/**
-	 * Return friendly name of this layer.
-	 */
-	this.getLayerName = function()
-	{
-		return self.displayname;
-	};
+  /**
+   * Return friendly name of this layer.
+   */
+  TileLayer.prototype.getLayerName = function () {
+    return this.displayname;
+  };
 
-	/**
-	 * initialise the tiles array
-	 */
-	var initTiles = function( rows, cols )
-	{
-		while ( tilesContainer.firstChild )
-			tilesContainer.removeChild( tilesContainer.firstChild );
+  /**
+   * Initialise the tiles array and buffer.
+   */
+  TileLayer.prototype._initTiles = function (rows, cols) {
+    while (this.tilesContainer.firstChild)
+      this.tilesContainer.removeChild(this.tilesContainer.firstChild);
 
-		var tileOnload = function ()
-		{
-			this.style.visibility = "visible";
-			this.alt = "l"; // Set a flag to indicate this image has loaded
-		};
-		
-		tiles = [];
+    var tileOnload = function () {
+      if (this.alt === 'h') return;
+      this.style.visibility = 'visible';
+      this.alt = 'l'; // Set a flag to indicate this image has loaded
+    };
 
-		tiles_buf = [];
+    this._tiles = [];
 
-		
-		for ( var i = 0; i < rows; ++i )
-		{
-			tiles[ i ] = [];
-			tiles_buf[ i ] = [];
-			for ( var j = 0; j < cols; ++j )
-			{
-				tiles[ i ][ j ] = document.createElement( "img" );
-				tiles[ i ][ j ].alt = "";
-				tiles[ i ][ j ].style.visibility = "hidden";
-				tiles[ i ][ j ].onload = tileOnload;
+    this._tilesBuffer = [];
 
-				tiles_buf[ i ][ j ] = document.createElement( "img" );
-				tiles_buf[ i ][ j ].alt = "";
-				tiles_buf[ i ][ j ].visibility = "hidden";
-				
-				tilesContainer.appendChild( tiles[ i ][ j ] );
-			}
-		}
+    this._tileOrigR = 0;
+    this._tileOrigC = 0;
 
-		return;
-	};
-	
-	/**
-	 * align and update the tiles to be ( x, y ) in the image center
-	 */
-	this.redraw = function(completionCallback)
-	{
-		var pixelPos = [ stack.x, stack.y, stack.z ];
-		var tileBaseName = getTileBaseName( pixelPos );
+    for (var i = 0; i < rows; ++i) {
+      this._tiles[i] = [];
+      this._tilesBuffer[i] = [];
+      for (var j = 0; j < cols; ++j) {
+        var tile = document.createElement( 'img' );
+        // The alt attribute of these and the buffer's images is abused
+        // to indicate states for buffering resilience: empty for
+        // loading an image, 'l' for a loaded image, and 'h' for hidden.
+        tile.alt = '';
+        tile.style.visibility = 'hidden';
+        tile.onload = tileOnload;
+        this._tiles[i][j] = tile;
 
-		var zoom = stack.s;
-		var mag = 1.0;
-		var artificialZoom = false;
-		/* If the zoom is negative we zoom in digitally. For this
-		 * we take the zero zoom level and adjust the tile properties.
-		 * This way we let the browser do the zooming work.
-		 */
-		if (zoom < 0 || zoom % 1 !== 0) {
-			artificialZoom = true;
-			/* For nonintegral zoom levels the ceiling is used to select
-			 * source image zoom level. While using the floor would allow
-			 * better image quality, it would requiring dynamically
-			 * increasing the number of tiles to fill the viewport since
-			 * in that case effectiveTileWidth < tileWidth.
-			 */
-			zoom = Math.max(0, Math.ceil(zoom));
-			/* Magnification is positive for digital zoom beyond image
-			 * resolution and negative for non-integral zooms within
-			 * image resolution.
-			 */
-			mag = Math.pow(2, zoom - stack.s);
-		}
+        this._tilesBuffer[i][j] = document.createElement('img');
+        this._tilesBuffer[i][j].alt = '';
+        this._tilesBuffer[i][j].visibility = 'hidden';
 
-		var effectiveTileWidth = tileWidth * mag;
-		var effectiveTileHeight = tileHeight * mag;
+        this.tilesContainer.appendChild(tile);
+      }
+    }
+  };
 
-		var fr = Math.floor( stack.yc / effectiveTileHeight );
-		var fc = Math.floor( stack.xc / effectiveTileWidth );
-		
-		var xd = 0;
-		var yd = 0;
-		
-		// If panning only (no scaling, no browsing through z)
-		if ( stack.z == stack.old_z && stack.s == stack.old_s )
-		{
-			var old_fr = Math.floor( stack.old_yc / effectiveTileHeight );
-			var old_fc = Math.floor( stack.old_xc / effectiveTileWidth );
-			
-			// Compute panning in X and Y
-			xd = fc - old_fc;
-			yd = fr - old_fr;
+  TileLayer.prototype.rowTransform = function (r) {
+    var rows = this._tiles.length;
+    return ((r % rows) + rows + this._tileOrigR) % rows;
+  };
 
-			// re-order the tiles array on demand
-			if ( xd < 0 )
-			{
-				// Panning to the left:
-				// Move the last column of tiles to the first column
-				for ( var i = tiles.length - 1; i >= 0; --i )
-				{
-					var img = tiles[ i ].pop();
-					img.style.visibility = "hidden";
-					tiles[ i ].unshift( img );
-				}
-			}
-			else if ( xd > 0 )
-			{
-				// Panning to the right:
-				// Move the first column of tiles to the last column
-				for ( var i = tiles.length - 1; i >= 0; --i )
-				{
-					var img = tiles[ i ].shift();
-					img.style.visibility = "hidden";
-					tiles[ i ].push( img );
-				}
-			}
+  TileLayer.prototype.colTransform = function (c) {
+    var cols = this._tiles[0].length;
+    return ((c % cols) + cols + this._tileOrigC) % cols;
+  };
 
-			if ( yd < 0 )
-			{
-				// Panning to the top:
-				// Move the last row of tiles to the first row
-				var old_row = tiles.pop();
-				for ( var i = old_row.length - 1; i >= 0; --i )
-				{
-					old_row[ i ].style.visibility = "hidden";
-				}
-				tiles.unshift( old_row );
-			}
-			else if ( yd > 0 )
-			{
-				// Panning to the bottom:
-				// Move the first row of tiles to the last row
-				var old_row = tiles.shift();
-				for ( var i = old_row.length - 1; i >= 0; --i )
-				{
-					old_row[ i ].style.visibility = "hidden";
-				}
-				tiles.push( old_row );
-			}
-		}
+  /**
+   * Update and draw the tile grid based on the current stack position and scale.
+   */
+  TileLayer.prototype.redraw = function (completionCallback) {
+    var pixelPos = [this.stack.x, this.stack.y, this.stack.z];
+    var tileBaseName = CATMAID.getTileBaseName(pixelPos);
 
-		// Adjust the last tile in a row or column to be visible rather than hidden.
-		// Must run when changing scale, or when changing the size of the canvas window.
-		// Considering how inexpensive it is, it is made to run always.
-		if (artificialZoom)
-		{
-			// Adjust last tile index to display to the one intersecting the bottom right
-			// of the field of view. The purpose: to hide images beyond the stack edges.
-			// Notice that we add the panning xd, yd as well (which is already in tile units).
-			LAST_XT = Math.floor((stack.x * stack.scale + stack.viewWidth) / effectiveTileWidth) + xd;
-			LAST_YT = Math.floor((stack.y * stack.scale + stack.viewHeight) / effectiveTileHeight) + yd;
+    var tileInfo = this.tilesForLocation(this.stack.xc, this.stack.yc, this.stack.z, this.stack.s);
 
-			// Clamp last tile coordinates within the slice edges.
-			LAST_XT = Math.min(LAST_XT, Math.floor((stack.dimension.x * Math.pow(2, -zoom) - 1) / tileWidth));
-			LAST_YT = Math.min(LAST_YT, Math.floor((stack.dimension.y * Math.pow(2, -zoom) - 1) / tileHeight));
-		}
-		else
-		{
-			LAST_XT = Math.floor( ( stack.dimension.x * stack.scale - 1 ) / tileWidth );
-			LAST_YT = Math.floor( ( stack.dimension.y * stack.scale - 1 ) / tileHeight );
-		}
+    var effectiveTileWidth = this.tileWidth * tileInfo.mag;
+    var effectiveTileHeight = this.tileHeight * tileInfo.mag;
 
-		var top;
-		var left;
+    var rows = this._tiles.length, cols = this._tiles[0].length;
 
-		if ( stack.yc >= 0 )
-			top  = -( stack.yc % effectiveTileHeight );
-		else
-			top  = -( ( stack.yc + 1 ) % effectiveTileHeight ) - effectiveTileHeight + 1;
-		if ( stack.xc >= 0 )
-			left = -( stack.xc % effectiveTileWidth );
-		else
-			left = -( ( stack.xc + 1 ) % effectiveTileWidth ) - effectiveTileWidth + 1;
+    // If panning only (no scaling, no browsing through z)
+    if (this.stack.z == this.stack.old_z && this.stack.s == this.stack.old_s)
+    {
+      var old_fr = Math.floor(this.stack.old_yc / effectiveTileHeight);
+      var old_fc = Math.floor(this.stack.old_xc / effectiveTileWidth);
 
-		var t = top;
-		var l = left;
+      // Compute panning in X and Y
+      var xd = tileInfo.first_col - old_fc;
+      var yd = tileInfo.first_row - old_fr;
 
-		// Detect if moving to a new Z. If so, attempt to preload images to
-		// paint at once (but let regular code run for new stacks.)
-		var z_loading = stack.z !== stack.old_z && stack.s === stack.old_s;
+      // Hide wrapped tiles. Here it is assumed abs({xd|yd}) <= 1, i.e.,
+      // it is impossible to pan more than one tile in a single redraw.
+      if (xd !== 0) {
+        // Panning to the left or right:
+        // hide the former last or first column of tiles, respectively.
+        var col = this.colTransform(xd < 0 ? -1 : 0);
+        for (var i = rows - 1; i >= 0; --i)
+          this._tiles[i][col].style.visibility = 'hidden';
+      }
 
-		var to_buffer = 0;
-		var buffered = 0;
-		for ( var i = 0; i < tiles.length; ++i )
-		{
-			var r = fr + i;
-			for ( var j = 0; j < tiles[ 0 ].length; ++j )
-			{
-				var c = fc + j;
-				if ( r >= 0 && c >= 0 && r <= LAST_YT && c <= LAST_XT )
-				{
-					to_buffer = to_buffer + 1;
-				}
-			}
-		}
+      if (yd !== 0) {
+        // Panning to the top or bottom:
+        // hide the former last or first row of tiles, respectively.
+        var row = this.rowTransform(yd < 0 ? -1 : 0);
+        for (var j = cols - 1; j >= 0; --j)
+          this._tiles[row][j].style.visibility = 'hidden';
+      }
 
-		// Helper function to swap source images from tiles_buf into tiles
-		var swapLayers = function ()
-		{
-			to_buffer = NaN; // If timeout, prevent load callbacks from calling
-			for ( var i = 0; i < tiles.length; ++i )
-			{
-				var r = fr + i;
-				for ( var j = 0; j < tiles[ 0 ].length; ++j )
-				{
-					var c = fc + j;
-					if ( r >= 0 && c >= 0 && r <= LAST_YT && c <= LAST_XT &&
-						tiles_buf[ i ][ j ].src && !tiles[ i ][ j ].alt)
-					{
-						tiles[i][j].src = tiles_buf[i][j].src;
-					}
-				}
-			}
-		};
+      // Update the toroidal origin in the tiles array
+      this._tileOrigR = this.rowTransform(yd); //(tileOrigR + yd + tiles.length) % tiles.length;
+      this._tileOrigC = this.colTransform(xd); //(tileOrigC + xd + tiles[0].length) % tiles[0].length;
+    }
 
-		// Set a timeout for slow connections to swap in images for the zslice
-		// whether or not they have buffered.
-		if (z_loading) var swapLayersTimeout = window.setTimeout(swapLayers, 3000);
+    var top;
+    var left;
 
-		// Callback to deal with buffered image loading. Calls swapLayers once
-		// all requested images have been loaded in the tile buffer.
-		function bufferLoadDeferred()
-		{
-			return function() {
-				buffered = buffered + 1;
-				if (buffered === to_buffer)
-				{
-					window.clearTimeout(swapLayersTimeout);
-					swapLayers();
-				}
-			};
-		}
+    if (this.stack.yc >= 0)
+      top  = -(this.stack.yc % effectiveTileHeight);
+    else
+      top  = -((this.stack.yc + 1) % effectiveTileHeight) - effectiveTileHeight + 1;
+    if (this.stack.xc >= 0)
+      left = -(this.stack.xc % effectiveTileWidth);
+    else
+      left = -((this.stack.xc + 1) % effectiveTileWidth) - effectiveTileWidth + 1;
 
-		var nextL, nextT, seamRow;
+    var t = top;
+    var l = left;
 
-		// update the images sources
-		for ( var i = 0; i < tiles.length; ++i )
-		{
-			var r = fr + i;
-			nextT = t + effectiveTileHeight;
-			seamRow = Math.round(nextT) - nextT > 0;
-			for ( var j = 0; j < tiles[ 0 ].length; ++j )
-			{
-				var c = fc + j;
-				var tile = tiles[ i ][ j ];
+    // If zooming or changing z sections (not panning), attempt to preload
+    // images to paint at once (but let regular code run for new stacks.)
+    this._buffering = this.stack.z !== this.stack.old_z ||
+        tileInfo.zoom !== Math.max(0, Math.ceil(this.stack.old_s));
 
-				nextL = l + effectiveTileWidth;
+    var to_buffer =
+        (tileInfo.last_col - Math.max(0, tileInfo.first_col) + 1) *
+        (tileInfo.last_row - Math.max(0, tileInfo.first_row) + 1);
+    var buffered = 0;
 
-				if ( r >= 0 && c >= 0 && r <= LAST_YT && c <= LAST_XT )
-				{
-					var source = self.tileSource.getTileURL( project, stack,
-						tileBaseName, tileWidth, tileHeight, c, r, zoom);
+    // Set a timeout for slow connections to swap in the buffer whether or
+    // not it has loaded.
+    if (this._buffering) {
+      window.clearTimeout(this._swapBuffersTimeout);
+      this._swapBuffersTimeout = window.setTimeout(this._swapBuffers.bind(this), 3000);
+    }
 
-					if (tile.src === source)
-					{
-						// If a tile was hidden earlier, but we now wish to
-						// show it again and it happens to have the same src,
-						// Chrome will not fire the onload event if we set src.
-						// Instead check the flag we set in alt when loaded.
-						if (tile.alt)
-						{
-							tile.style.visibility = "visible";
-						}
-					}
-					else
-					{
-						tile.alt = ""; // Mark that the correct image for this
-									   // tile has not yet loaded.
-						if (z_loading)
-						{
-							tiles_buf[ i ][ j ].onload = bufferLoadDeferred();
-							tiles_buf[ i ][ j ].src = source;
-						}
-						else
-						{
-							tile.src = source;
-						}
-					}
+    // Callback to deal with buffered image loading. Calls swapBuffers once
+    // all requested images have been loaded in the tile buffer.
+    var self = this;
+    function bufferLoadDeferred() {
+      return function () {
+        if (!self._buffering || this.alt === 'h') return;
+        buffered = buffered + 1;
+        this.alt = 'l';
+        if (buffered === to_buffer) {
+          window.clearTimeout(self._swapBuffersTimeout);
+          self._swapBuffers();
+        }
+      };
+    }
 
-					tile.style.top = t + "px";
-					tile.style.left = l + "px";
+    var nextL, nextT, seamRow;
 
-					// To prevent tile seams when the browser is going to round the
-					// edge of the next column up a pixel, grow the width of this
-					// column slightly to fill the gap
-					if (Math.round(nextL) - nextL > 0) {
-						tile.style.width = Math.ceil(effectiveTileWidth) + "px";
-					} else {
-						tile.style.width = effectiveTileWidth + "px";
-					}
+    // Update tiles (or the tile buffer).
+    for (var i = this._tileOrigR, ti = 0; ti < rows; ++ti, i = (i+1) % rows) {
+      var r = tileInfo.first_row + ti;
 
-					// As above, prevent tile seams when the next row will round up
-					if (seamRow) {
-						tile.style.height = Math.ceil(effectiveTileHeight) + "px";
-					} else {
-						tile.style.height = effectiveTileHeight + "px";
-					}
-				}
-				else
-				{
-					tile.style.visibility = "hidden";
-				}
+      nextT = t + effectiveTileHeight;
+      seamRow = Math.round(nextT) - nextT > 0;
 
-				l = nextL;
-			}
-			l = left;
-			t = nextT;
-		}
-		
-		
-		if (typeof completionCallback !== "undefined") {
-			completionCallback();
-		}
+      for (var j = this._tileOrigC, tj = 0; tj < cols; ++tj, j = (j+1) % cols) {
+        var c = tileInfo.first_col + tj;
+        var tile = this._buffering ? this._tilesBuffer[i][j] : this._tiles[i][j];
 
-		return 2;
-	};
-	
-	this.resize = function( width, height )
-	{
-//		alert( "resize tileLayer of stack" + stack.getId() );
-		
-		var rows = Math.floor( height / tileHeight ) + 2;
-		var cols = Math.floor( width / tileWidth ) + 2;
-		initTiles( rows, cols );
-		self.redraw();
-		return;
-	};
-	
-	/**
-	 * Get the width of an image tile.
-	 */
-	this.getTileWidth = function(){ return tileWidth; };
-	
-	/**
-	 * Get the height of an image tile.
-	 */
-	this.getTileHeight = function(){ return tileHeight; };
-	
-	/**
-	 * Get the number of tile columns.
-	 */
-	this.numTileColumns = function()
-	{
-		if ( tiles.length == 0 )
-			return 0;
-		else
-			return tiles[ 0 ].length;
-	};
-	
-	/**
-	 * Get the number of tile rows.
-	 */
-	this.numTileColumns = function(){ return tiles.length; };
-	
-	/**
-	 * Get the stack.
-	 */
-	this.getStack = function(){ return stack; };
+        nextL = l + effectiveTileWidth;
 
-	/* Set opacity in the range from 0 to 1 */
-	this.setOpacity = function( val )
-	{
-		tilesContainer.style.opacity = val+"";
-		self.opacity = val;
-		if(val < 0.02) {
-			if(self.visible)
-				self.isolateTileLayer();
-		} else {
-			if(!self.visible)
-				self.reattachTileLayer();
-		}
-	};
+        if (c >= 0 && c <= tileInfo.last_col &&
+            r >= 0 && r <= tileInfo.last_row) {
+          var source = this.tileSource.getTileURL(project, this.stack,
+              tileBaseName, this.tileWidth, this.tileHeight,
+              c, r, tileInfo.zoom);
 
-	this.updateOpacity = function() {
-		self.setOpacity( opacity );
-	};
+          tile.style.top = t + 'px';
+          tile.style.left = l + 'px';
 
-	this.getOpacity = function()
-	{
-		return self.opacity;
-	};
+          // To prevent tile seams when the browser is going to round the
+          // edge of the next column up a pixel, grow the width of this
+          // column slightly to fill the gap
+          if (Math.round(nextL) - nextL > 0) {
+            tile.style.width = Math.ceil(effectiveTileWidth) + 'px';
+          } else {
+            tile.style.width = effectiveTileWidth + 'px';
+          }
 
-	this.isolateTileLayer = function()
-	{	
-		stack.getView().removeChild( tilesContainer );
-		self.visible = false;
-	};
+          // As above, prevent tile seams when the next row will round up
+          if (seamRow) {
+            tile.style.height = Math.ceil(effectiveTileHeight) + 'px';
+          } else {
+            tile.style.height = effectiveTileHeight + 'px';
+          }
 
-	this.reattachTileLayer = function()
-	{
-		stack.getView().appendChild( tilesContainer );
-		self.visible = true;
-	};
+          if (tile.src === source) {
+            if (tile.alt === 'h') tile.alt = 'l';
+            if (this._buffering) {
+              bufferLoadDeferred().call(tile);
+            }
+            // If a tile was hidden earlier, but we now wish to
+            // show it again and it happens to have the same src,
+            // Chrome will not fire the onload event if we set src.
+            // Instead check the flag we set in alt when loaded.
+            else if (tile.alt) {
+              tile.style.visibility = 'visible';
+            }
+          } else {
+            tile.alt = ''; // Mark that the correct image for this
+                     // tile has not yet loaded.
+            if (this._buffering) tile.onload = bufferLoadDeferred();
+            tile.src = source;
+          }
+        } else {
+          tile.alt = 'h';
+          tile.style.visibility = 'hidden';
+        }
 
-	// initialise
-	var self = this;
+        l = nextL;
+      }
 
-	self.displayname = displayname;
-	self.opacity = opacity; // in the range [0,1]
-	self.visible = visibility;
-	self.tileSource = tileSource;
+      l = left;
+      t = nextT;
+    }
 
-	/* Contains all tiles in a 2d-array */
-	var tiles = [];
-	var tiles_buf = [];
+    if (typeof completionCallback !== 'undefined') {
+      completionCallback();
+    }
+  };
 
-	var tilesContainer = document.createElement( "div" );
-	tilesContainer.className = "sliceTiles";
+  /**
+   * Helper function to swap source images from tilesBuffer into tiles.
+   */
+  TileLayer.prototype._swapBuffers = function () {
+    if (!this._buffering) return;
+    this._buffering = false; // If timeout, prevent load callbacks from calling
+    var rows = this._tiles.length, cols = this._tiles[0].length;
+    for (var i = 0; i < rows; ++i) {
+      for (var j = 0; j < cols; ++j) {
+        var tile = this._tiles[i][j];
+        var buf = this._tilesBuffer[i][j];
 
-	if( self.visible )
-		stack.getView().appendChild( tilesContainer );
-	
-	var LAST_XT = Math.floor( ( stack.dimension.x * stack.scale - 1 ) / tileWidth );
-	var LAST_YT = Math.floor( ( stack.dimension.y * stack.scale - 1 ) / tileHeight );
+        tile.alt = buf.alt;
+        tile.style.visibility = (buf.alt === 'h') ? 'hidden' : 'visible';
+        tile.style.width = buf.style.width;
+        tile.style.height = buf.style.height;
+        tile.style.top = buf.style.top;
+        tile.style.left = buf.style.left;
+        tile.src = buf.src;
+      }
+    }
+  };
 
-	if( showOverview ) {
-		// Initialize the OverviewLayer on the bottom-right with the correct
-		// path to the small thumbnail images depending on the tile source type
-		// This is only run for the TileLayer which usually holds the primary
-		// raw data, and not for additional overlay layers. Overlay layers are
-		// currently not shown with a small image.
-		var overviewLayer = tileSource.getOverviewLayer( this );
-	}
-	
+  /**
+   * Resize (if necessary) the tile grid to cover a view of a specified size.
+   * @param  {number} width  Width of the view in pixels.
+   * @param  {number} height Height of the view in pixels.
+   */
+  TileLayer.prototype.resize = function (width, height) {
+    var rows = Math.ceil(height / this.tileHeight) + 1;
+    var cols = Math.ceil(width / this.tileWidth) + 1;
+    if (this._tiles.length === 0 || this._tiles.length !== rows || this._tiles[0].length !== cols)
+      this._initTiles(rows, cols);
+    this.redraw();
+  };
 
-}
+  /**
+   * Loads tiles at specified indices, but does not display them, so that
+   * they are cached for future viewing.
+   * @param  {[[]]}                     tileIndices      an array of tile
+   *                                                     indices like:
+   *                                                     [c, r, z, s]
+   * @param  {function(number, number)} progressCallback
+   */
+  TileLayer.prototype.cacheTiles = function (tileIndices, progressCallback, cachedCounter, loaders) {
+    if (typeof cachedCounter === 'undefined') cachedCounter = 0;
+
+    // Truncate request to no more than 3000 tiles.
+    if (tileIndices.length > 3000) tileIndices.splice(3000);
+
+    progressCallback(tileIndices.length, cachedCounter);
+    // Check if the queue is empty
+    if (0 === tileIndices.length) return;
+
+    var BATCH_SIZE = 16;
+    var numLoaders = Math.min(BATCH_SIZE, tileIndices.length);
+    var loaded = 0;
+
+    if (typeof loaders === 'undefined') {
+      loaders = [];
+      for (var i = 0; i < numLoaders; ++i)
+        loaders[i] = new Image();
+    }
+
+    var self = this;
+    tileIndices.splice(0, numLoaders).forEach(function (tileInd, i) {
+      var img = loaders[i];
+      img.onload = img.onerror = function () {
+        loaded += 1;
+        if (loaded >= numLoaders)
+          self.cacheTiles(tileIndices, progressCallback, cachedCounter + numLoaders, loaders);
+      };
+      img.src = self.tileSource.getTileURL(
+          project, self.stack,
+          CATMAID.getTileBaseName(tileInd.slice(0, 3)),
+          self.tileWidth, self.tileHeight,
+          tileInd[0], tileInd[1], tileInd[3]);
+    });
+  };
+
+  /**
+   * Loads tiles for views centered at specified project locations, but does
+   * not display them, so that they are cached for future viewing.
+   * @param  {[[]]}                     locations        an array of project
+   *                                                     coords like:
+   *                                                     [x, y, z]
+   * @param  {function(number, number)} progressCallback
+   */
+  TileLayer.prototype.cacheLocations = function (locations, progressCallback) {
+    var s = this.stack.s;
+    var self = this;
+
+    var tileIndices = locations.reduce(function (tileInds, loc) {
+      var tileInfo = self.tilesForLocation(
+          // Convert project coords to scaled stack coords of a view corner.
+          loc[0] * self.stack.scale / self.stack.resolution.x - self.stack.viewWidth / 2,
+          loc[1] * self.stack.scale / self.stack.resolution.y - self.stack.viewHeight / 2,
+          Math.floor(loc[2] / self.stack.resolution.z),
+          s);
+      for (var i = tileInfo.first_col; i <= tileInfo.last_col; ++i)
+        for (var j = tileInfo.first_row; j <= tileInfo.last_row; ++j)
+          tileInds.push([i, j, tileInfo.z, tileInfo.zoom]);
+
+      return tileInds;
+    }, []);
+
+    this.cacheTiles(tileIndices, progressCallback);
+  };
+
+  /**
+   * Generate bounds on the tile indices for a specified view using the current
+   * stack view size.
+   * @param  {number} xc Left view origin in scaled stack coordinates.
+   * @param  {number} yc Top view origin in scaled stack coordinates.
+   * @param  {number} z  Stack section number.
+   * @param  {number} s  Stack scale.
+   * @return {Object}    Object containing information sufficient to generate
+   *                     tile indicies for all tiles in the requested view.
+   */
+  TileLayer.prototype.tilesForLocation = function (xc, yc, z, s) {
+    var zoom = s;
+    var mag = 1.0;
+    var artificialZoom = false;
+    /* If the zoom is negative we zoom in digitally. For this
+     * we take the zero zoom level and adjust the tile properties.
+     * This way we let the browser do the zooming work.
+     */
+    if (zoom < 0 || zoom % 1 !== 0) {
+      artificialZoom = true;
+      /* For nonintegral zoom levels the ceiling is used to select
+       * source image zoom level. While using the floor would allow
+       * better image quality, it would requiring dynamically
+       * increasing the number of tiles to fill the viewport since
+       * in that case effectiveTileWidth < tileWidth.
+       */
+      zoom = Math.max(0, Math.ceil(zoom));
+      /* Magnification is positive for digital zoom beyond image
+       * resolution and negative for non-integral zooms within
+       * image resolution.
+       */
+      mag = Math.pow(2, zoom - s);
+    }
+
+    var effectiveTileWidth = this.tileWidth * mag;
+    var effectiveTileHeight = this.tileHeight * mag;
+
+    var fr = Math.floor(yc / effectiveTileHeight);
+    var fc = Math.floor(xc / effectiveTileWidth);
+
+    var lr, lc;
+
+    // Adjust last tile index to display to the one intersecting the bottom right
+    // of the field of view. The purpose: to hide images beyond the stack edges.
+    // Notice that we add the panning xd, yd as well (which is already in tile units).
+    lc = Math.floor((xc + this.stack.viewWidth) / effectiveTileWidth);
+    lr = Math.floor((yc + this.stack.viewHeight) / effectiveTileHeight);
+
+    // Clamp last tile coordinates within the slice edges.
+    lc = Math.min(lc, Math.floor((this.stack.dimension.x * Math.pow(2, -zoom) - 1) / this.tileWidth));
+    lr = Math.min(lr, Math.floor((this.stack.dimension.y * Math.pow(2, -zoom) - 1) / this.tileHeight));
+
+    return {
+      first_row: fr,
+      first_col: fc,
+      last_row:  lr,
+      last_col:  lc,
+      z:         z,
+      zoom:      zoom,
+      mag:       mag
+    };
+  };
+
+  /**
+   * Get the stack.
+   */
+  TileLayer.prototype.getStack = function () { return this.stack; };
+
+  /**
+   * Get the DOM element view for this layer.
+   * @return {Element} View for this layer.
+   */
+  TileLayer.prototype.getView = function () { return this.tilesContainer; };
+
+  /**
+   * Set opacity in the range from 0 to 1.
+   * @param {number} val New opacity.
+   */
+  TileLayer.prototype.setOpacity = function (val) {
+    this.tilesContainer.style.opacity = val + '';
+    this.opacity = val;
+    if (val < 0.02) {
+      if (this.visible)
+        $(this.tilesContainer).css('visibility', 'hidden');
+      this.visible = false;
+    } else {
+      if (!this.visible)
+        $(this.tilesContainer).css('visibility', 'visible');
+      this.visible = true;
+    }
+  };
+
+  /**
+   * Get the layer opacity.
+   */
+  TileLayer.prototype.getOpacity = function () {
+    return this.opacity;
+  };
+
+  CATMAID.TileLayer = TileLayer;
+
+})(CATMAID);

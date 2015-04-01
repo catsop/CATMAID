@@ -224,6 +224,25 @@ var NeuronNameService = (function()
       },
 
       /**
+       * Unregister a list of skeletons from all clients that reference it. This
+       * is used for instance to unregister deleted neurons.
+       */
+      unregisterFromAllClients: function(skids)
+      {
+        clients.forEach(function(c) {
+          this.unregister(c, skids);
+        }, this);
+      },
+
+      /**
+       * Unregisters a single neuron from all clients that reference it.
+       */
+      unregisterSingleFromAllClients: function(skid)
+      {
+        this.unregisterFromAllClients([skid]);
+      },
+
+      /**
        * Tries to let every registered client know that there was an update in the
        * name representation.
        */
@@ -351,6 +370,10 @@ var NeuronNameService = (function()
 
           if (skids) {
             skids.forEach(function(skid) {
+              // Ignore unknown skeletons
+              if (!managedSkeletons[skid]) {
+                return;
+              }
               var n = name(skid)
               if (appendSkeletonId) { n += " #" + skid; };
               managedSkeletons[skid].name = n;
@@ -396,9 +419,7 @@ var NeuronNameService = (function()
               metaannotations: needsMetaAnnotations ? 1 : 0,
               neuronnames: needsNeueonNames ? 1 : 0,
             },
-            jsonResponseHandler(function(json) {
-              update(json);
-            }));
+            CATMAID.jsonResponseHandler(update));
         }
       },
 
@@ -430,7 +451,7 @@ var NeuronNameService = (function()
            classname: "neuron",
            pid: project.id
           },
-          jsonResponseHandler((function(data) {
+          CATMAID.jsonResponseHandler((function(data) {
             // Update all skeletons of the current neuron that are managed
             var updatedSkeletons = skeletonIds.filter(function(skid) {
               if (skid in managedSkeletons) {
@@ -453,6 +474,23 @@ var NeuronNameService = (function()
               }
             }
           }).bind(this)));
+      },
+
+      /**
+       * Listen to the neuron controller's delete event and remove neurons
+       * automatically from the name service.
+       */
+      registerEventHandlers: function() {
+        CATMAID.neuronController.on(CATMAID.neuronController.EVENT_SKELETON_DELETED,
+            this.unregisterSingleFromAllClients, instance);
+      },
+
+      /**
+       * Unregister from the neuron controller's delete event.
+       */
+      unregisterEventHandlers: function() {
+        CATMAID.neuronController.off(CATMAID.neuronController.EVENT_SKELETON_DELETED,
+            this.unregisterSingleFromAllClients);
       }
     };
   }
@@ -461,6 +499,7 @@ var NeuronNameService = (function()
     getInstance: function() {
       if (!instance) {
         instance = init();
+        instance.registerEventHandlers();
       }
 
       return instance;

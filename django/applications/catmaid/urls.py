@@ -45,6 +45,7 @@ urlpatterns += patterns('django.contrib.auth.views',
 # Log
 urlpatterns += patterns('catmaid.control.log',
     (r'^(?P<project_id>\d+)/logs/list$', 'list_logs'),
+    (r'^log/(?P<level>(info|error|debug))$', 'log_frontent_event'),
 )
 
 # Messages
@@ -117,6 +118,7 @@ urlpatterns += patterns('catmaid.control.label',
     (r'^(?P<project_id>\d+)/labels-for-nodes$', 'labels_for_nodes'),
     (r'^(?P<project_id>\d+)/labels-for-node/(?P<ntype>(treenode|location|connector))/(?P<location_id>\d+)$', 'labels_for_node'),
     (r'^(?P<project_id>\d+)/label/(?P<ntype>(treenode|location|connector))/(?P<location_id>\d+)/update$', 'label_update'),
+    (r'^(?P<project_id>\d+)/label/(?P<ntype>(treenode|location|connector))/(?P<location_id>\d+)/remove$', 'remove_label_link'),
     (r'^(?P<project_id>\d+)/label/remove$', 'label_remove'),
 )
 
@@ -136,6 +138,7 @@ urlpatterns += patterns('catmaid.control.connector',
     (r'^(?P<project_id>\d+)/connector/list/completed$', 'list_completed'),
     (r'^(?P<project_id>\d+)/connector/skeletons$', 'connector_skeletons'),
     (r'^(?P<project_id>\d+)/connector/edgetimes$', 'connector_associated_edgetimes'),
+    (r'^(?P<project_id>\d+)/connector/pre-post-info$', 'connectors_info'),
 )
 
 # Neuron acess
@@ -365,6 +368,8 @@ urlpatterns += patterns('catmaid.control.roi',
         'remove_roi_link', name='remove_roi_link'),
     url(r'^(?P<project_id>{0})/roi/(?P<roi_id>{0})/image$'.format(integer),
         'get_roi_image', name='get_roi_image'),
+    url(r'^(?P<project_id>{0})/roi/add$'.format(integer),
+        'add_roi', name='add_roi'),
 )
 
 # Clustering
@@ -402,6 +407,9 @@ urlpatterns += patterns('catmaid.control',
 
     # Analytics
     (r'^(?P<project_id>\d+)/skeleton/analytics$', 'analytics.analyze_skeletons'),
+
+    # Review
+    (r'^(?P<project_id>\d+)/user/reviewer-whitelist$', 'review.reviewer_whitelist'),
 
     # Search
     (r'^(?P<project_id>\d+)/search$', 'search.search'),

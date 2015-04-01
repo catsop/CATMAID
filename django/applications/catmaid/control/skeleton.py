@@ -1,11 +1,13 @@
 import decimal
 import json
 import networkx as nx
+import re
 from operator import itemgetter
 from datetime import datetime, timedelta
 from collections import defaultdict
 from itertools import chain
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.db import connection
@@ -43,8 +45,8 @@ def get_skeleton_permissions(request, project_id, skeleton_id):
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def last_openleaf(request, project_id=None, skeleton_id=None):
-    """ Return the ID of the nearest node (or itself), and its location string;
-    or two nulls if none found. """
+    """ Return a list of the ID and location of open leaf nodes in the skeleton
+    and their path length distance to the specified treenode. """
     tnid = int(request.POST['tnid'])
     cursor = connection.cursor()
 
@@ -53,13 +55,14 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
 
     # Select all nodes and their tags
     cursor.execute('''
-    SELECT t.id, t.parent_id, t.location_x, t.location_y, t.location_z, ci.name
+    SELECT t.id, t.parent_id, t.location_x, t.location_y, t.location_z, t.creation_time, ci.name
     FROM treenode t LEFT OUTER JOIN (treenode_class_instance tci INNER JOIN class_instance ci ON tci.class_instance_id = ci.id AND tci.relation_id = %s) ON t.id = tci.treenode_id
     WHERE t.skeleton_id = %s
     ''' % (labeled_as, int(skeleton_id)))
 
     # Some entries repeated, when a node has more than one tag
     # Create a graph with edges from parent to child, and accumulate parents
+    real_root = None
     tree = nx.DiGraph()
     for row in cursor.fetchall():
         nodeID = row[0]
@@ -67,15 +70,17 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
             # It is ok to add edges that already exist: DiGraph doesn't keep duplicates
             tree.add_edge(row[1], nodeID)
         else:
+            real_root = nodeID
             tree.add_node(nodeID)
         tree.node[nodeID]['loc'] = (row[2], row[3], row[4])
-        if row[5]:
+        tree.node[nodeID]['ct'] = row[5]
+        if row[6]:
             props = tree.node[nodeID]
             tags = props.get('tags')
             if tags:
-                tags.append(row[5])
+                tags.append(row[6])
             else:
-                props['tags'] = [row[5]]
+                props['tags'] = [row[6]]
 
     if tnid not in tree:
         raise Exception("Could not find %s in skeleton %s" % (tnid, int(skeleton_id)))
@@ -83,26 +88,23 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
     reroot(tree, tnid)
     distances = edge_count_to_root(tree, root_node=tnid)
 
-    # Iterate end nodes, find closest
-    nearest = None
-    distance = tree.number_of_nodes() + 1
-    loc = None
-    other_tags = set(('uncertain continuation', 'not a branch', 'soma'))
+    # Iterate end nodes to find which are open.
+    nearest = []
+    end_tags = ['uncertain continuation', 'not a branch', 'soma',
+            '^(?i)(really|uncertain|anterior|posterior)?\s?ends?$']
+    end_regex = re.compile('(?:' + ')|(?:'.join(end_tags) + ')')
 
     for nodeID, out_degree in tree.out_degree_iter():
-        if 0 == out_degree:
+        if 0 == out_degree or nodeID == real_root:
             # Found an end node
             props = tree.node[nodeID]
             # Check if not tagged with a tag containing 'end'
-            if not 'tags' in props and not [s for s in props if 'end' in s or s in other_tags]:
+            if not 'tags' in props or not any(end_regex.match(s) for s in props['tags']):
                 # Found an open end
                 d = distances[nodeID]
-                if d < distance:
-                    nearest = nodeID
-                    distance = d
-                    loc = props['loc']
+                nearest.append([nodeID, props['loc'], d, props['ct']])
 
-    return HttpResponse(json.dumps((nearest, loc)))
+    return HttpResponse(json.dumps(nearest, cls=DjangoJSONEncoder))
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -126,16 +128,16 @@ def skeleton_statistics(request, project_id=None, skeleton_id=None):
 def contributor_statistics(request, project_id=None, skeleton_id=None):
     contributors = defaultdict(int)
     n_nodes = 0
-    # Count the total number of 60-second intervals with at least one treenode in them
-    minutes = set()
-    min_review_minutes = set()
-    multi_review_minutes = 0
+    # Count the total number of 20-second intervals with at least one treenode in them
+    time_bins = set()
+    min_review_bins = set()
+    multi_review_bins = 0
     epoch = datetime.utcfromtimestamp(0)
 
     for row in Treenode.objects.filter(skeleton_id=skeleton_id).values_list('user_id', 'creation_time'):
         n_nodes += 1
         contributors[row[0]] += 1
-        minutes.add(int((row[1] - epoch).total_seconds() / 60))
+        time_bins.add(int((row[1] - epoch).total_seconds() / 20))
 
     # Take into account that multiple people may have reviewed the same nodes
     # Therefore measure the time for the user that has the most nodes reviewed,
@@ -146,14 +148,14 @@ def contributor_statistics(request, project_id=None, skeleton_id=None):
     seen = set()
 
     for reviewer, treenodes in sorted(rev.iteritems(), key=itemgetter(1), reverse=True):
-        reviewer_minutes = set()
+        reviewer_bins = set()
         for treenode, timestamp in treenodes.iteritems():
-            minute = int((timestamp - epoch).total_seconds() / 60)
-            reviewer_minutes.add(minute)
+            time_bin = int((timestamp - epoch).total_seconds() / 20)
+            reviewer_bins.add(time_bin)
             if not (treenode in seen):
                 seen.add(treenode)
-                min_review_minutes.add(minute)
-        multi_review_minutes += len(reviewer_minutes)
+                min_review_bins.add(time_bin)
+        multi_review_bins += len(reviewer_bins)
 
     relations = {row[0]: row[1] for row in Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id')}
 
@@ -172,9 +174,9 @@ def contributor_statistics(request, project_id=None, skeleton_id=None):
 
     return HttpResponse(json.dumps({
         'name': neuron_name,
-        'construction_minutes': len(minutes),
-        'min_review_minutes': len(min_review_minutes),
-        'multiuser_review_minutes': multi_review_minutes,
+        'construction_minutes': int(len(time_bins) / 3.0),
+        'min_review_minutes': int(len(min_review_bins) / 3.0),
+        'multiuser_review_minutes': int(multi_review_bins / 3.0),
         'n_nodes': n_nodes,
         'node_contributors': contributors,
         'n_pre': sum(synapses[relations['presynaptic_to']].values()),
@@ -672,8 +674,16 @@ def review_status(request, project_id=None):
     """ Return the review status for each skeleton in the request
     as a value between 0 and 100 (integers). """
     skeleton_ids = set(int(v) for k,v in request.POST.iteritems() if k.startswith('skeleton_ids['))
-    user_ids = set(int(v) for k,v in request.POST.iteritems() if k.startswith('user_ids['))
-    status = get_review_status(skeleton_ids, user_ids)
+    whitelist = bool(json.loads(request.POST.get('whitelist', 'false')))
+    whitelist_id = None
+    user_ids = None
+    if whitelist:
+        whitelist_id = request.user.id
+    else:
+        user_ids = set(int(v) for k,v in request.POST.iteritems() if k.startswith('user_ids['))
+
+    status = get_review_status(skeleton_ids, project_id=project_id,
+            whitelist_id=whitelist_id, user_ids=user_ids)
 
     return HttpResponse(json.dumps(status))
 

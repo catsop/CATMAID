@@ -180,7 +180,7 @@ Arbor.prototype.nextBranchNode = function(node) {
     node = succ[0];
     succ = all_succ[node];
   }
-  if (all_succ[node].length > 1) return node;
+  if (succ.length > 1) return node;
   return null;
 };
 
@@ -290,7 +290,7 @@ Arbor.prototype.nodesDistanceTo = function(root, distanceFn) {
 	if (!root) return r;
 
 	var successors = this.allSuccessors(),
-			open = [[root, 0]],
+			open = [[root, 0]], // likely faster and more memory efficient with a linked list approach using object literals {node: root, distance: 0, next: null}
 			max = 0.000001;
 
 	var next, paren, child, dist, succ;
@@ -370,7 +370,7 @@ Arbor.prototype.partition = function() {
         paren,
         n_successors;
     do {
-        var paren = this.edges[node];
+        paren = this.edges[node];
         if (undefined === paren) break; // reached root
         seq.push(paren);
         n_successors = branches[paren];
@@ -450,51 +450,70 @@ Arbor.prototype.neighbors = function(node) {
  * rerooted at the node in keepers that has the lowest distance to this arbor's
  * root node. */
 Arbor.prototype.spanningTree = function(keepers) {
-	var spanning = new Arbor();
+  var spanning = new Arbor();
+  switch (keepers.length) {
+    case 0:
+      return spanning;
+    case 1:
+      spanning.root = keepers[0];
+      return spanning;
+  }
 
-	if (1 === keepers.length) {
-		spanning.root = keepers[0];
-		return spanning;
-	}
+  var partitions = this.partitionSorted(),
+      n_seen = 0,
+      preserve = {},
+      n_keepers = 0;
 
-	var arbor = this;
-	if (this.successors(this.root).length > 1) {
-		// Root has two children. Reroot a copy at the first end node found
-		arbor = this.clone().reroot(this.findEndNodes()[0]);
-	}
+  for (var i=0; i<keepers.length; ++i) {
+    var node = keepers[i];
+    if (preserve[node]) continue; // skip repeated entry in keepers
+    preserve[keepers[i]] = 1;
+    n_keepers += 1;
+  }
 
-	var n_seen = 0,
-			preserve = keepers.reduce(function(o, node) {
-				o[node] = true;
-				return o;
-			}, {}),
-			n_preserve = keepers.length;
+  for (var k=0; k<partitions.length; ++k) {
+    var partition = partitions[k],
+        first = -1,
+        last = -1;
+    for (var i=0; i<partition.length; ++i) {
+      var node = partition[i],
+          v = preserve[node];
+      if (v) {
+        if (1 == v) {
+          // First time seen
+          n_seen += 1;
+          preserve[node] = 2; // mark as seen before
+        }
+        if (-1 == first) {
+          first = i;
+        } else {
+          last = i;
+        }
+      }
+    }
+    if (-1 != first) {
+      var end;
+      if (-1 != last && n_seen == n_keepers) {
+        // Add up to the last seen
+        end = last + 1;
+      } else {
+        // Add the rest
+        end = partition.length;
+        // Add branch node to keepers if not there already
+        node = partition[end -1];
+        if (!preserve[node]) {
+          preserve[node] = 1;
+          n_keepers += 1;
+        }
+      }
+      for (var i=first + 1; i<end; ++i) {
+        spanning.edges[partition[i-1]] = partition[i];
+      }
+      spanning.root = partition[end -1];
+    }
+  }
 
-	// Start from the shortest sequence
-	arbor.partitionSorted().some(function(seq) {
-		var path = [];
-		seq.some(function(node) {
-			if (node in preserve) {
-				path.push(node);
-				if (!spanning.contains(node)) ++n_seen;
-				if (n_preserve === n_seen) return true; // terminate 'some node'
-			} else if (path.length > 0) path.push(node);
-			return false;
-		});
-		if (path.length > 0) {
-			// Add path in reverse: the same orientation as in this arbor,
-			// to ensure any one node will only have one parent.
-			spanning.addPathReversed(path);
-			var last = path[path.length -1];
-			if (seq[0] == last) { // == and not ===, in case nodes are numbers, which are turned into strings when used as Object keys. Same performance as === for same type.
-				preserve[last] = true;
-				++n_preserve;
-			}
-		}
-		return n_preserve === n_seen; // if true, terminate 'some seq'
-	});
-
-	return spanning;
+  return spanning;
 };
 
 /** Compute betweenness centrality of a tree in O(5n) time.
@@ -882,32 +901,32 @@ Arbor.prototype.flowCentrality = function(outputs, inputs, totalOutputs, totalIn
         cs = {},
         centrality = {};
     for (var i=0; i<partitions.length; ++i) {
-      var partition = partitions[i];
-        var seenI = 0,
-            seenO = 0;
-        for (var k=0, l=partition.length; k<l; ++k) {
-          var node = partition[k],
-              counts = cs[node];
-          if (undefined === counts) {
-            var n_inputs = inputs[node],
-                n_outputs = outputs[node];
-            if (n_inputs) seenI += n_inputs;
-            if (n_outputs) seenO += n_outputs;
-            // Last node of the partition is a branch or root
-            if (k === l -1) cs[node] = {seenInputs: seenI,
-                                        seenOutputs: seenO};
-          } else {
-            seenI += counts.seenInputs;
-            seenO += counts.seenOutputs;
-            counts.seenInputs = seenI;
-            counts.seenOutputs = seenO;
-          }
-          var centripetal = seenI * (totalOutputs - seenO),
-              centrifugal = seenO * (totalInputs  - seenI);
-          centrality[node] = {centrifugal: centrifugal,
-                              centripetal: centripetal,
-                              sum: centrifugal + centripetal};
+      var partition = partitions[i],
+          seenI = 0,
+          seenO = 0;
+      for (var k=0, l=partition.length; k<l; ++k) {
+        var node = partition[k],
+            counts = cs[node];
+        if (undefined === counts) {
+          var n_inputs = inputs[node],
+              n_outputs = outputs[node];
+          if (n_inputs) seenI += n_inputs;
+          if (n_outputs) seenO += n_outputs;
+          // Last node of the partition is a branch or root
+          if (k === l -1) cs[node] = {seenInputs: seenI,
+                                      seenOutputs: seenO};
+        } else {
+          seenI += counts.seenInputs;
+          seenO += counts.seenOutputs;
+          counts.seenInputs = seenI;
+          counts.seenOutputs = seenO;
         }
+        var centripetal = seenI * (totalOutputs - seenO),
+            centrifugal = seenO * (totalInputs  - seenI);
+        centrality[node] = {centrifugal: centrifugal,
+                            centripetal: centripetal,
+                            sum: centrifugal + centripetal};
+      }
     }
 
     return centrality;
@@ -1380,7 +1399,7 @@ Arbor.prototype.subtreesEndCount = function() {
 /**
  * At each branch node, count the number of associated elements on each of the 2 or more subtrees.
  * load: map of node vs number of associated elements (e.g. input synapses). Nodes with a count of zero do not need to be present.
- * Returns a map of branch node vs array of values, of for each subtree.
+ * Returns a map of branch node vs array of values, one for each subtree.
  */
 Arbor.prototype.subtreesLoad = function(load) {
   return this.subtreesMeasurements(
@@ -1787,4 +1806,147 @@ Arbor.prototype.findNodesWithin = function(source, distanceFn, max_distance) {
     }
   }
   return within;
+};
+
+/** Split the arbor into a list of Arbor instances,
+ * by cutting at each node in the cuts map (which contains node keys and truthy values).
+ * The cut is done by severing the edge between an node and its parent,
+ * so a cut at the root node has no effect, but cuts at end nodes result
+ * in single-node Arbor instances (just root, no edges). */
+Arbor.prototype.split = function(cuts) {
+  var be = this.findBranchAndEndNodes(),
+      ends = be.ends,
+      branches = be.branches,
+      junctions = {},
+      fragments = [];
+
+  var CountingArbor = function() {
+    this.root = null;
+    this.edges = {};
+    this._n_nodes = 0;
+  };
+
+  CountingArbor.prototype = Arbor.prototype;
+
+  var asArbor = function(carbor) {
+    var arbor = new Arbor();
+    arbor.root = carbor.root;
+    arbor.edges = carbor.edges;
+    return arbor;
+  };
+
+  var open = new Array(ends.length);
+  for (var k=0; k<ends.length; ++k) {
+    var arbor = new CountingArbor();
+    arbor.root = ends[k];
+    arbor._n_nodes = 1;
+    open[k] = arbor;
+  }
+
+  while (open.length > 0) {
+    var arbor = open.shift(),
+        node = arbor.root,
+        paren,
+        n_successors;
+    do {
+      var paren = this.edges[node];
+      if (undefined === paren) break; // reached root: cannot cut even if in cuts
+
+      if (cuts[node]) {
+        arbor.root = node;
+        fragments.push(asArbor(arbor));
+        arbor = new CountingArbor();
+        arbor.root = paren;
+        arbor._n_nodes = 1;
+      } else {
+        arbor.edges[node] = paren;
+        arbor._n_nodes += 1;
+        // Note arbor.root is now obsolete
+      }
+      n_successors = branches[paren];
+      node = paren;
+    } while (undefined === n_successors);
+
+    arbor.root = node;
+
+    if (undefined === paren && undefined === branches[node]) {
+      // Reached root and root is not a branch
+      fragments.push(asArbor(arbor));
+    } else {
+      var junction = junctions[node];
+      if (undefined === junction) {
+        // First time this branch node has been reached
+        junctions[node] = [arbor];
+      } else {
+        if (junction.length === n_successors -1) {
+          // Find largest
+          var max_nodes = arbor._n_nodes;
+          for (var k=0; k<junction.length; ++k) {
+            var a = junction[k];
+            if (a._n_nodes > max_nodes) {
+              junction[k] = arbor;
+              max_nodes = a._n_nodes;
+              arbor = a;
+            }
+          }
+          // Merge arbors
+          var ae = arbor.edges;
+          for (var k=0; k<junction.length; ++k) {
+            var a = junction[k];
+            var edges = a.edges;
+            var children = Object.keys(edges);
+            for (var i=0; i<children.length; ++i) {
+              var child = children[i];
+              ae[child] = edges[child];
+            }
+            arbor._n_nodes += a._n_nodes -1;
+          }
+          // Prepare next round of growth if appropriate
+          if (node === this.root) {
+            // root is branched
+            fragments.push(asArbor(arbor));
+          } else if (cuts[node]) {
+            fragments.push(asArbor(arbor));
+            arbor = new CountingArbor();
+            arbor.root = this.edges[node];
+            arbor._n_nodes = 1;
+            open.push(arbor);
+          } else {
+            open.push(arbor);
+          }
+        } else {
+          junction.push(arbor);
+        }
+      }
+    }
+  }
+
+  return fragments;
+};
+
+/** Return an array of treenode IDs corresponding each to the first node of a twig that is not part of the backbone, approximating the roots by using the strahler number. */
+Arbor.prototype.approximateTwigRoots = function(strahler_cut) {
+  // Approximate by using Strahler number:
+  // the twig root will be at the first parent
+  // with a Strahler number larger than strahler_cut
+  var strahler = this.strahlerAnalysis(),
+      ends = this.findBranchAndEndNodes().ends,
+      edges = this.edges,
+      roots = [],
+      seen = {};
+  for (var i=0, l=ends.length; i<l; ++i) {
+    var child = ends[i],
+        paren = edges[child];
+    do {
+      if (seen[paren]) break;
+      if (strahler[paren] > strahler_cut) {
+        roots.push(child);
+        break;
+      }
+      seen[paren] = true;
+      child = paren;
+      paren = edges[paren];
+    } while (paren);
+  }
+  return roots;
 };

@@ -1,20 +1,19 @@
 {% load compressed %}
+{% load common %}
 
-<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
+<!DOCTYPE html>
+<html class="mod-no-js">
 	<head>
-		<title>CATMAID v0.24</title>
+		<meta charset="UTF-8">
+		<title>CATMAID</title>
 
 		<script type="text/javascript">
 			var STATIC_URL_JS = '{{ STATIC_URL|escapejs }}';
-			var IE = false;
 			var django_url = "{{ CATMAID_URL }}";
 		</script>
 
 		<!--[if gte IE 5]>
 		<script type="text/javascript" src="{{ STATIC_URL }}libs/excanvas/excanvas.js"></script>
-		<script type="text/javascript">var IE = true;</script>
 		<![endif]-->
 
 		{% compressed_css 'libraries' %}
@@ -23,6 +22,10 @@
     {% for f in JS_FILES %}
 		  {% compressed_js f %}
     {% endfor %}
+
+		<script type="text/javascript">
+			CATMAID.configure("{{ CATMAID_URL }}", "{{ STATIC_URL|escapejs }}");
+		</script>
 	</head>
 	<body onload="realInit();"><a></a>
 		<!-- Toolbars
@@ -176,7 +179,7 @@
 		<div id="content">
 			<div id="data_view"></div>
 			<div id="clientside_data_view">
-				<h1>CATMAID v0.24</h1>
+				<h1 title="Version: {% catmaid_version %}>CATMAID</h1>
 				<div id="project_list">
 
 					<p>Please feel free to open one of the public projects or log in with your account and password.</p>
