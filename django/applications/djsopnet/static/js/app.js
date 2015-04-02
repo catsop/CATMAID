@@ -31,7 +31,7 @@
     var getCookie;
     getCookie = function(name) {
       var cookie, cookieValue, cookies, i;
-      if (document.cookie && cookie != "") {
+      if (document.cookie && cookie !== "") {
         cookies = document.cookie.split(";");
         i = 0;
         while (i < cookies.length) {
@@ -46,7 +46,7 @@
     
     };
     // Include Django's CSRF token
-    return $httpProvider.defaults.headers.common['X-CSRFToken'] =
+    $httpProvider.defaults.headers.common['X-CSRFToken'] =
         getCookie("csrftoken");
   });
 

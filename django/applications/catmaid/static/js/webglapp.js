@@ -4299,7 +4299,7 @@ WebGLApplication.prototype.getAnimationFrames = function(animation, nframes,
 WebGLApplication.prototype.showSlices = function() {
   var skeleton_id = SkeletonAnnotations.getActiveSkeletonId();
   if(null === skeleton_id) {
-    alert('Need active skeleton to show slices!')
+    alert('Need active skeleton to show slices!');
     return;
   }
 

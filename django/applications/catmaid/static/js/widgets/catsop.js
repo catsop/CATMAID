@@ -1,3 +1,14 @@
+/* global
+  CATMAID,
+  CatsopResultsLayer,
+  growlAlert,
+  InstanceRegistry,
+  OffsetStack,
+  openProjectStack,
+  project,
+  requestQueue
+ */
+
 "use strict";
 
 var CatsopWidget = function () {
@@ -303,6 +314,7 @@ CatsopWidget.prototype.updateSegments = function () {
       .text(function (d) { return d.source.name + " → " + d.target.name; });
 
   function dragmove(d) {
+    /* jshint validthis: true */
     d3.select(this).attr("transform", "translate(" + d.x + "," + (d.y = Math.max(0, Math.min(height - d.dy, d3.event.y))) + ")");
     seggraph.relayout();
     link.attr("d", path);
@@ -487,7 +499,8 @@ CatsopWidget.prototype.toggleOverlay = function (name) {
  * in the same section.
  */
 CatsopWidget.prototype.activateSegment = function (hashes) {
-  if (hashes == null) return; // Check for undefined or null.
+  // Check for undefined or null.
+  if (hashes == null) return; // jshint ignore:line
 
   this.activeSegmentHash = Array.isArray(hashes) ? hashes[0] : hashes;
   requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +

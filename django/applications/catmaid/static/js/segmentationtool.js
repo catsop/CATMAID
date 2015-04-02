@@ -161,7 +161,7 @@ function SegmentationTool()
         };
         canvasLayer.view.onmousewheel = onmousewheel; // function(e){self.mousewheel(e);};
         
-    }
+    };
 
     var onmousewheel = function( e )
     {
@@ -185,7 +185,7 @@ function SegmentationTool()
             }
         }
         return false;
-    }
+    };
 
     var onmousemove = function( e )
     {

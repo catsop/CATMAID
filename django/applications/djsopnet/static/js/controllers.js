@@ -58,7 +58,7 @@
         $scope.setupAllForSopnet = function(pid, rsid, msid, w, h, d, cw, ch, cd) {
             $scope.setupForSopnet(pid, rsid, w, h, d, cw, ch, cd);
             $scope.setupForSopnet(pid, msid, w, h, d, cw, ch, cd);
-        }
+        };
 
         $scope.launchSliceGuarantorTask = function(pid, rsid, msid, x, y, z) {
           var p = Tools.pstr(x, y, z);

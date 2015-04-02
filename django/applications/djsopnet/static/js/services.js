@@ -11,7 +11,7 @@
         this.task_id = data.task_id;
         this.state = data.state;
         this.name = data.name;
-      };
+      }
 
       return Task;
 
@@ -70,7 +70,7 @@
         this.value = data.value;
         this.size = data.size;
         // TODO: Add shape, section, parent, assembly, stack
-      };
+      }
 
       return Slice;
 

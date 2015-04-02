@@ -13,19 +13,19 @@ function CanvasLayer( stack, tool )
     {
         self.view.style.opacity = val;
         opacity = val;
-    }
+    };
 
     this.getOpacity = function()
     {
         return opacity;
-    }
+    };
 
     this.redraw = function()
     {
         // hack to make the tool redraw the canvas
         tool.redraw();
         return;
-    }
+    };
 
     this.resize = function( width, height )
     {
@@ -42,7 +42,7 @@ function CanvasLayer( stack, tool )
         canvas.setHeight( height );
             
         return;
-    }
+    };
 
     this.show = function () {
         view.style.display = "block";
@@ -86,11 +86,11 @@ function CanvasLayer( stack, tool )
 
     this.getHeight = function() {
         return height;
-    }
+    };
 
     this.getWidth = function() {
         return width;
-    }
+    };
 
     this.unregister = function()
     {
