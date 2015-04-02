@@ -7,6 +7,16 @@ addons:
   postgresql: 9.3
 before_install:
   - travis_retry sudo apt-get update -y -qq
+  # Install python-sopnet
+  - git clone https://github.com/catsop/python-sopnet.git
+  - cd python-sopnet
+  - git submodule update --init
+  - travis_retry sudo add-apt-repository --yes ppa:kalakris/cmake # PPA for cmake > precise 2.8.7
+  - travis_retry sudo apt-get update -y -qq
+  - travis_retry sudo apt-get install cmake
+  - travis_retry sudo apt-get install -y -qq $(< packagelist-ubuntu-12.04-apt.txt)
+  - python setup.py install
+  - cd ..
 install:
   - travis_retry sudo apt-get install -y -qq $(< packagelist-ubuntu-12.04-apt.txt)
   - travis_retry pip install -q pip==1.5.4
