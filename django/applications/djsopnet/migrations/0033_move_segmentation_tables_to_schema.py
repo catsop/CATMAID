@@ -9,11 +9,6 @@ import os
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        prompt_response = raw_input('''
-            WARNING: This migration will destroy all existing segmentation data.
-            Type "I understand" to continue: ''')
-        if not prompt_response == 'I understand':
-            raise RuntimeError('User aborted the migration')
 
         # Removing unique constraint on 'AssemblyRelation', fields ['assembly_a', 'assembly_b', 'relation']
         db.delete_unique(u'djsopnet_assemblyrelation', ['assembly_a_id', 'assembly_b_id', 'relation'])
