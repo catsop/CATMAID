@@ -15,9 +15,6 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/stack_info$', 'stack_info'),
 
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_segments_flag$', 'set_block_segment_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_slices_flag$', 'set_block_slice_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_solution_cost_flag$', 'set_block_solution_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_solution_set_flag$', 'set_core_solution_flag'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_segments_flag$', 'get_block_segment_flag'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_slices_flag$', 'get_block_slice_flag'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_solution_cost_flag$', 'get_block_solution_flag'),
@@ -49,9 +46,7 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/segment/create_for_slices$', 'create_segment_for_slices'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/segment/(?P<segment_hash>\d+)/constrain$', 'constrain_segment'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/user_constraints_by_blocks$', 'retrieve_user_constraints_by_blocks'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/skeleton/(?P<skeleton_id>\d+)/generate_user_constraints$', 'generate_user_constraints'),
-
-    
+    # (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/skeleton/(?P<skeleton_id>\d+)/generate_user_constraints$', 'generate_user_constraints'),
 
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core/(?P<core_id>\d+)/solve$', 'solve_core'),
 
@@ -59,9 +54,6 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_slices$', 'clear_slices'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_blocks$', 'clear_blocks'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/clear_djsopnet$', 'clear_djsopnet'),
-
-    # 3D Viewer retrieval methods for debugging
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_for_skeleton/(?P<skeleton_id>\d+)$', 'retrieve_slices_for_skeleton'),
 
     # Models
     (r'^tasks$', 'get_task_list'),
@@ -86,3 +78,8 @@ urlpatterns += patterns('djsopnet.control.assembly',
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/assembly_equivalence/(?P<equivalence_id>\d+)/map_to_skeleton$',
         'map_assembly_equivalence_to_skeleton')
 )
+
+# urlpatterns += patterns('djsopnet.control.slice',
+#     # 3D Viewer retrieval methods for debugging
+#     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_for_skeleton/(?P<skeleton_id>\d+)$', 'retrieve_slices_for_skeleton'),
+# )
