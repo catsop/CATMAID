@@ -438,12 +438,12 @@ Arbor.prototype.neighbors = function(node) {
   var edges = this.edges,
       children = this.childrenArray(),
       paren = this.edges[node],
-      neighbors = undefined === paren ? [] : [paren];
+      neighbors = (undefined === paren) ? [] : [paren];
   for (var i=0; i<children.length; ++i) {
     var child = children[i];
-    if (edges[child] === node) a.push(child);
+    if (edges[child] === node) neighbors.push(child);
   }
-  return a;
+  return neighbors;
 };
 
 /** Return a new Arbor that has all nodes in the array of nodes to preserve,
@@ -1588,7 +1588,7 @@ Arbor.prototype.nearestCommonAncestor = function(nodes) {
       n_nodes = open.length,
       seen = {};
 
-  if (0 == n_nodes) return null;
+  if (0 === n_nodes) return null;
   if (1 === n_nodes) return open[0];
 
   for (var i=0; i<n_nodes; ++i) {
