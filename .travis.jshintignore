@@ -22,5 +22,6 @@ django/applications/catmaid/static/libs/sylvester/**
 django/applications/catmaid/static/libs/three.js/**
 django/applications/catmaid/static/libs/threex/**
 django/applications/catmaid/static/libs/whammy/**
+django/applications/djsopnet/static/libs/**
 **/static/apps/**
 **/static/tests/libs/**
