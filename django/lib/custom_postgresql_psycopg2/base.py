@@ -10,6 +10,8 @@ from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as PG2Da
 from django.db.backends.postgresql_psycopg2.base import DatabaseError as PG2DatabaseError
 from django.db.backends.postgresql_psycopg2.base import DatabaseOperations as PG2DatabaseOperations
 
+from django.conf import settings
+
 import re
 import sys
 
@@ -42,6 +44,10 @@ SELECT adsrc
             raise DatabaseError("Couldn't find the sequence for column '%s' in table '%s'" % (pk_name, table_name))
         cursor.execute("SELECT CURRVAL(%s)", (m.group(1),))
         return cursor.fetchone()[0]
+
+    def sql_flush(self, style, tables, sequences, allow_cascade=False):
+        allow_cascade = settings.TESTING_ENVIRONMENT or allow_cascade
+        return PG2DatabaseOperations.sql_flush(self, style, tables, sequences, allow_cascade)
 
 class DatabaseWrapper(PG2DatabaseWrapper):
     def __init__(self, *args, **kwargs):
