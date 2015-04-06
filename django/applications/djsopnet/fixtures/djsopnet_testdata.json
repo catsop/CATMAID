@@ -1,0 +1,301 @@
+[
+  {
+    "pk": -1,
+    "model": "auth.user",
+    "fields": {
+      "username": "AnonymousUser",
+      "first_name": "Anonymous",
+      "last_name": "User",
+      "is_active": true,
+      "is_superuser": false,
+      "is_staff": false,
+      "last_login": "2014-03-17T18:14:34.851",
+      "groups": [],
+      "user_permissions": [],
+      "password": "",
+      "email": "",
+      "date_joined": "2014-03-17T18:14:34.851"
+    }
+  },
+  {
+    "pk": 1,
+    "model": "auth.user",
+    "fields": {
+      "username": "test0",
+      "first_name": "Test",
+      "last_name": "User 0",
+      "is_active": true,
+      "is_superuser": false,
+      "is_staff": false,
+      "last_login": "2014-09-03T11:17:50.752",
+      "groups": [],
+      "user_permissions": [],
+      "password": "pbkdf2_sha256$12000$CqdO6wRdSSxH$c57xXXPO8k65prBMrHTvjj/inanxDnbdoaeDIeWWrik=",
+      "email": "",
+      "date_joined": "2014-04-26T12:49:36"
+    }
+  },
+  {
+    "pk": 2,
+    "model": "auth.user",
+    "fields": {
+      "username": "test1",
+      "first_name": "Test",
+      "last_name": "User 1",
+      "is_active": true,
+      "is_superuser": false,
+      "is_staff": false,
+      "last_login": "2014-09-03T11:17:50.752",
+      "groups": [],
+      "user_permissions": [],
+      "password": "pbkdf2_sha256$12000$CqdO6wRdSSxH$c57xXXPO8k65prBMrHTvjj/inanxDnbdoaeDIeWWrik=",
+      "email": "",
+      "date_joined": "2014-03-26T17:49:36"
+    }
+  },
+  {
+    "pk": 3,
+    "model": "auth.user",
+    "fields": {
+      "username": "test2",
+      "first_name": "Test",
+      "last_name": "User 2",
+      "is_active": true,
+      "is_superuser": false,
+      "is_staff": false,
+      "last_login": "2014-09-03T11:17:50.752",
+      "groups": [1],
+      "user_permissions": [],
+      "password": "pbkdf2_sha256$12000$CqdO6wRdSSxH$c57xXXPO8k65prBMrHTvjj/inanxDnbdoaeDIeWWrik=",
+      "email": "",
+      "date_joined": "2014-03-26T17:49:36"
+    }
+  },
+  {
+    "pk": 1,
+    "model": "auth.group",
+    "fields": {
+        "name": "test1",
+        "permissions": []
+    }
+  },
+  {
+    "pk": -1,
+    "model": "catmaid.project",
+    "fields": {
+      "comment": null,
+      "title": "Classification dummy project"
+    }
+  },
+  {
+    "pk": 1,
+    "model": "catmaid.project",
+    "fields": {
+      "comment": null,
+      "title": "Catsop Test"
+    }
+  },
+  {
+    "pk": 1,
+    "model": "catmaid.stack",
+    "fields": {
+      "comment": null,
+      "num_zoom_levels": -1,
+      "image_base": "http://neurocity.janelia.org/catsop/data/catsop_test_raw/",
+      "title": "Catsop Test Raw",
+      "tile_width": 1024,
+      "tile_height": 1024,
+      "file_extension": "png",
+      "trakem2_project": false,
+      "tile_source_type": 1,
+      "resolution": "(4.000, 4.000, 4.000)",
+      "dimension": "(1024, 1024, 20)",
+      "metadata": ""
+    }
+  },
+  {
+    "pk": 2,
+    "model": "catmaid.stack",
+    "fields": {
+      "comment": null,
+      "num_zoom_levels": -1,
+      "image_base": "http://neurocity.janelia.org/catsop/data/catsop_test_raw/",
+      "title": "Catsop Test Membrane",
+      "tile_width": 1024,
+      "tile_height": 1024,
+      "file_extension": "png",
+      "trakem2_project": false,
+      "tile_source_type": 1,
+      "resolution": "(4.000, 4.000, 4.000)",
+      "dimension": "(1024, 1024, 20)",
+      "metadata": ""
+    }
+  },
+  {
+    "pk": 1,
+    "model": "catmaid.projectstack",
+    "fields": {
+      "project": 1,
+      "translation": "(0.000, 0.000, 0.000)",
+      "stack": 1,
+      "orientation": 0
+    }
+  },
+  {
+    "pk": 2,
+    "model": "catmaid.projectstack",
+    "fields": {
+      "project": 1,
+      "translation": "(0.000, 0.000, 0.000)",
+      "stack": 2,
+      "orientation": 0
+    }
+  },
+  {
+    "pk": 1,
+    "model": "catmaid.dataviewtype",
+    "fields": {
+      "comment": "A simple list of all projects and their stacks. It is rendered in the browser with the help of JavaScript and it does not support any configuration options. The config field of a data view is therefore likely to read only {}.\n",
+      "code_type": "legacy_project_list_data_view",
+      "title": "Legacy project list view"
+    }
+  },
+  {
+    "pk": 2,
+    "model": "catmaid.dataviewtype",
+    "fields": {
+      "comment": "A simple adjustable list of all projects and their stacks. This view is rendered server side and supports the display of sample images. The following options are available: \"filter_tags\": [list of tags], \"sample_images\": [true|false], \"sample_stack\": [\"first\"|\"last\"], \"sample_slice\": [slice number|\"first\"|\"center\"|\"last\"], \"sample_width\": [pixel size] and \"sample_height\": [pixel size]. By default projects are sorted. Use \"sort\":false to turn this off. Thus, a valid sample configuration could look like: {\"sample_images\":true, \"sample_stack\":\"last\", \"sample_slice\":\"center\", \"sample_width\":100, \"filter_tags\":[\"TagA\",\"TagB\"]}\n",
+      "code_type": "project_list_data_view",
+      "title": "Project list view"
+    }
+  },
+  {
+    "pk": 3,
+    "model": "catmaid.dataviewtype",
+    "fields": {
+      "comment": "A simple table of all projects and their stacks. This view is rendered server side and supports the display of sample images instead of stack names. The following options are available: \"filter_tags\": [list of tags], \"sample_images\": [true|false], \"sample_slice\": [slice number|\"first\"|\"center\"|\"last\"], \"sample_width\": [pixel size], \"sample_height\": [pixel size] and \"sort\": [true|false]. By default projects are sorted and displayed without images. A valid configuration could look like: {\"sample_images\":true, \"sample_slice\":\"center\", \"sample_height\":42, \"filter_tags\":[\"TagA\",\"TagB\"]}\n",
+      "code_type": "project_table_data_view",
+      "title": "Tabular project view"
+    }
+  },
+  {
+    "pk": 4,
+    "model": "catmaid.dataviewtype",
+    "fields": {
+      "comment": "A table that allows to define tags for the columns and rows. This view is rendered server side and supports the display of sample images instead of stack names. The following options are available: \"filter_tags\": [list of tags], \"col_tags\": [list of tags], \"row_tags\": [list of tags], \"sample_images\": [true|false], \"sample_slice\": [slice number|\"first\"|\"center\"|\"last\"], \"sample_width\": [pixel size], \"sample_height\": [pixel size], \"sort\": [true|false]. By default projects are sorted and displayed without images. A valid configuration could look like: {\"row_tags\":[\"DAPI\",\"Crb\"], \"col_tags\":[\"Wing Disc\",\"CNS\"]}\n",
+      "code_type": "project_tags_data_view",
+      "title": "Tag project view"
+    }
+  },
+  {
+    "pk": 5,
+    "model": "catmaid.dataviewtype",
+    "fields": {
+      "comment": "Loads project and stack information dynamically based on a JSON representation returned by configured URLs.\n",
+      "code_type": "dynamic_projects_list_data_view",
+      "title": "Dynamic projects view"
+    }
+  },
+  {
+    "pk": 1,
+    "model": "catmaid.dataview",
+    "fields": {
+      "comment": "",
+      "title": "Project list",
+      "is_default": false,
+      "data_view_type": 2,
+      "position": 0,
+      "config": "{}"
+    }
+  },
+  {
+    "pk": 2,
+    "model": "catmaid.dataview",
+    "fields": {
+      "comment": "",
+      "title": "Project table with images",
+      "is_default": true,
+      "data_view_type": 3,
+      "position": 1,
+      "config": "{\"sample_images\":true}"
+    }
+  },
+  {
+    "pk": 1,
+    "model": "catmaid.userprofile",
+    "fields": {
+      "tracing_overlay_scale": 1.0,
+      "color": "(1.000, 0.000, 0.000, 1.000)",
+      "show_text_label_tool": false,
+      "show_segmentation_tool": false,
+      "show_ontology_tool": false,
+      "tracing_overlay_screen_scaling": true,
+      "inverse_mouse_wheel": false,
+      "display_stack_reference_lines": false,
+      "show_cropping_tool": false,
+      "show_roi_tool": false,
+      "user": -1,
+      "prefer_webgl_layers": false,
+      "independent_ontology_workspace_is_default": false,
+      "show_tracing_tool": false,
+      "show_tagging_tool": false
+    }
+  },
+  {
+    "pk": 1,
+    "model": "djsopnet.segmentationconfiguration",
+    "fields": {
+      "project": 1
+    }
+  },
+  {
+    "pk": 1,
+    "model": "djsopnet.blockinfo",
+    "fields": {
+      "num_x": 2,
+      "num_y": 2,
+      "num_z": 2,
+      "block_dim_x": 512,
+      "block_dim_y": 512,
+      "block_dim_z": 10,
+      "core_dim_x": 1,
+      "core_dim_y": 1,
+      "core_dim_z": 1,
+      "scale": 0
+    }
+  },
+  {
+    "pk": 1,
+    "model": "djsopnet.segmentationstack",
+    "fields": {
+      "configuration": 1,
+      "type": "Raw",
+      "project_stack": 1
+    }
+  },
+  {
+    "pk": 2,
+    "model": "djsopnet.segmentationstack",
+    "fields": {
+      "configuration": 1,
+      "type": "Membrane",
+      "project_stack": 2
+    }
+  },
+  {
+    "pk": 1,
+    "model": "djsopnet.featurename",
+    "fields": {
+      "name": "Unnamed Feature"
+    }
+  },
+  {
+    "pk": 2,
+    "model": "djsopnet.featureinfo",
+    "fields": {
+      "name_ids": "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]",
+      "weights": "[0.00558637, -1.6678e-05, 0.00204453, 0.0711393, -0.00135737, 3.35817, -0.000916876, -0.000957261, -0.00193582, -1.48732, -0.000234868, -4.21938, 0.501363, 0.0665533, -0.292248, 0.0361189, 0.0844144, -0.0316035, 0.0127795, -0.00765338, -0.00558571, -0.0172858, 0.00562492, -0.0109868, -0.00136111, -0.0227562, -0.0825309, -0.131062, -0.442795, 0.354401, 0.266398, 1.46761, -0.743354, -0.281164, 0.169887, 0.262849, -0.0505789, 0.00516085, 0.0138543, -0.0102862, 0.0080712, 0.00012668, -0.0031432, 0.00186596, 0.00371999, -0.0688746, 0.324525, 0.79521, 1.88847, 2.09861, 1.51523, 0.394032, 0.477188, -0.0952926, 0.374847, 0.253683, 0.840265, -2.89614, 4.2625e-10]",
+      "size": 59
+    }
+  }
+]
