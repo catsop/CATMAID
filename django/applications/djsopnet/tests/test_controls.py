@@ -58,8 +58,8 @@ class AssemblyTests(TestCase):
               ON sp.solution_id = a.solution_id
             WHERE sp.core_id = %(core_id)s
             """ % {'segstack_id': self.test_segstack_id, 'core_id': core_id})
-        self.assertEqual(cursor.fetchone()[0], 1,
-                msg="Core should contain 1 assembly")
+        self.assertEqual(cursor.fetchone()[0], 2,
+                msg="Core should contain 2 assemblies")
 
         cursor.execute("""
             SELECT count(*)
@@ -68,8 +68,8 @@ class AssemblyTests(TestCase):
               ON ssol.assembly_id = a.id
             JOIN segstack_%(segstack_id)s.solution_precedence sp
               ON sp.solution_id = a.solution_id
-            WHERE ssol.segment_id BETWEEN 1000 AND 1999
+            WHERE ssol.segment_id BETWEEN 1000000 AND 1000999
               AND sp.core_id = %(core_id)s
             """ % {'segstack_id': self.test_segstack_id, 'core_id': core_id})
-        self.assertEqual(cursor.fetchone()[0], 10,
-                msg="All segments with ID 1xxx should be in assembly")
+        self.assertEqual(cursor.fetchone()[0], 20,
+                msg="All segments with ID 1000[01]xx should be in assembly")
