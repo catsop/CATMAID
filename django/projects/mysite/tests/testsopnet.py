@@ -153,7 +153,9 @@ class SopnetTest(object):
 		return conf
 
 	def import_weights(self, stack_type, dat_file):
-		fi = FeatureInfo.objects.get(stack_id=self.raw_stack_id) # TODO: use segstack
+		segstack = SegmentationStack.objects.get(
+			configuration=self.segmentation_configuration_id, type=stack_type)
+		fi = FeatureInfo.objects.get(segmentation_stack_id=segstack.id)
 		fo = open(dat_file, 'r')
 
 		weights = map(float, fo.readlines())
@@ -163,7 +165,8 @@ class SopnetTest(object):
 		fi.weights = weights
 		fi.save()
 
+		# Clear existing cached costs for segstack
 		cursor = connection.cursor()
 		cursor.execute('''
-			UPDATE segment SET cost = NULL WHERE stack_id = %s
-			''' % self.raw_stack_id)
+			UPDATE segstack_%s.segment SET cost = NULL
+			''' % segstack.id)
