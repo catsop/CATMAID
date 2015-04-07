@@ -6,6 +6,7 @@ import os
 
 from catmaid.models import Project, User
 from djsopnet.control.assembly import \
+        generate_compatible_assemblies_between_cores, \
         generate_conflicting_assemblies_between_cores, \
         generate_continuing_assemblies_between_cores
 
@@ -120,8 +121,8 @@ class AssemblyTests(TestCase):
               ON sp.solution_id = a.solution_id
             WHERE sp.core_id = %(core_id)s
             """ % {'segstack_id': self.test_segstack_id, 'core_id': core_id})
-        self.assertEqual(cursor.fetchone()[0], 2,
-                msg="Core should contain 2 assemblies")
+        self.assertEqual(cursor.fetchone()[0], 3,
+                msg="Core should contain 3 assemblies")
 
         cursor.execute("""
             SELECT count(*)
@@ -133,8 +134,8 @@ class AssemblyTests(TestCase):
             WHERE ssol.segment_id BETWEEN 1000000 AND 1000999
               AND sp.core_id = %(core_id)s
             """ % {'segstack_id': self.test_segstack_id, 'core_id': core_id})
-        self.assertEqual(cursor.fetchone()[0], 20,
-                msg="All segments with ID 1000[01]xx should be in assembly")
+        self.assertEqual(cursor.fetchone()[0], 30,
+                msg="All segments with ID 1000[014]xx should be in assembly")
 
     def test_continuing_assemblies_between_cores(self):
         self.fake_authentication()
@@ -148,10 +149,10 @@ class AssemblyTests(TestCase):
         core_b_id = 001
         generate_continuing_assemblies_between_cores(self.test_segstack_id, core_a_id, core_b_id)
 
-        # Only one assembly should continute between cores 000 and 001
-        self.assertNumberOfAssemblyRelationsBetweenCores('Continuation', core_a_id, core_b_id, 1)
+        self.assertNumberOfAssemblyRelationsBetweenCores('Continuation', core_a_id, core_b_id, 2)
 
         self.assertAssembliesForSegmentsHaveRelation('Continuation', 1000000, 000, 1001020, 001)
+        self.assertAssembliesForSegmentsHaveRelation('Continuation', 1000400, 000, 1001420, 001)
 
     def test_conflicting_assemblies_between_cores(self):
         self.fake_authentication()
@@ -165,7 +166,23 @@ class AssemblyTests(TestCase):
         core_b_id = 001
         generate_conflicting_assemblies_between_cores(self.test_segstack_id, core_a_id, core_b_id)
 
-        # Only one assembly should continute between cores 000 and 001
-        self.assertNumberOfAssemblyRelationsBetweenCores('Conflict', core_a_id, core_b_id, 1)
+        self.assertNumberOfAssemblyRelationsBetweenCores('Conflict', core_a_id, core_b_id, 2)
 
         self.assertAssembliesForSegmentsHaveRelation('Conflict', 1000100, 000, 1001220, 001)
+        self.assertAssembliesForSegmentsHaveRelation('Conflict', 1000400, 000, 1001420, 001)
+
+    def test_compatible_assemblies_between_cores(self):
+        self.fake_authentication()
+
+        for core_id in [000, 001, 010, 011]:
+            response = self.client.post(
+                    '/sopnet/%d/segmentation/%d/core/%d/generate_assemblies' % (self.test_project_id, self.test_segstack_id, core_id))
+            self.assertEqual(response.status_code, 200)
+
+        core_a_id = 000
+        core_b_id = 001
+        generate_compatible_assemblies_between_cores(self.test_segstack_id, core_a_id, core_b_id)
+
+        self.assertNumberOfAssemblyRelationsBetweenCores('Compatible', core_a_id, core_b_id, 1)
+
+        self.assertAssembliesForSegmentsHaveRelation('Compatible', 1000000, 000, 1001020, 001)

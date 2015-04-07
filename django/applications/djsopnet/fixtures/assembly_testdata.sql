@@ -25,6 +25,9 @@ FROM generate_series(0,1) AS x,
  * 10000xx <> 10010xx continue and are compatible in precedent solution.
  * 10002xx and 10003xx (slice) conflict with 10001xx. 10003xx is in an old solution.
  * 10001xx <> 10012xx conflict in precedent solution.
+ * Like 10001xx, 10004xx branches at the core 000,001 boundary. However in this
+ * case the assembly in 001 chooses the branch, while 000 does not, so:
+ * 10004xx <> 10014xx continue and conflict in the precedent solution.
  */
 
 -- slice IDs are of the form [1][core_x][core_y][core_z][arbitrary ID][section # (2 digits)]
@@ -36,29 +39,39 @@ FROM generate_series(0, 9) AS sect
 UNION
 SELECT 1000100 + sect, sect, 0, 0, 10, 10, 5, 5, 1, 1
 FROM generate_series(0, 9) AS sect
+UNION
+SELECT 1000400 + sect, sect, 0, 0, 10, 10, 5, 5, 1, 1
+FROM generate_series(0, 9) AS sect
 -- CORE (0, 0, 1)
 UNION
 SELECT 1001000 + sect, sect, 0, 0, 10, 10, 5, 5, 1, 1
 FROM generate_series(10, 19) AS sect
 UNION
 SELECT 1001200 + sect, sect, 0, 0, 10, 10, 5, 5, 1, 1
-FROM generate_series(10, 19) AS sect;;
+FROM generate_series(10, 19) AS sect
+UNION
+SELECT 1001400 + sect, sect, 0, 0, 10, 10, 5, 5, 1, 1
+FROM generate_series(10, 19) AS sect;
 
 INSERT INTO segstack_2.slice
 (id, section, min_x, min_y, max_x, max_y, ctr_x, ctr_y, value, size) VALUES
-(1000209, 9, 0, 0, 10, 10, 5, 5, 1, 1);
+(1000209, 9, 0, 0, 10, 10, 5, 5, 1, 1),
+(1000509, 9, 0, 0, 10, 10, 5, 5, 1, 1);
 
 INSERT INTO segstack_2.slice_conflict
 (id, slice_a_id, slice_b_id) VALUES
-(1000109, 1000109, 1000209);
+(1000109, 1000109, 1000209),
+(1000409, 1000409, 1000509);
 
 INSERT INTO segstack_2.conflict_clique
 (id, maximal_clique) VALUES
-(1000109, TRUE);
+(1000109, TRUE),
+(1000409, TRUE);
 
 INSERT INTO segstack_2.conflict_clique_edge
 (conflict_clique_id, slice_conflict_id) VALUES
-(1000109, 1000109);
+(1000109, 1000109),
+(1000409, 1000409);
 
 INSERT INTO segstack_2.slice_block_relation
 (block_id, slice_id)
@@ -75,12 +88,18 @@ FROM generate_series(0, 9) AS sect
 UNION
 SELECT 1000100 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
 FROM generate_series(0, 9) AS sect
+UNION
+SELECT 1000400 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
+FROM generate_series(0, 9) AS sect
 -- CORE (0, 0, 1)
 UNION
 SELECT 1001000 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
 FROM generate_series(10, 20) AS sect
 UNION
 SELECT 1001200 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
+FROM generate_series(10, 20) AS sect
+UNION
+SELECT 1001400 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
 FROM generate_series(10, 20) AS sect;
 
 INSERT INTO segstack_2.segment
@@ -88,7 +107,11 @@ INSERT INTO segstack_2.segment
 (1000209, 9, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
 (1000309, 9, 0, 0, 10, 10, 5, 5, 2), -- Unused branch
 (1001110, 10, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
-(1001310, 10, 0, 0, 10, 10, 5, 5, 2); -- Unused branch
+(1001310, 10, 0, 0, 10, 10, 5, 5, 2), -- Unused branch
+(1000509, 9, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
+(1000609, 9, 0, 0, 10, 10, 5, 5, 2), -- Unused branch
+(1001510, 10, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
+(1001610, 10, 0, 0, 10, 10, 5, 5, 1); -- Used branch
 
 INSERT INTO segstack_2.segment_slice
 (slice_id, segment_id, direction)
@@ -99,10 +122,16 @@ UNION
 SELECT 1000100 + sect, 1000100 + sect + dir, dir = 1
 FROM generate_series(0, 8) AS sect, generate_series(0, 1) AS dir
 UNION
+SELECT 1000400 + sect, 1000400 + sect + dir, dir = 1
+FROM generate_series(0, 8) AS sect, generate_series(0, 1) AS dir
+UNION
 SELECT 1001000 + sect, 1001000 + sect + dir, dir = 1
 FROM generate_series(10, 19) AS sect, generate_series(0, 1) AS dir
 UNION
 SELECT 1001200 + sect, 1001200 + sect + dir, dir = 1
+FROM generate_series(10, 19) AS sect, generate_series(0, 1) AS dir
+UNION
+SELECT 1001400 + sect, 1001400 + sect + dir, dir = 1
 FROM generate_series(10, 19) AS sect, generate_series(0, 1) AS dir;
 
 INSERT INTO segstack_2.segment_slice
@@ -118,7 +147,19 @@ INSERT INTO segstack_2.segment_slice
 (1000109, 1001110, TRUE),
 (1000209, 1001210, TRUE),
 (1000109, 1001310, TRUE),
-(1000209, 1001310, TRUE);
+(1000209, 1001310, TRUE),
+(1000409, 1000409, FALSE),
+(1000408, 1000509, TRUE),  -- Unused continuation
+(1000509, 1000509, FALSE),
+(1000408, 1000609, TRUE),  -- Unused branch
+(1000409, 1000609, TRUE),
+(1000509, 1000609, TRUE),
+(1000409, 1001410, TRUE),  -- Unused continuation
+(1000509, 1001510, TRUE),  -- Unused continuation
+(1001410, 1001510, FALSE),
+(1000409, 1001610, TRUE),  -- Used branch
+(1000509, 1001610, TRUE),
+(1001410, 1001610, FALSE);
 
 INSERT INTO segstack_2.segment_block_relation
 (block_id, segment_id)
@@ -147,13 +188,14 @@ UNION
 SELECT s.id, 0001 FROM segstack_2.segment s
 WHERE s.id BETWEEN 1000000 AND 1000099
    OR s.id BETWEEN 1000100 AND 1000199
+   OR s.id BETWEEN 1000400 AND 1000499
 UNION
 SELECT s.id, 0011 FROM segstack_2.segment s
 WHERE s.id BETWEEN 1001000 AND 1001099
-UNION
-SELECT s.id, 0011 FROM segstack_2.segment s
-WHERE s.id BETWEEN 1001200 AND 1001299;
+   OR s.id BETWEEN 1001200 AND 1001299
+   OR s.id BETWEEN 1001411 AND 1001499;
 
 INSERT INTO segstack_2.segment_solution
 (segment_id, solution_id) VALUES
-(1000309, 0000);
+(1000309, 0000),
+(1001610, 0011);
