@@ -5,7 +5,9 @@ from guardian.shortcuts import assign_perm
 import os
 
 from catmaid.models import Project, User
-from djsopnet.control.assembly import generate_continuing_assemblies_between_cores
+from djsopnet.control.assembly import \
+        generate_conflicting_assemblies_between_cores, \
+        generate_continuing_assemblies_between_cores
 
 class AssemblyTests(TestCase):
     fixtures = ['djsopnet_testdata']
@@ -150,3 +152,20 @@ class AssemblyTests(TestCase):
         self.assertNumberOfAssemblyRelationsBetweenCores('Continuation', core_a_id, core_b_id, 1)
 
         self.assertAssembliesForSegmentsHaveRelation('Continuation', 1000000, 000, 1001020, 001)
+
+    def test_conflicting_assemblies_between_cores(self):
+        self.fake_authentication()
+
+        for core_id in [000, 001, 010, 011]:
+            response = self.client.post(
+                    '/sopnet/%d/segmentation/%d/core/%d/generate_assemblies' % (self.test_project_id, self.test_segstack_id, core_id))
+            self.assertEqual(response.status_code, 200)
+
+        core_a_id = 000
+        core_b_id = 001
+        generate_conflicting_assemblies_between_cores(self.test_segstack_id, core_a_id, core_b_id)
+
+        # Only one assembly should continute between cores 000 and 001
+        self.assertNumberOfAssemblyRelationsBetweenCores('Conflict', core_a_id, core_b_id, 1)
+
+        self.assertAssembliesForSegmentsHaveRelation('Conflict', 1000100, 000, 1001220, 001)
