@@ -809,7 +809,7 @@ var WindowMaker = new function()
 
     var titles = document.createElement('ul');
     bar.appendChild(titles);
-    var tabs = ['Main', 'View', 'Shading', 'Skeleton filters', 'View settings', 'Shading parameters', 'Animation', 'Export'].reduce(function(o, name) {
+    var tabs = ['Main', 'View', 'Shading', 'Skeleton filters', 'View settings', 'Shading parameters', 'Animation', 'CATSOP', 'Export'].reduce(function(o, name) {
           var id = name.replace(/ /, '') + WA.widgetID;
           titles.appendChild($('<li><a href="#' + id + '">' + name + '</a></li>')[0]);
           var div = document.createElement('div');
@@ -1055,6 +1055,11 @@ var WindowMaker = new function()
           }, false]
         ]);
 
+    appendToTab(tabs['CATSOP'],
+        [
+          ['Show slices', WA.showSlices.bind(WA)]
+        ]);
+
     appendToTab(tabs['Export'],
         [
           ['Export PNG', WA.exportPNG.bind(WA)],
@@ -1070,13 +1075,6 @@ var WindowMaker = new function()
 
     var container = createContainer("view_in_3d_webgl_widget" + WA.widgetID);
     content.appendChild(container);
-
-    // TOREMOVE: this serves as an entry point for debugging
-    var slices = document.createElement('input');
-    slices.setAttribute("type", "button");
-    slices.setAttribute("value", "Show slices");
-    slices.onclick = WA.showSlices.bind(WA);
-    buttons.appendChild(slices);
 
     var canvas = document.createElement('div');
     canvas.setAttribute("id", "viewer-3d-webgl-canvas" + WA.widgetID);
