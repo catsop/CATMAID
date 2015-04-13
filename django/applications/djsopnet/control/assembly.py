@@ -366,18 +366,15 @@ def _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id,
 
         LOCK TABLE segstack_%(segstack_id)s.assembly_relation IN EXCLUSIVE MODE;
 
+        WITH core_assemblies AS (
+            SELECT a.id AS assembly_id
+            FROM segstack_%(segstack_id)s.assembly a
+            JOIN segstack_%(segstack_id)s.solution s ON a.solution_id = s.id
+            WHERE core_id IN (%(core_a_id)s, %(core_b_id)s))
         DELETE FROM segstack_%(segstack_id)s.assembly_relation ar
         WHERE relation = '%(relation)s'::assemblyrelation
-          AND EXISTS (
-            SELECT 1 FROM segstack_%(segstack_id)s.solution s
-            JOIN segstack_%(segstack_id)s.assembly a
-              ON (a.solution_id = s.id AND a.id = ar.assembly_a_id)
-            WHERE s.core_id = %(core_a_id)s OR s.core_id = %(core_b_id)s)
-          AND EXISTS (
-            SELECT 1 FROM segstack_%(segstack_id)s.solution s
-            JOIN segstack_%(segstack_id)s.assembly a
-              ON (a.solution_id = s.id AND a.id = ar.assembly_b_id)
-            WHERE s.core_id = %(core_a_id)s OR s.core_id = %(core_b_id)s);
+          AND (ar.assembly_a_id IN (SELECT assembly_id FROM core_assemblies) OR
+               ar.assembly_b_id IN (SELECT assembly_id FROM core_assemblies));
 
         INSERT INTO segstack_%(segstack_id)s.assembly_relation
           (assembly_a_id, assembly_b_id, relation)
