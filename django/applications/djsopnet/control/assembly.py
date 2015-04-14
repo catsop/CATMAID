@@ -116,9 +116,10 @@ def map_assembly_equivalence_to_skeleton(request, project_id, segmentation_stack
     if cursor.rowcount == 0:
         raise Http404('No AssemblyEquivalence with ID %s exists' % equivalence_id)
 
-    _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id)
+    ids = _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id)
+    ids['ok'] = True
 
-    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+    return HttpResponse(json.dumps(ids), content_type='text/json')
 
 def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id):
     segstack = SegmentationStack.objects.get(id=segmentation_stack_id)
@@ -155,6 +156,8 @@ def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equiva
         INSERT INTO segstack_%s.treenode_slice (slice_id, treenode_id)
         VALUES (%s)
         ''' % (segstack.id, tn_slice_values))
+
+    return {'neuron_id': imported_skeleton['neuron_id'], 'skeleton_id': imported_skeleton['skeleton_id']}
 
 def map_assembly_equivalence_to_arborescence(segmentation_stack_id, equivalence_id):
     """Create skeletons for existing equivalences and map nodes to slices."""
