@@ -73,6 +73,7 @@ for equivalence_id in equivalence_ids:
 	print 'Mapping assembly equivalence %s' % equivalence_id
 	try:
 		_map_assembly_equivalence_to_skeleton(request, segstack.id, equivalence_id)
-	except:
+	except Exception as e:
 		print '...error'
+		print str(e)
 		pass
