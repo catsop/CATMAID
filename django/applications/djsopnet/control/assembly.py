@@ -376,7 +376,7 @@ def _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id,
             WHERE core_id IN (%(core_a_id)s, %(core_b_id)s))
         DELETE FROM segstack_%(segstack_id)s.assembly_relation ar
         WHERE relation = '%(relation)s'::assemblyrelation
-          AND (ar.assembly_a_id IN (SELECT assembly_id FROM core_assemblies) OR
+          AND (ar.assembly_a_id IN (SELECT assembly_id FROM core_assemblies) AND
                ar.assembly_b_id IN (SELECT assembly_id FROM core_assemblies));
 
         INSERT INTO segstack_%(segstack_id)s.assembly_relation
