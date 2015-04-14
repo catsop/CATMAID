@@ -1044,7 +1044,7 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
     for n, nbrs in arborescence.adjacency_iter():
         for nbr in nbrs:
             arborescence.node[nbr]['parent_id'] = arborescence.node[n]['id']
-    arborescence.node[root]['parent_id'] = 'NULL'
+    arborescence.node[root]['parent_id'] = 'NULL::bigint'
     new_location = tuple([arborescence.node[root][k] for k in ('x', 'y', 'z')])
 
     treenode_values = \
