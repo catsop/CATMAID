@@ -201,9 +201,13 @@ def map_assembly_equivalence_to_arborescence(segmentation_stack_id, equivalence_
                 g.add_edge(s1['f1'], s2['f1'])
 
     # Find a directed tree for mapping to a skeleton.
-    # TODO: This discards cyclic edges in the graph, which SOPNET often creates.
-    # These should be checked for and added back in with duplicate nodes.
-    t = nx.bfs_tree(nx.minimum_spanning_tree(g), g.nodes()[0])
+    if nx.number_of_nodes(g) > 1:
+        # TODO: This discards cyclic edges in the graph, which SOPNET often creates.
+        # These should be checked for and added back in with duplicate nodes.
+        t = nx.bfs_tree(nx.minimum_spanning_tree(g), g.nodes()[0])
+    else:
+        t = nx.DiGraph()
+        t.add_nodes_from(g)
     # Copy node attributes
     for n in t.nodes_iter():
         t.node[n] = g.node[n]
