@@ -143,13 +143,14 @@ CatsopWidget.SegmentGraph = function() {
     }
 
     function initializeNodeDepth() {
-      var heightScale = nodesByBreadth
+      seggraph.sliceScale = nodesByBreadth
           .filter(function (ns) { return sliceNode(ns[0]); })
           .reduce(function (minScale, nodes) {
             var heightScale = size[1] / nodes
               .reduce(function (sum, n) { return sum + nodePadding + n.box[3] - n.box[1]; }, 0);
             return Math.min(heightScale, minScale);
           }, 1);
+      var heightScale = seggraph.sliceScale;
 
       var ky = d3.min(nodesByBreadth, function(nodes) {
         return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, graphValue);

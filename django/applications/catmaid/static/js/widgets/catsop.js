@@ -398,10 +398,14 @@ CatsopWidget.prototype.updateSegments = function () {
       .attr("class", function (d) { return 'slice-hash-' + d.hash; });
   sliceNodes
     .append("image")
-      .attr("x", 3) // Offset and shrink slice mask slightly to not overlap stroke.
-      .attr("y", 3)
+      .attr("y", 3) // Offset and shrink slice mask slightly to not overlap stroke.
       .attr("height", function (d) { return d.dy - 6; })
-      .attr("width", seggraph.nodeWidths()[0] - 6)
+      .attr("width", function (d) {
+        return Math.min(seggraph.sliceScale * (d.box[2] - d.box[0]), seggraph.nodeWidths()[0] - 6); })
+      .attr("x", function (d) {
+        return Math.max(0,
+              ((seggraph.nodeWidths()[0] - 6) - this.attributes.width.value) / 2)
+            + 3; })
       .attr("xlink:href", function (d) { return d.mask; })
     .append("title")
       .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
