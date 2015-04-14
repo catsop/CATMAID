@@ -161,7 +161,7 @@ CatsopWidget.SegmentGraph = function() {
         nodes.forEach(function(node, i) {
           node.y = i;
           if (sliceNode(node)) node.dy = heightScale * (node.box[3] - node.box[1]);
-          else node.dy = node.graphValue * ky;
+          else node.dy = Math.max(1, node.graphValue * ky);
         });
       });
 
