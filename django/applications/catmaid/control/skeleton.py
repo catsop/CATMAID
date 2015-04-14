@@ -963,6 +963,12 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
     provided. Returns a dictionary of the neuron and skeleton IDs, and the
     original arborescence with attributes added for treenode IDs.
     """
+    # For pathological networks this can error, so do it before inserting
+    # treenodes.
+    root = find_root(arborescence)
+    if root is None:
+        raise Exception('No root, provided graph is malformed!')
+
     # TODO: There is significant reuse here of code from create_treenode that
     # could be DRYed up.
     relation_map = get_relation_to_id_map(project_id)
@@ -1012,12 +1018,6 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
         neuron_id = new_neuron.id
 
     relate_neuron_to_skeleton(neuron_id, new_skeleton.id)
-
-    # For pathological networks this can error, so do it before inserting
-    # treenodes.
-    root = find_root(arborescence)
-    if root is None:
-        raise Exception('No root, provided graph is malformed!')
 
     # Bulk create the required number of treenodes. This must be done in two
     # steps because treenode IDs are not known.
