@@ -3,10 +3,13 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from datetime import datetime
 import os
+import logging
 
 from catmaid.fields import IntegerArrayField, DoubleArrayField
 from catmaid.models import ClassInstance, Project, ProjectStack, UserFocusedModel, Treenode
 from djsopnet.fields import *
+
+logger = logging.getLogger(__name__)
 
 class SegmentationConfiguration(models.Model):
     class Meta:
@@ -28,13 +31,23 @@ class SegmentationStack(models.Model):
 def create_segmentation_stack_schema(sender, instance, created, **kwargs):
     if created:
         cursor = connection.cursor()
-        with open(os.path.join(os.path.dirname(__file__), 'sql', 'instantiate_segmentation.sql'), 'r') as sqlfile:
-            cursor.execute(('''
-                CREATE SCHEMA segstack_%(segstack_id)s;
-                SET search_path TO segstack_%(segstack_id)s,public;
-                ''' % {'segstack_id': instance.id}) + \
-                sqlfile.read() +\
-                'RESET search_path;')
+        cursor.execute('''
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name = 'segstack_%s';
+            ''' % instance.id)
+        if cursor.rowcount:
+            logger.warning('''
+                Schema for segmentation stack %s already exists. No schema changes made.
+                ''' % instance.id)
+        else:
+            with open(os.path.join(os.path.dirname(__file__), 'sql', 'instantiate_segmentation.sql'), 'r') as sqlfile:
+                cursor.execute(('''
+                    CREATE SCHEMA segstack_%(segstack_id)s;
+                    SET search_path TO segstack_%(segstack_id)s,public;
+                    ''' % {'segstack_id': instance.id}) + \
+                    sqlfile.read() +\
+                    'RESET search_path;')
 
 
 class BlockInfo(models.Model):
