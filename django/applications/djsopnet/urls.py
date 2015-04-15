@@ -67,10 +67,8 @@ urlpatterns += patterns('djsopnet.control.assembly',
 
 urlpatterns += patterns('djsopnet.control.block',
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/setup_blocks$', 'setup_blocks'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/block_at_location$', 'block_at_location'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/blocks/by_bounding_box$', 'retrieve_blocks_by_bounding_box'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core_at_location$', 'core_at_location'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/cores/by_bounding_box$', 'retrieve_cores_by_bounding_box'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/(?P<unit_type>core|block)_at_location$', 'spatial_unit_at_location'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/(?P<unit_type>core|block)s/by_bounding_box$', 'retrieve_spatial_units_by_bounding_box'),
     (r'^(?P<configuration_id>\d+)/block$', 'block_info'),
 )
 

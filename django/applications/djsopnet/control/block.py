@@ -217,29 +217,22 @@ def bound_query(table, segmentation_stack, request):
         return _blockcursor_to_namedtuple(cursor, size)
 
 
-def block_at_location(request, project_id, segmentation_stack_id):
+def spatial_unit_at_location(request, project_id, segmentation_stack_id, unit_type):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    block = location_query('block', segstack, request)
-    return generate_block_response(block)
+    unit = location_query(unit_type, segstack, request)
+    if unit_type == 'block':
+        return generate_block_response(unit)
+    else:
+        return generate_core_response(unit)
 
 
-def retrieve_blocks_by_bounding_box(request, project_id, segmentation_stack_id):
+def retrieve_spatial_units_by_bounding_box(request, project_id, segmentation_stack_id, unit_type):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    blocks = bound_query('block', segstack, request)
-
-    return generate_blocks_response(blocks)
-
-
-def core_at_location(request, project_id, segmentation_stack_id):
-    segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    core = location_query('core', segstack, request)
-    return generate_core_response(core)
-
-
-def retrieve_cores_by_bounding_box(request, project_id, segmentation_stack_id):
-    segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    cores = bound_query('core', segstack, request)
-    return generate_cores_response(cores)
+    units = bound_query(unit_type, segstack, request)
+    if unit_type == 'block':
+        return generate_blocks_response(units)
+    else:
+        return generate_cores_response(units)
 
 
 def block_info(request, configuration_id=None):
