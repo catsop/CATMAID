@@ -8,8 +8,8 @@ from django.shortcuts import get_object_or_404
 
 from catmaid.control.authentication import requires_user_role
 from catmaid.control.skeleton import _import_skeleton
-from catmaid.models import ProjectStack, Stack, UserRole
-from djsopnet.models import BlockInfo, SegmentationStack
+from catmaid.models import UserRole
+from djsopnet.models import SegmentationStack
 from djsopnet.views import _blockcursor_to_namedtuple
 
 @requires_user_role(UserRole.Annotate)

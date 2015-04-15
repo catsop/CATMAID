@@ -1,5 +1,4 @@
-from django.conf import settings
-from django.core.management.base import NoArgsCommand, CommandError
+from django.core.management.base import NoArgsCommand
 from django.db import connection
 from djsopnet.models import SegmentationStack
 

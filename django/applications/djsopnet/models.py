@@ -1,12 +1,11 @@
 from django.db import connection, models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from datetime import datetime
 import os
 import logging
 
 from catmaid.fields import IntegerArrayField, DoubleArrayField
-from catmaid.models import ClassInstance, Project, ProjectStack, UserFocusedModel, Treenode
+from catmaid.models import Project, ProjectStack
 from djsopnet.fields import *
 
 logger = logging.getLogger(__name__)

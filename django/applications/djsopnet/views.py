@@ -1,10 +1,8 @@
 import json
 import math
 import os
-import sys
 
 from collections import namedtuple
-import networkx as nx
 from numpy import int64, uint64
 from pgmagick import Image, Blob, Color, CompositeOperator
 
@@ -14,9 +12,7 @@ from django.http import Http404, HttpResponse, HttpResponseNotAllowed
 
 from django.shortcuts import get_object_or_404
 from django.db import connection
-from django.db import IntegrityError
 from django.conf import settings
-from django.forms.models import model_to_dict
 from django.templatetags.static import static
 
 from catmaid.models import *
@@ -24,7 +20,6 @@ from catmaid.control.stack import get_stack_info
 from catmaid.control.authentication import requires_user_role
 from models import *
 
-from celery.task.control import inspect
 
 from celerysopnet.tasks import SliceGuarantorTask, SegmentGuarantorTask
 from celerysopnet.tasks import SolutionGuarantorTask, SolveSubvolumeTask
