@@ -6,12 +6,6 @@ urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/configurations$', 'segmentation_configurations'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/stack_info$', 'stack_info'),
 
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_segments_flag$', 'set_block_segment_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_segments_flag$', 'get_block_segment_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_slices_flag$', 'get_block_slice_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_solution_cost_flag$', 'get_block_solution_flag'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/get_solution_set_flag$', 'get_core_solution_flag'),
-
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slice/(?P<slice_hash>\d+)/alpha_mask$', 'slice_alpha_mask'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/insert_slices$', 'insert_slices'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_block$', 'associate_slices_to_block'),
@@ -77,8 +71,6 @@ urlpatterns += patterns('djsopnet.control.block',
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/blocks/by_bounding_box$', 'retrieve_blocks_by_bounding_box'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core_at_location$', 'core_at_location'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/cores/by_bounding_box$', 'retrieve_cores_by_bounding_box'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/cores_by_id$', 'retrieve_cores_by_id'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_id$', 'retrieve_blocks_by_id'),
     (r'^(?P<configuration_id>\d+)/block$', 'block_info'),
 )
 

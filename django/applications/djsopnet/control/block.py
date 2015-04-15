@@ -6,8 +6,6 @@ from django.db import connection
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
-from catmaid.models import Stack
-
 from djsopnet.models import BlockInfo, SegmentationStack
 
 
@@ -250,61 +248,6 @@ def retrieve_cores_by_bounding_box(request, project_id, segmentation_stack_id):
     return generate_cores_response(cores)
 
 
-def retrieve_blocks_by_id(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        ids = [int(id) for id in safe_split(request.POST.get('ids'), 'block IDs')]
-        blocks = Block.objects.filter(id__in = ids)
-        return generate_blocks_response(blocks)
-    except:
-        return error_response()
-
-
-def retrieve_cores_by_id(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        ids = [int(id) for id in safe_split(request.POST.get('ids'), 'core IDs')]
-        cores = Core.objects.filter(id__in=ids)
-        return generate_cores_response(cores)
-    except:
-        return error_response()
-
-
 def block_info(request, configuration_id=None):
     block_info = get_object_or_404(BlockInfo, configuration_id=configuration_id)
     return generate_block_info_response(block_info)
-
-
-def get_flag(s, request, flag_name, id_field='block_id', type='block'):
-    id = int(request.GET.get(id_field))
-    try:
-        box = type.objects.get(stack=s, id=id)
-        flag = getattr(box, flag_name)
-        return HttpResponse(json.dumps({flag_name: flag}), content_type='text/json')
-    except type.DoesNotExist:
-        return HttpResponse(json.dumps({flag_name: False, 'ok': False}), content_type='text/json')
-
-
-def set_block_segment_flag(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return set_flag(s, request, 'segments_flag')
-
-
-def get_block_slice_flag(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return get_flag(s, request, 'slices_flag')
-
-
-def get_block_segment_flag(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return get_flag(s, request, 'segments_flag')
-
-
-def get_block_solution_flag(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return get_flag(s, request, 'solution_cost_flag')
-
-
-def get_core_solution_flag(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    return get_flag(s, request, 'solution_set_flag', 'core_id', Core)
