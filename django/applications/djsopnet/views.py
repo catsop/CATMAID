@@ -3,7 +3,7 @@ import math
 import os
 
 from collections import namedtuple
-from numpy import int64, uint64
+
 from pgmagick import Image, Blob, Color, CompositeOperator
 
 import pysopnet
@@ -20,6 +20,7 @@ from catmaid.control.stack import get_stack_info
 from catmaid.control.authentication import requires_user_role
 from models import *
 
+from djsopnet.control.common import safe_split, hash_to_id, id_to_hash
 
 from celerysopnet.tasks import SliceGuarantorTask, SegmentGuarantorTask
 from celerysopnet.tasks import SolutionGuarantorTask, SolveSubvolumeTask
@@ -32,32 +33,6 @@ import traceback
 
 # from djsopnet.control.slice import retrieve_slices_for_skeleton
 # from djsopnet.control.skeleton_intersection import generate_user_constraints
-
-def safe_split(tosplit, name='data', delim=','):
-    """ Tests if $tosplit evaluates to true and if not, raises a value error.
-    Otherwise, it the result of splitting it is returned.
-    """
-    if not tosplit:
-        raise ValueError("No %s provided" % name)
-    return tosplit.split(delim)
-
-
-def hash_to_id(hash_uint64):
-    """ Casts a string or uint representation of an unsigned 64-bit hash value
-    to a signed long long value that matches Postgres' bigint. E.g.,
-      >>> hash_to_id("9223372036854775808")
-      -9223372036854775808
-    """
-    return int64(uint64(hash_uint64))
-
-
-def id_to_hash(id_int64):
-    """ Casts a string or int representation of an signed 64-bit hash value to a
-    unsigned long value that matches sopnet's size_t hash,
-      >>> id_to_hash("-9223372036854775808")
-      9223372036854775808
-    """
-    return str(uint64(int64(id_int64)))
 
 # --- JSON conversion ---
 def slice_dict(slice, with_conflicts=False, with_solution=False):
