@@ -219,11 +219,8 @@ def bound_query(table, segmentation_stack, request):
 
 def block_at_location(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    try:
-        block = location_query('block', segstack, request)
-        return generate_block_response(block)
-    except:
-        return generate_block_response(None)
+    block = location_query('block', segstack, request)
+    return generate_block_response(block)
 
 
 def retrieve_blocks_by_bounding_box(request, project_id, segmentation_stack_id):
@@ -235,11 +232,8 @@ def retrieve_blocks_by_bounding_box(request, project_id, segmentation_stack_id):
 
 def core_at_location(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    try:
-        core = location_query('core', segstack, request)
-        return generate_core_response(core)
-    except:
-        return generate_core_response(None)
+    core = location_query('core', segstack, request)
+    return generate_core_response(core)
 
 
 def retrieve_cores_by_bounding_box(request, project_id, segmentation_stack_id):
