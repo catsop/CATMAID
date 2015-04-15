@@ -4,14 +4,6 @@ from django.views.generic import TemplateView
 # Sopnet API
 urlpatterns = patterns('djsopnet.views',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/configurations$', 'segmentation_configurations'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/setup_blocks$', 'setup_blocks'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/block_at_location$', 'block_at_location'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/blocks/by_bounding_box$', 'retrieve_blocks_by_bounding_box'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core_at_location$', 'core_at_location'),
-    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/cores/by_bounding_box$', 'retrieve_cores_by_bounding_box'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/cores_by_id$', 'retrieve_cores_by_id'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_id$', 'retrieve_blocks_by_id'),
-    (r'^(?P<configuration_id>\d+)/block$', 'block_info'),
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/stack_info$', 'stack_info'),
 
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/set_segments_flag$', 'set_block_segment_flag'),
@@ -77,6 +69,17 @@ urlpatterns += patterns('djsopnet.control.assembly',
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core/(?P<core_id>\d+)/generate_assemblies$', 'generate_assemblies_for_core'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/assembly_equivalence/(?P<equivalence_id>\d+)/map_to_skeleton$',
         'map_assembly_equivalence_to_skeleton')
+)
+
+urlpatterns += patterns('djsopnet.control.block',
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/setup_blocks$', 'setup_blocks'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/block_at_location$', 'block_at_location'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/blocks/by_bounding_box$', 'retrieve_blocks_by_bounding_box'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/core_at_location$', 'core_at_location'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/cores/by_bounding_box$', 'retrieve_cores_by_bounding_box'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/cores_by_id$', 'retrieve_cores_by_id'),
+    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_id$', 'retrieve_blocks_by_id'),
+    (r'^(?P<configuration_id>\d+)/block$', 'block_info'),
 )
 
 # urlpatterns += patterns('djsopnet.control.slice',

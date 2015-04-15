@@ -10,7 +10,7 @@ from catmaid.control.authentication import requires_user_role
 from catmaid.control.skeleton import _import_skeleton
 from catmaid.models import UserRole
 from djsopnet.models import SegmentationStack
-from djsopnet.views import _blockcursor_to_namedtuple
+from djsopnet.control.block import _blockcursor_to_namedtuple
 
 @requires_user_role(UserRole.Annotate)
 def generate_assemblies_for_core(request, project_id, segmentation_stack_id, core_id):
