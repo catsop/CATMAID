@@ -1,4 +1,18 @@
+import json
+import traceback
 from numpy import int64, uint64
+from StringIO import StringIO
+
+from django.http import HttpResponse
+
+
+def error_response():
+    sio = StringIO()
+    traceback.print_exc(file=sio)
+    res = HttpResponse(json.dumps({'ok': False, 'error': sio.getvalue()}))
+    sio.close()
+    return res
+
 
 def safe_split(tosplit, name='data', delim=','):
     """ Tests if $tosplit evaluates to true and if not, raises a value error.
