@@ -14,14 +14,14 @@ from djsopnet.models import SegmentationStack
 
 
 def slice_dict(slice, with_conflicts=False, with_solution=False):
-    sd = {'hash' : id_to_hash(slice.id),
-          'section' : slice.section,
-          'box' : [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
-          'ctr' : [slice.ctr_x, slice.ctr_y],
-          'value' : slice.value,
-          'size' : slice.size,
-          'mask' : static('slicemasks/' + str(slice.id) + '.png'),
-          'segment_summaries' : slice.segment_summaries}
+    sd = {'hash': id_to_hash(slice.id),
+          'section': slice.section,
+          'box': [slice.min_x, slice.min_y, slice.max_x, slice.max_y],
+          'ctr': [slice.ctr_x, slice.ctr_y],
+          'value': slice.value,
+          'size': slice.size,
+          'mask': static('slicemasks/' + str(slice.id) + '.png'),
+          'segment_summaries': slice.segment_summaries}
 
     for summary in sd['segment_summaries']:
         summary.update({'segment_hash': id_to_hash(summary['segment_id'])})
@@ -38,14 +38,14 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
 
 def generate_slice_response(slice):
     if slice:
-        return HttpResponse(json.dumps(slice_dict(slice)), content_type = 'text/json')
+        return HttpResponse(json.dumps(slice_dict(slice)), content_type='text/json')
     else:
-        return HttpResponse(json.dumps({'hash' : 'nope'}), content_type = 'text/json')
+        return HttpResponse(json.dumps({'hash': 'nope'}), content_type='text/json')
 
 
 def generate_slices_response(slices, with_conflicts=False, with_solutions=False):
     slice_list = [slice_dict(slice, with_conflicts, with_solutions) for slice in slices]
-    return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type = 'text/json')
+    return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type='text/json')
 
 
 # --- Slices ---
@@ -83,10 +83,10 @@ def do_insert_slices(stack, req_dict):
             max_x = float(req_dict['maxx_' + i_str])
             max_y = float(req_dict['maxy_' + i_str])
             size = int(req_dict['size_' + i_str])
-            slice = Slice(stack = stack,
-                  assembly = None, id = hash_to_id(hash_value), section = section,
-                  min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y,
-                  ctr_x = ctr_x, ctr_y = ctr_y, value = value, size = size)
+            slice = Slice(stack=stack,
+                  assembly=None, id=hash_to_id(hash_value), section=section,
+                  min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y,
+                  ctr_x=ctr_x, ctr_y=ctr_y, value=value, size=size)
             try:
                 slice.save()
             except IntegritryError:
@@ -99,8 +99,8 @@ def do_insert_slices(stack, req_dict):
         return error_response()
 
 
-def insert_slices(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
+def insert_slices(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
 
     if request.method == 'GET':
         return do_insert_slices(s, request.GET)
@@ -108,7 +108,7 @@ def insert_slices(request, project_id = None, stack_id = None):
         return do_insert_slices(s, request.POST)
 
 
-def associate_slices_to_block(request, project_id = None, stack_id = None):
+def associate_slices_to_block(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
 
     try:
@@ -121,22 +121,22 @@ def associate_slices_to_block(request, project_id = None, stack_id = None):
 
         # TODO: use bulk_create
         for slice_id in slice_ids:
-            bsr = SliceBlockRelation(block_id = block_id, slice_id = slice_id)
+            bsr = SliceBlockRelation(block_id=block_id, slice_id=slice_id)
             bsr.save()
 
-        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
 
     except Block.DoesNotExist:
-        return HttpResponse(json.dumps({'ok' : False, 'reason' : 'Block does not exist'}), content_type='text/json')
+        return HttpResponse(json.dumps({'ok': False, 'reason' : 'Block does not exist'}), content_type='text/json')
     except:
         return error_response()
 
 
-def retrieve_slices_by_hash(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
+def retrieve_slices_by_hash(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
     slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'hash values'))
 
-    slices = Slice.objects.filter(stack = s, id__in = slice_ids)
+    slices = Slice.objects.filter(stack=s, id__in=slice_ids)
     return generate_slices_response(slices)
 
 
@@ -194,7 +194,7 @@ def _slicecursor_to_namedtuple(cursor):
                     for solution in json.loads(rowdict['in_solution'])
                 ]),
                 'segment_summaries': [
-                    {segment_map[k]: v for k,v in summary.items()}
+                    {segment_map[k]: v for k, v in summary.items()}
                     for summary in json.loads(rowdict['segment_summaries'])
                 ]
             })
@@ -288,7 +288,8 @@ def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
     slice_ids = []
     for [slice_id, min_x, min_y] in candidates:
         gray_mask_file = os.path.join(settings.SOPNET_COMPONENT_DIR, str(slice_id) + '.png')
-        if not os.path.isfile(gray_mask_file): raise(Http404)
+        if not os.path.isfile(gray_mask_file):
+            raise Http404
 
         gray_mask = Image(gray_mask_file)
         pixel = gray_mask.pixelColor(int(x - min_x), int(y - min_y))
@@ -331,8 +332,8 @@ def retrieve_slices_by_bounding_box(request, project_id, segmentation_stack_id):
         return error_response()
 
 
-def store_conflict_set(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
+def store_conflict_set(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
 
     try:
 
@@ -347,7 +348,7 @@ def store_conflict_set(request, project_id = None, stack_id = None):
                 raise ValueError("Wrong number of slices for conflict set (found %s expected 2): " \
                         "Requested: %s" % (len(slice_ids), slice_ids))
 
-            bsrs = SliceBlockRelation.objects.filter(slice__in = slice_ids)
+            bsrs = SliceBlockRelation.objects.filter(slice__in=slice_ids)
             if len(bsrs) < len(slice_ids):
                 # TODO: This is not an effective check, as 2 bsr's could be found for one slice and
                 # none for the other
@@ -357,14 +358,14 @@ def store_conflict_set(request, project_id = None, stack_id = None):
 
             # no exception, so far. create the conflict set
             slice_order = [0, 1] if id_to_hash(slice_ids[0]) < id_to_hash(slice_ids[1]) else [1, 0]
-            sliceConflict = SliceConflict(slice_a_id = slice_ids[slice_order[0]],
-                    slice_b_id = slice_ids[slice_order[1]])
+            sliceConflict = SliceConflict(slice_a_id=slice_ids[slice_order[0]],
+                    slice_b_id=slice_ids[slice_order[1]])
             sliceConflict.save()
             for block in blocks:
-                blockConflict = BlockConflictRelation(block = block, conflict = sliceConflict)
+                blockConflict = BlockConflictRelation(block=block, conflict=sliceConflict)
                 blockConflict.save()
 
-        return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
+        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
 
     except:
 
@@ -386,27 +387,27 @@ def retrieve_conflict_sets(request, project_id, segmentation_stack_id):
         conflicts = cursor.fetchall()
         conflicts = [map(id_to_hash, conflict) for conflict in conflicts]
 
-        return HttpResponse(json.dumps({'ok' : True, 'conflict' : conflicts}))
+        return HttpResponse(json.dumps({'ok': True, 'conflict': conflicts}))
     except:
         return error_response()
 
 
-def retrieve_block_ids_by_slices(request, project_id = None, stack_id = None):
-    s = get_object_or_404(Stack, pk = stack_id)
+def retrieve_block_ids_by_slices(request, project_id=None, stack_id=None):
+    s = get_object_or_404(Stack, pk=stack_id)
     try:
         slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
 
-        slices = Slice.objects.filter(stack = s, id__in = slice_ids)
-        block_relations = SliceBlockRelation.objects.filter(slice__in = slices)
+        slices = Slice.objects.filter(stack=s, id__in=slice_ids)
+        block_relations = SliceBlockRelation.objects.filter(slice__in=slices)
         blocks = {br.block for br in block_relations}
         block_ids = [block.id for block in blocks]
 
-        return HttpResponse(json.dumps({'ok' : True, 'block_ids' : block_ids}), content_type='text/json')
+        return HttpResponse(json.dumps({'ok': True, 'block_ids': block_ids}), content_type='text/json')
     except:
         return error_response()
 
 
-def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, skeleton_id = None):
+def retrieve_slices_for_skeleton(request, project_id=None, stack_id=None, skeleton_id=None):
     """To visualize the slices found for a given skeleton, for which UserConstraints and solutions were generated,
     we retrieve all segments with their solution flag, and retrieve all associated slices, and mark the
     selected slices that are in the solution.
@@ -444,15 +445,15 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
         'slices': {}, 'segments': {}, 'lookup': {}
     }
     # Retrieve the UserConstraints associated with a skeleton, and then all the associated segments
-    constraint_ids = Constraint.objects.filter( skeleton = skeleton_id ).values('id')
+    constraint_ids = Constraint.objects.filter(skeleton=skeleton_id).values('id')
 
     if len(constraint_ids) == 0:
         return HttpResponse(json.dumps(({'error': 'No UserConstaints were generated for this skeleton.'}), separators=(',', ':')))
 
-    constraint_segment_ids = ConstraintSegmentRelation.objects.filter( constraint__in = constraint_ids ).values('segment')
+    constraint_segment_ids = ConstraintSegmentRelation.objects.filter(constraint__in=constraint_ids).values('segment')
 
     # Retrieve all continuation and branch Segments associated with these constraints
-    segments = Segment.objects.filter( id__in = constraint_segment_ids, type__gt = 1 ).values('id', 'section_inf', 'type', 'ctr_x', 'ctr_y')
+    segments = Segment.objects.filter(id__in=constraint_segment_ids, type__gt=1).values('id', 'section_inf', 'type', 'ctr_x', 'ctr_y')
 
     for seg in segments:
         data['segments'][seg['id']] = {
@@ -463,25 +464,25 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
             'left': [], 'right': []
         }
 
-    segment_slices = SegmentSlice.objects.filter( segment__in = data['segments'].keys() ).values('slice', 'segment', 'direction')
+    segment_slices = SegmentSlice.objects.filter(segment__in=data['segments'].keys()).values('slice', 'segment', 'direction')
     for ss in segment_slices:
         if ss['direction']:
             direction = 'left'
         else:
             direction = 'right'
-        data['segments'][ss['segment']][direction].append( ss['slice'] )
+        data['segments'][ss['segment']][direction].append(ss['slice'])
 
     # add the solution flag to the segments
-    segment_solutions = SegmentSolution.objects.filter( segment__in = data['segments'].keys() ).value('segment', 'solution')
+    segment_solutions = SegmentSolution.objects.filter(segment__in=data['segments'].keys()).value('segment', 'solution')
     slices_to_retrieve = set()
     for sol in segment_solutions:
         seg = data['segments'][sol['segment']]
         seg['solution'] = sol['solution']
-        slices_to_retrieve.update( seg['left'] + seg['right'] ) # add all slices for retrieval
+        slices_to_retrieve.update(seg['left'] + seg['right']) # add all slices for retrieval
 
     # Retrieve all Slices associated to those segments. Mark the slices of selected solution segments.
     # On demand retrieval from the client of additional slices of segments that are not part of the solution
-    slices = Slice.objects.filter( id__ind = list(slices_to_retrieve) ).values('id', 'min_x', 'min_y', 'max_x',
+    slices = Slice.objects.filter(id__ind=list(slices_to_retrieve)).values('id', 'min_x', 'min_y', 'max_x',
         'max_y', 'section')
     for sli in slices:
         data['slices'][sli['id']] = {
@@ -494,7 +495,7 @@ def retrieve_slices_for_skeleton(request, project_id = None, stack_id = None, sk
     return HttpResponse(json.dumps((data), separators=(',', ':')))
 
 
-def retrieve_connected_component_starting_from_initial_slice(request, slice_id = None):
+def retrieve_connected_component_starting_from_initial_slice(request, slice_id=None):
     """ Retrieve slices and segments that are connected from an initial starting slice
 
     Traverse the slices and segments along segments which are in the solution. If none of the
@@ -508,37 +509,37 @@ def retrieve_connected_component_starting_from_initial_slice(request, slice_id =
           at no_solution_segments locations
     """
 
-    data = { 'slices': [], 'segments': [], 'no_solution_segments': {} }
+    data = {'slices': [], 'segments': [], 'no_solution_segments': {}}
 
     slices_to_visit = [(slice_id, True), (slice_id, False)]
 
     for sliceid, direction in slices_to_visit:
 
-        data['slices'].append( sliceid )
+        data['slices'].append(sliceid)
 
         # We want to traverse in direction seen from slice, which is 'not direction', seen from segment
         reverse_direction = not direction
-        segments = [s['segment'] for s in SegmentSlice.objects.filter( slice = sliceid, direction = reverse_direction).values('segment', 'slice', 'direction')]
+        segments = [s['segment'] for s in SegmentSlice.objects.filter(slice=sliceid, direction=reverse_direction).values('segment', 'slice', 'direction')]
         # any of those segments in the solution?
-        solutions = [s['segment'] for s in SegmentSolution.objects.filter( segment__in = segments ).values('segment')]
+        solutions = [s['segment'] for s in SegmentSolution.objects.filter(segment__in=segments).values('segment')]
 
         if len(solutions) == 1:
             # if yes: look up corresponding slices in direction
             solution_segmentid = solutions[0]
             # add solution segment to returned data
-            data['segments'].append( solution_segmentid )
+            data['segments'].append(solution_segmentid)
 
             # retrieve slices associated to the solution segmente and add to list for traversal
-            associated_slices = [(s['slice'],s['direction']) for s in SegmentSlice.objects.filter( slice = solution_segmentid ).values('segment', 'slice', 'direction')]
+            associated_slices = [(s['slice'], s['direction']) for s in SegmentSlice.objects.filter(slice=solution_segmentid).values('segment', 'slice', 'direction')]
 
             for associated_sliceid, associated_direction in associated_slices:
                 if associated_slice != sliceid:
                     # only add slice if not yet visited
-                    slices_to_visit.extend( (associated_sliceid, associated_direction) )
+                    slices_to_visit.extend((associated_sliceid, associated_direction))
 
         else:
             # if no: add all segments to no_solution_segments
-            data['no_solution_segments'][ (sliceid, direction) ] = {
+            data['no_solution_segments'][(sliceid, direction)] = {
                 segments
             }
 
