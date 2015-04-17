@@ -67,79 +67,6 @@ def slice_alpha_mask(request, project_id=None, stack_id=None, slice_hash=None):
     return HttpResponse(response_blob.data, content_type='image/png')
 
 
-def do_insert_slices(stack, req_dict):
-    try:
-        n = int(req_dict.get('n'))
-        slices = []
-        for i in range(n):
-            i_str = str(i)
-            section = int(req_dict['section_' + i_str])
-            hash_value = req_dict['hash_' + i_str]
-            ctr_x = float(req_dict['cx_' + i_str])
-            ctr_y = float(req_dict['cy_' + i_str])
-            value = float(req_dict['value_' + i_str])
-            min_x = float(req_dict['minx_' + i_str])
-            min_y = float(req_dict['miny_' + i_str])
-            max_x = float(req_dict['maxx_' + i_str])
-            max_y = float(req_dict['maxy_' + i_str])
-            size = int(req_dict['size_' + i_str])
-            slice = Slice(stack=stack,
-                  assembly=None, id=hash_to_id(hash_value), section=section,
-                  min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y,
-                  ctr_x=ctr_x, ctr_y=ctr_y, value=value, size=size)
-            try:
-                slice.save()
-            except IntegritryError:
-                # An IntegritryError is raised if a slice already exists. This can happen
-                # during normal operation.
-                pass
-
-        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
-    except:
-        return error_response()
-
-
-def insert_slices(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-
-    if request.method == 'GET':
-        return do_insert_slices(s, request.GET)
-    else:
-        return do_insert_slices(s, request.POST)
-
-
-def associate_slices_to_block(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-
-    try:
-        slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
-
-        block_id = int(request.POST.get('block'))
-        if not block_id:
-            raise ValueError("No block ID provided")
-        block_id = int(block_id)
-
-        # TODO: use bulk_create
-        for slice_id in slice_ids:
-            bsr = SliceBlockRelation(block_id=block_id, slice_id=slice_id)
-            bsr.save()
-
-        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
-
-    except Block.DoesNotExist:
-        return HttpResponse(json.dumps({'ok': False, 'reason' : 'Block does not exist'}), content_type='text/json')
-    except:
-        return error_response()
-
-
-def retrieve_slices_by_hash(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'hash values'))
-
-    slices = Slice.objects.filter(stack=s, id__in=slice_ids)
-    return generate_slices_response(slices)
-
-
 def _slice_select_query(segmentation_stack_id, slice_id_query):
     """Build a querystring to select slices and relationships given an ID query.
 
@@ -332,46 +259,6 @@ def retrieve_slices_by_bounding_box(request, project_id, segmentation_stack_id):
         return error_response()
 
 
-def store_conflict_set(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-
-    try:
-
-        conflict_sets = safe_split(request.POST.get('hash'), 'conflict set hashes', '|')
-
-        for conflict_set in conflict_sets:
-
-            slice_ids = map(hash_to_id, safe_split(conflict_set, 'slice hashes'))
-
-            # Collect slices from ids, then blocks from slices.
-            if 2 != len(slice_ids):
-                raise ValueError("Wrong number of slices for conflict set (found %s expected 2): " \
-                        "Requested: %s" % (len(slice_ids), slice_ids))
-
-            bsrs = SliceBlockRelation.objects.filter(slice__in=slice_ids)
-            if len(bsrs) < len(slice_ids):
-                # TODO: This is not an effective check, as 2 bsr's could be found for one slice and
-                # none for the other
-                raise ValueError("Couldn't find all required slice-block-relations")
-
-            blocks = [bsr.block for bsr in bsrs]
-
-            # no exception, so far. create the conflict set
-            slice_order = [0, 1] if id_to_hash(slice_ids[0]) < id_to_hash(slice_ids[1]) else [1, 0]
-            sliceConflict = SliceConflict(slice_a_id=slice_ids[slice_order[0]],
-                    slice_b_id=slice_ids[slice_order[1]])
-            sliceConflict.save()
-            for block in blocks:
-                blockConflict = BlockConflictRelation(block=block, conflict=sliceConflict)
-                blockConflict.save()
-
-        return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
-
-    except:
-
-        return error_response()
-
-
 def retrieve_conflict_sets(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     try:
@@ -388,21 +275,6 @@ def retrieve_conflict_sets(request, project_id, segmentation_stack_id):
         conflicts = [map(id_to_hash, conflict) for conflict in conflicts]
 
         return HttpResponse(json.dumps({'ok': True, 'conflict': conflicts}))
-    except:
-        return error_response()
-
-
-def retrieve_block_ids_by_slices(request, project_id=None, stack_id=None):
-    s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
-
-        slices = Slice.objects.filter(stack=s, id__in=slice_ids)
-        block_relations = SliceBlockRelation.objects.filter(slice__in=slices)
-        blocks = {br.block for br in block_relations}
-        block_ids = [block.id for block in blocks]
-
-        return HttpResponse(json.dumps({'ok': True, 'block_ids': block_ids}), content_type='text/json')
     except:
         return error_response()
 

@@ -62,16 +62,11 @@ urlpatterns += patterns('djsopnet.control.block',
 
 urlpatterns += patterns('djsopnet.control.slice',
     (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slice/(?P<slice_hash>\d+)/alpha_mask$', 'slice_alpha_mask'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/insert_slices$', 'insert_slices'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_block$', 'associate_slices_to_block'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slices_by_hash$', 'retrieve_slices_by_hash'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/slices_by_blocks_and_conflict$',
         'retrieve_slices_by_blocks_and_conflict'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/slices/by_location$', 'retrieve_slices_by_location'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/slices/by_bounding_box$', 'retrieve_slices_by_bounding_box'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/store_conflict_set$', 'store_conflict_set'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/conflict_sets_by_slice$', 'retrieve_conflict_sets'),
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/blocks_by_slice$', 'retrieve_block_ids_by_slices'),
 )
 
 # urlpatterns += patterns('djsopnet.control.slice',
