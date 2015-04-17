@@ -50,7 +50,7 @@ def generate_slices_response(slices, with_conflicts=False, with_solutions=False)
 
 # --- Slices ---
 
-def slice_alpha_mask(request, project_id=None, stack_id=None, slice_hash=None):
+def slice_alpha_mask(request, project_id=None, segmentation_stack_id=None, slice_hash=None):
     # For performance the existence of project, stack and slice are not verified.
     slice_id = hash_to_id(slice_hash) # Also effectively sanitizes slice_hash.
 

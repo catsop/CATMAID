@@ -61,7 +61,7 @@ urlpatterns += patterns('djsopnet.control.block',
 )
 
 urlpatterns += patterns('djsopnet.control.slice',
-    (r'^(?P<project_id>\d+)/stack/(?P<stack_id>\d+)/slice/(?P<slice_hash>\d+)/alpha_mask$', 'slice_alpha_mask'),
+    (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/slice/(?P<slice_hash>\d+)/alpha_mask$', 'slice_alpha_mask'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/slices_by_blocks_and_conflict$',
         'retrieve_slices_by_blocks_and_conflict'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/slices/by_location$', 'retrieve_slices_by_location'),
