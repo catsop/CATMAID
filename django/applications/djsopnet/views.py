@@ -15,6 +15,7 @@ from celerysopnet.tasks import SliceGuarantorTask, SegmentGuarantorTask
 from celerysopnet.tasks import SolutionGuarantorTask, SolveSubvolumeTask
 from celerysopnet.tasks import TraceNeuronTask
 
+from djsopnet.control.block import _blockcursor_to_namedtuple
 from djcelery.models import TaskState
 
 # from djsopnet.control.slice import retrieve_slices_for_skeleton
@@ -187,7 +188,7 @@ def solve_core(request, project_id, segmentation_stack_id, core_id):
     cursor = connection.cursor()
     cursor.execute('''
         SELECT * FROM segstack_{0}.core WHERE id = %s LIMIT 1
-        '''.format(segstack.id), core_id)
+        '''.format(segstack.id), (core_id,))
     c = _blockcursor_to_namedtuple(cursor, segstack.configuration.block_info.size_for_unit('core'))[0]
     # SolutionGuarantor does not need to know membrane stack ID
     config = create_project_config(segstack.configuration_id)
