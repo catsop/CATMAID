@@ -71,8 +71,8 @@ CREATE INDEX slice_min_y ON slice USING btree (min_y);
 CREATE INDEX slice_section ON slice USING btree (section);
 
 CREATE TABLE slice_block_relation (
-  block_id integer NOT NULL REFERENCES block(id),
-  slice_id bigint NOT NULL REFERENCES slice(id),
+  block_id integer NOT NULL REFERENCES block(id) DEFERRABLE INITIALLY IMMEDIATE,
+  slice_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (block_id, slice_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -80,8 +80,8 @@ CREATE TABLE slice_block_relation (
 );
 
 CREATE TABLE treenode_slice (
-  treenode_id integer NOT NULL REFERENCES treenode(id),
-  slice_id bigint NOT NULL REFERENCES slice(id),
+  treenode_id integer NOT NULL REFERENCES treenode(id) DEFERRABLE INITIALLY IMMEDIATE,
+  slice_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (treenode_id, slice_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -90,8 +90,8 @@ CREATE TABLE treenode_slice (
 
 CREATE TABLE slice_conflict (
   id bigserial PRIMARY KEY,
-  slice_a_id bigint NOT NULL REFERENCES slice(id),
-  slice_b_id bigint NOT NULL REFERENCES slice(id),
+  slice_a_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
+  slice_b_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
   UNIQUE (slice_a_id, slice_b_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -107,8 +107,8 @@ CREATE TABLE conflict_clique (
 );
 
 CREATE TABLE conflict_clique_edge (
-  conflict_clique_id bigint NOT NULL REFERENCES conflict_clique(id),
-  slice_conflict_id bigint NOT NULL REFERENCES slice_conflict(id),
+  conflict_clique_id bigint NOT NULL REFERENCES conflict_clique(id) DEFERRABLE INITIALLY IMMEDIATE,
+  slice_conflict_id bigint NOT NULL REFERENCES slice_conflict(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (conflict_clique_id, slice_conflict_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -116,8 +116,8 @@ CREATE TABLE conflict_clique_edge (
 );
 
 CREATE TABLE block_conflict_relation (
-  block_id integer NOT NULL REFERENCES block(id),
-  slice_conflict_id integer NOT NULL REFERENCES slice_conflict(id),
+  block_id integer NOT NULL REFERENCES block(id) DEFERRABLE INITIALLY IMMEDIATE,
+  slice_conflict_id integer NOT NULL REFERENCES slice_conflict(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (block_id, slice_conflict_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -145,8 +145,8 @@ CREATE TABLE segment (
 CREATE INDEX segment_section_sup ON segment USING btree (section_sup);
 
 CREATE TABLE segment_slice (
-  slice_id bigint NOT NULL REFERENCES slice(id),
-  segment_id bigint NOT NULL REFERENCES segment(id),
+  slice_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
+  segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
   direction boolean NOT NULL,
   PRIMARY KEY (slice_id, segment_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
@@ -155,7 +155,7 @@ CREATE TABLE segment_slice (
 );
 
 CREATE TABLE segment_features (
-  segment_id bigint PRIMARY KEY REFERENCES segment(id),
+  segment_id bigint PRIMARY KEY REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
   features double precision[] NOT NULL,
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -163,8 +163,8 @@ CREATE TABLE segment_features (
 );
 
 CREATE TABLE segment_block_relation (
-  block_id integer NOT NULL REFERENCES block(id),
-  segment_id bigint NOT NULL REFERENCES segment(id),
+  block_id integer NOT NULL REFERENCES block(id) DEFERRABLE INITIALLY IMMEDIATE,
+  segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (block_id, segment_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -175,7 +175,7 @@ CREATE TABLE segment_block_relation (
 
 CREATE TABLE solution (
   id serial PRIMARY KEY,
-  core_id integer NOT NULL REFERENCES core(id),
+  core_id integer NOT NULL REFERENCES core(id) DEFERRABLE INITIALLY IMMEDIATE,
   creation_time timestamp with time zone NOT NULL DEFAULT now(),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -184,7 +184,7 @@ CREATE TABLE solution (
 
 CREATE TABLE assembly_equivalence (
   id serial PRIMARY KEY,
-  skeleton_id integer REFERENCES class_instance(id),
+  skeleton_id integer REFERENCES class_instance(id) DEFERRABLE INITIALLY IMMEDIATE,
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
   OIDS=FALSE
@@ -192,8 +192,8 @@ CREATE TABLE assembly_equivalence (
 
 CREATE TABLE assembly (
   id serial PRIMARY KEY,
-  equivalence_id integer REFERENCES assembly_equivalence(id),
-  solution_id integer NOT NULL REFERENCES solution(id),
+  equivalence_id integer REFERENCES assembly_equivalence(id) DEFERRABLE INITIALLY IMMEDIATE,
+  solution_id integer NOT NULL REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE,
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
   OIDS=FALSE
@@ -201,8 +201,8 @@ CREATE TABLE assembly (
 
 CREATE TABLE assembly_relation (
   id serial PRIMARY KEY,
-  assembly_a_id integer NOT NULL REFERENCES assembly(id),
-  assembly_b_id integer NOT NULL REFERENCES assembly(id),
+  assembly_a_id integer NOT NULL REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
+  assembly_b_id integer NOT NULL REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
   relation assemblyrelation NOT NULL,
   UNIQUE (assembly_a_id, assembly_b_id, relation),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
@@ -211,8 +211,8 @@ CREATE TABLE assembly_relation (
 );
 
 CREATE TABLE solution_precedence (
-  core_id integer PRIMARY KEY REFERENCES core(id),
-  solution_id integer NOT NULL REFERENCES solution(id),
+  core_id integer PRIMARY KEY REFERENCES core(id) DEFERRABLE INITIALLY IMMEDIATE,
+  solution_id integer NOT NULL REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE,
   UNIQUE (solution_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -220,9 +220,9 @@ CREATE TABLE solution_precedence (
 );
 
 CREATE TABLE segment_solution (
-  segment_id bigint NOT NULL REFERENCES segment(id),
-  solution_id integer NOT NULL REFERENCES solution(id),
-  assembly_id integer REFERENCES assembly(id),
+  segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
+  solution_id integer NOT NULL REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE,
+  assembly_id integer REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (segment_id, solution_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -231,10 +231,10 @@ CREATE TABLE segment_solution (
 
 CREATE TABLE solution_constraint (
   id serial PRIMARY KEY,
-  user_id integer NOT NULL REFERENCES auth_user(id),
+  user_id integer NOT NULL REFERENCES auth_user(id) DEFERRABLE INITIALLY IMMEDIATE,
   creation_time timestamp with time zone NOT NULL,
   edition_time timestamp with time zone NOT NULL,
-  skeleton_id integer REFERENCES class_instance(id),
+  skeleton_id integer REFERENCES class_instance(id) DEFERRABLE INITIALLY IMMEDIATE,
   relation constraintrelation NOT NULL,
   value double precision NOT NULL,
   CHECK (false) NO INHERIT -- prevent any rows populating this table
@@ -243,8 +243,8 @@ CREATE TABLE solution_constraint (
 );
 
 CREATE TABLE block_constraint_relation (
-  block_id integer NOT NULL REFERENCES block(id),
-  constraint_id integer NOT NULL REFERENCES solution_constraint(id),
+  block_id integer NOT NULL REFERENCES block(id) DEFERRABLE INITIALLY IMMEDIATE,
+  constraint_id integer NOT NULL REFERENCES solution_constraint(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (block_id, constraint_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
@@ -252,8 +252,8 @@ CREATE TABLE block_constraint_relation (
 );
 
 CREATE TABLE constraint_segment_relation (
-  constraint_id integer NOT NULL REFERENCES solution_constraint(id),
-  segment_id bigint NOT NULL REFERENCES segment(id),
+  constraint_id integer NOT NULL REFERENCES solution_constraint(id) DEFERRABLE INITIALLY IMMEDIATE,
+  segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
   coefficient double precision NOT NULL,
   PRIMARY KEY (constraint_id, segment_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
@@ -262,8 +262,8 @@ CREATE TABLE constraint_segment_relation (
 );
 
 CREATE TABLE correction (
-  constraint_id integer NOT NULL REFERENCES solution_constraint(id),
-  mistake_id bigint NOT NULL REFERENCES segment(id),
+  constraint_id integer NOT NULL REFERENCES solution_constraint(id) DEFERRABLE INITIALLY IMMEDIATE,
+  mistake_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
   PRIMARY KEY (constraint_id, mistake_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
