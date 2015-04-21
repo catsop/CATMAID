@@ -64,6 +64,10 @@ def _generate_assemblies_for_core(segstack_id, core_id):
         ''' % {'segstack_id': segstack_id, 'solution_id': solution_id})
     segments = cursor.fetchall()
 
+    # If the solution is empty, do nothing because there are no assemblies.
+    if len(segments) == 0:
+        return
+
     # Create an undirected graph of segments, connected by slice edges. The
     # connected components of this graph are assemblies.
     g = nx.Graph()
