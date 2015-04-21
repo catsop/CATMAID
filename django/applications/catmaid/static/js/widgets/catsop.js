@@ -616,13 +616,20 @@ CatsopWidget.prototype.moveToActiveSegment = function() {
 };
 
 /**
- * Moves the stack view to any object with section and ctr properties.
+ * Moves the stack view to any object with section and ctr or box properties.
  */
 CatsopWidget.prototype.moveToObject = function (obj) {
   var mag = Math.pow(2, this.blockInfo.scale);
   var z = obj.section - (('mask' in obj) ? 0 : 1), // For segments, move to the left section
-      y = obj.ctr[1] * mag,
-      x = obj.ctr[0] * mag;
+      y, x;
+  if (obj.hasOwnProperty('ctr')) {
+    y = obj.ctr[1] * mag;
+    x = obj.ctr[0] * mag;
+  } else if (obj.hasOwnProperty('box') && obj.box.length === 4 ) {
+    y = (obj.box[1] + obj.box[3]) * 0.5 * mag;
+    x = (obj.box[0] + obj.box[2]) * 0.5 * mag;
+  } else return; // Unknown object.
+
   // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
   z = this.stack.stackToProjectZ(z, y, x);
   y = this.stack.stackToProjectY(z, y, x);

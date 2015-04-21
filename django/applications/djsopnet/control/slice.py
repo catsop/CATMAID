@@ -325,14 +325,12 @@ def retrieve_slices_for_skeleton(request, project_id=None, stack_id=None, skelet
     constraint_segment_ids = ConstraintSegmentRelation.objects.filter(constraint__in=constraint_ids).values('segment')
 
     # Retrieve all continuation and branch Segments associated with these constraints
-    segments = Segment.objects.filter(id__in=constraint_segment_ids, type__gt=1).values('id', 'section_inf', 'type', 'ctr_x', 'ctr_y')
+    segments = Segment.objects.filter(id__in=constraint_segment_ids, type__gt=1).values('id', 'section_inf', 'type')
 
     for seg in segments:
         data['segments'][seg['id']] = {
             'section': seg['section_inf'],
             'type': seg['type'],
-            'ctr_x': seg['ctr_x'],
-            'ctr_y': seg['ctr_y'],
             'left': [], 'right': []
         }
 

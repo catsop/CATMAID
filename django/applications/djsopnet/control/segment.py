@@ -20,7 +20,6 @@ def segment_dict(segment, with_solution=False):
     sd = {'hash': id_to_hash(segment.id),
           'section': segment.section_sup,
           'box': [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
-          'ctr': [segment.ctr_x, segment.ctr_y],
           'type': segment.type}
 
     if with_solution:
@@ -119,7 +118,7 @@ def _segment_select_query(segmentation_stack_id, segment_id_query):
             SELECT
               s.id, s.section_sup,
               s.min_x, s.min_y, s.max_x, s.max_y,
-              s.ctr_x, s.ctr_y, s.type, s.cost,
+              s.type, s.cost,
               ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ROW(ssol.solution_id, ssol.assembly_id))) AS in_solution
             FROM segstack_%(segstack_id)s.segment s
             JOIN (%(segment_id_query)s) AS segment_id_query
@@ -309,10 +308,6 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
         max_x = min([x.max_x for x in slices])
         max_y = min([x.max_y for x in slices])
 
-        # Set segment centroid as center of extents (not identical to Sopnet's method)
-        ctr_x = (min_x + max_x) / 2
-        ctr_y = (min_y + max_y) / 2
-
         # Get segment hash from SOPNET
         leftSliceHashes = pysopnet.SliceHashVector()
         leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_sup])
@@ -332,8 +327,8 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
         # Create segment, associate slices to segment, and associate segment to blocks
         cursor.execute('''
                 INSERT INTO segstack_%(segstack_id)s.segment
-                (id, section_sup, type, ctr_x, ctr_y, min_x, min_y, max_x, max_y) VALUES
-                (%(segment_id)s, %(section_sup)s, %(type)s, %(ctr_x)s, %(ctr_y)s,
+                (id, section_sup, type, min_x, min_y, max_x, max_y) VALUES
+                (%(segment_id)s, %(section_sup)s, %(type)s,
                     %(min_x)s, %(min_y)s, %(max_x)s, %(max_y)s);
 
                 INSERT INTO segstack_%(segstack_id)s.segment_slice
@@ -351,7 +346,6 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
                     WHERE slice_id IN (%(slice_ids)s)) AS sbr;
                 ''' % {'segstack_id': segstack.id, 'segment_id': segment_id,
                     'section_sup': section_sup, 'type': type,
-                    'ctr_x': ctr_x, 'ctr_y': ctr_y,
                     'min_x': min_x, 'min_y': min_y,
                     'max_x': max_x, 'max_y': max_y,
                     'slice_ids': ','.join(map(str, slice_ids))})

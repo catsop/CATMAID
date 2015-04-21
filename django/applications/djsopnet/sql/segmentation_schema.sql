@@ -133,8 +133,6 @@ CREATE TABLE segment (
   min_y integer NOT NULL,
   max_x integer NOT NULL,
   max_y integer NOT NULL,
-  ctr_x double precision NOT NULL,
-  ctr_y double precision NOT NULL,
   type integer NOT NULL,
   cost double precision,
   CHECK (false) NO INHERIT -- prevent any rows populating this table
