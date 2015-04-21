@@ -81,37 +81,37 @@ SELECT 001, s.id FROM segstack_2.slice s WHERE s.id BETWEEN 1001000 AND 1001999;
 
 -- slice IDs are of the form [1][core_x][core_y][core_z][arbitrary ID][section sup (2 digits)]
 INSERT INTO segstack_2.segment
-(id, section_sup, min_x, min_y, max_x, max_y, ctr_x, ctr_y, type)
+(id, section_sup, min_x, min_y, max_x, max_y, type)
 -- CORE (0, 0, 0)
-SELECT 1000000 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
+SELECT 1000000 + sect, sect, 0, 0, 10, 10, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
 FROM generate_series(0, 9) AS sect
 UNION
-SELECT 1000100 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
+SELECT 1000100 + sect, sect, 0, 0, 10, 10, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
 FROM generate_series(0, 9) AS sect
 UNION
-SELECT 1000400 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
+SELECT 1000400 + sect, sect, 0, 0, 10, 10, (CASE WHEN sect > 0 THEN 1 ELSE 0 END)
 FROM generate_series(0, 9) AS sect
 -- CORE (0, 0, 1)
 UNION
-SELECT 1001000 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
+SELECT 1001000 + sect, sect, 0, 0, 10, 10, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
 FROM generate_series(10, 20) AS sect
 UNION
-SELECT 1001200 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
+SELECT 1001200 + sect, sect, 0, 0, 10, 10, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
 FROM generate_series(10, 20) AS sect
 UNION
-SELECT 1001400 + sect, sect, 0, 0, 10, 10, 5, 5, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
+SELECT 1001400 + sect, sect, 0, 0, 10, 10, (CASE WHEN sect < 20 THEN 1 ELSE 0 END)
 FROM generate_series(10, 20) AS sect;
 
 INSERT INTO segstack_2.segment
-(id, section_sup, min_x, min_y, max_x, max_y, ctr_x, ctr_y, type) VALUES
-(1000209, 9, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
-(1000309, 9, 0, 0, 10, 10, 5, 5, 2), -- Unused branch
-(1001110, 10, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
-(1001310, 10, 0, 0, 10, 10, 5, 5, 2), -- Unused branch
-(1000509, 9, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
-(1000609, 9, 0, 0, 10, 10, 5, 5, 2), -- Unused branch
-(1001510, 10, 0, 0, 10, 10, 5, 5, 1), -- Unused continuation
-(1001610, 10, 0, 0, 10, 10, 5, 5, 1); -- Used branch
+(id, section_sup, min_x, min_y, max_x, max_y, type) VALUES
+(1000209, 9, 0, 0, 10, 10, 1), -- Unused continuation
+(1000309, 9, 0, 0, 10, 10, 2), -- Unused branch
+(1001110, 10, 0, 0, 10, 10, 1), -- Unused continuation
+(1001310, 10, 0, 0, 10, 10, 2), -- Unused branch
+(1000509, 9, 0, 0, 10, 10, 1), -- Unused continuation
+(1000609, 9, 0, 0, 10, 10, 2), -- Unused branch
+(1001510, 10, 0, 0, 10, 10, 1), -- Unused continuation
+(1001610, 10, 0, 0, 10, 10, 1); -- Used branch
 
 INSERT INTO segstack_2.segment_slice
 (slice_id, segment_id, direction)
