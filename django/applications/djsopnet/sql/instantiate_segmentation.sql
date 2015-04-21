@@ -94,7 +94,7 @@ CREATE TABLE assembly_equivalence
 CREATE TABLE assembly
     (LIKE segstack_template.assembly INCLUDING INDEXES,
       FOREIGN KEY (equivalence_id) REFERENCES assembly_equivalence(id) DEFERRABLE INITIALLY IMMEDIATE,
-      FOREIGN KEY (solution_id) REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE)
+      FOREIGN KEY (core_id) REFERENCES core(id) DEFERRABLE INITIALLY IMMEDIATE)
     INHERITS (segstack_template.assembly);
 
 CREATE TABLE assembly_relation
@@ -109,12 +109,17 @@ CREATE TABLE solution_precedence
       FOREIGN KEY (solution_id) REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE)
     INHERITS (segstack_template.solution_precedence);
 
-CREATE TABLE segment_solution
-    (LIKE segstack_template.segment_solution INCLUDING INDEXES,
-      FOREIGN KEY (segment_id) REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
+CREATE TABLE solution_assembly
+    (LIKE segstack_template.solution_assembly INCLUDING INDEXES,
       FOREIGN KEY (solution_id) REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE,
       FOREIGN KEY (assembly_id) REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE)
-    INHERITS (segstack_template.segment_solution);
+    INHERITS (segstack_template.solution_assembly);
+
+CREATE TABLE assembly_segment
+    (LIKE segstack_template.assembly_segment INCLUDING INDEXES,
+      FOREIGN KEY (assembly_id) REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
+      FOREIGN KEY (segment_id) REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE)
+    INHERITS (segstack_template.assembly_segment);
 
 CREATE TABLE solution_constraint
     (LIKE segstack_template.solution_constraint INCLUDING INDEXES,

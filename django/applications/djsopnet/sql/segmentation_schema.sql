@@ -191,7 +191,9 @@ CREATE TABLE assembly_equivalence (
 CREATE TABLE assembly (
   id serial PRIMARY KEY,
   equivalence_id integer REFERENCES assembly_equivalence(id) DEFERRABLE INITIALLY IMMEDIATE,
-  solution_id integer NOT NULL REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE,
+  core_id integer NOT NULL REFERENCES core(id) DEFERRABLE INITIALLY IMMEDIATE,
+  hash bigint NOT NULL,
+  UNIQUE (core_id, hash),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
   OIDS=FALSE
@@ -217,11 +219,19 @@ CREATE TABLE solution_precedence (
   OIDS=FALSE
 );
 
-CREATE TABLE segment_solution (
-  segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
+CREATE TABLE solution_assembly (
   solution_id integer NOT NULL REFERENCES solution(id) DEFERRABLE INITIALLY IMMEDIATE,
-  assembly_id integer REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
-  PRIMARY KEY (segment_id, solution_id),
+  assembly_id integer NOT NULL REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
+  PRIMARY KEY (solution_id, assembly_id),
+  CHECK (false) NO INHERIT -- prevent any rows populating this table
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE assembly_segment (
+  assembly_id integer NOT NULL REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
+  segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
+  PRIMARY KEY (assembly_id, segment_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
   OIDS=FALSE
