@@ -12,103 +12,6 @@ from catmaid.models import UserRole
 from djsopnet.models import SegmentationStack
 from djsopnet.control.block import _blockcursor_to_namedtuple
 
-@requires_user_role(UserRole.Annotate)
-def generate_assemblies_for_core(request, project_id, segmentation_stack_id, core_id):
-    segstack = get_object_or_404(SegmentationStack, id=segmentation_stack_id)
-    cursor = connection.cursor()
-    cursor.execute('''
-        SELECT * FROM segstack_{0}.core WHERE id = %s LIMIT 1
-        '''.format(segstack.id), (core_id,))
-    c = _blockcursor_to_namedtuple(cursor, segstack.configuration.block_info.size_for_unit('core'))[0]
-
-    if not c.solution_set_flag:
-        return HttpResponse(json.dumps(
-                {'error': 'Solution flag is not set for core'}),
-                status=409, content_type='application/json')
-
-    _generate_assemblies_for_core(segmentation_stack_id, core_id)
-
-    return HttpResponse(json.dumps({'ok' : True}), content_type='text/json')
-
-def _generate_assemblies_for_core(segstack_id, core_id):
-    """Create assemblies for the precedent solutino of a core.
-
-    Assemblies are connected components in the segment graph of a solution.
-    """
-    cursor = connection.cursor()
-    # Fetch the core's precedent solution ID.
-    cursor.execute('''
-        SELECT sp.solution_id
-        FROM segstack_%(segstack_id)s.solution_precedence sp
-        WHERE sp.core_id = %(core_id)s LIMIT 1
-        ''' % {'segstack_id': segstack_id, 'core_id': core_id})
-    solution_id = cursor.fetchone()[0]
-
-    # Fetch all segments and the segments to which they are connected in the
-    # core's precedent solution.
-    cursor.execute('''
-        SELECT
-          ssol.segment_id AS segment_id,
-          ARRAY_TO_JSON(ARRAY_AGG(DISTINCT ss2.segment_id)) AS segment_neighbors
-        FROM segstack_%(segstack_id)s.segment_solution ssol
-        JOIN segstack_%(segstack_id)s.segment_slice ss
-          ON (ss.segment_id = ssol.segment_id)
-        JOIN segstack_%(segstack_id)s.segment_slice ss2
-          ON (ss2.slice_id = ss.slice_id
-              AND ss2.segment_id <> ss.segment_id
-              AND ss2.direction <> ss.direction)
-        JOIN segstack_%(segstack_id)s.segment_solution ssol2
-          ON (ssol2.segment_id = ss2.segment_id AND ssol2.solution_id = ssol.solution_id)
-        WHERE ssol.solution_id = %(solution_id)s
-        GROUP BY ssol.segment_id
-        ''' % {'segstack_id': segstack_id, 'solution_id': solution_id})
-    segments = cursor.fetchall()
-
-    # If the solution is empty, do nothing because there are no assemblies.
-    if len(segments) == 0:
-        return
-
-    # Create an undirected graph of segments, connected by slice edges. The
-    # connected components of this graph are assemblies.
-    g = nx.Graph()
-    for segment in segments:
-        g.add_node(segment[0])
-        for slice_edge in json.loads(segment[1]):
-            g.add_edge(segment[0], slice_edge)
-
-    assembly_ccs = nx.connected_components(g)
-    assembly_map = []
-    segment_solution_ids = []
-    for idx, assembly_cc in enumerate(assembly_ccs):
-        for segment in assembly_cc:
-            assembly_map.append(idx)
-            segment_solution_ids.append(segment)
-
-    # Bulk create the number of assemblies needed.
-    cursor.execute('''
-        INSERT INTO segstack_%(segstack_id)s.assembly (solution_id)
-        SELECT v.solution_id
-        FROM (VALUES (%(solution_id)s))
-          AS v (solution_id), generate_series(1, %(num_assemblies)s)
-        RETURNING segstack_%(segstack_id)s.assembly.id
-        ''' % {'segstack_id': segstack_id,
-               'solution_id': solution_id,
-               'num_assemblies': len(assembly_ccs)})
-    assemblies = cursor.fetchall();
-    assembly_ids = [assemblies[idx][0] for idx in assembly_map]
-
-    # Bulk assign assemblies to SegmentSolutions.
-    # NOTE: This query can hang Django's debug cursor wrapper. There is nothing
-    # wrong with the query, apart from not being stupid enough for Django's
-    # cursor wrapper. Disable the debug wrapper and it will work correctly.
-    cursor.execute('''
-        UPDATE segstack_%(segstack_id)s.segment_solution ssol
-        SET assembly_id = assembly_map.assembly_id
-        FROM (VALUES %(assembly_map)s) AS assembly_map (assembly_id, segment_id)
-        WHERE (ssol.segment_id, ssol.solution_id) = (assembly_map.segment_id, %(solution_id)s)
-        ''' % {'segstack_id': segstack_id,
-            'assembly_map': ','.join(['(%s,%s)' % x for x in zip(assembly_ids, segment_solution_ids)]),
-            'solution_id': solution_id})
 
 @requires_user_role(UserRole.Annotate)
 def map_assembly_equivalence_to_skeleton(request, project_id, segmentation_stack_id, equivalence_id):
@@ -131,8 +34,8 @@ def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equiva
     # Check that this equivalence is populated with segments.
     cursor = connection.cursor()
     cursor.execute('''
-        SELECT count(ssol.segment_id) FROM segstack_%(segstack_id)s.segment_solution ssol
-        JOIN segstack_%(segstack_id)s.assembly a ON a.id = ssol.assembly_id
+        SELECT count(aseg.segment_id) FROM segstack_%(segstack_id)s.assembly_segment aseg
+        JOIN segstack_%(segstack_id)s.assembly a ON a.id = aseg.assembly_id
         WHERE a.equivalence_id = %(equivalence_id)s
         ''' % {'segstack_id': segstack.id, 'equivalence_id': equivalence_id})
     segment_count = cursor.fetchone()[0]
@@ -177,17 +80,17 @@ def map_assembly_equivalence_to_arborescence(segmentation_stack_id, equivalence_
     # Fetch all segments and their slices in equivalence.
     cursor.execute('''
         SELECT
-          ssol.segment_id AS segment_id,
+          aseg.segment_id AS segment_id,
           JSON_AGG(DISTINCT ROW(s.id, s.ctr_x, s.ctr_y, s.section, ss.direction)) AS segment_slices
-        FROM segstack_%(segstack_id)s.segment_solution ssol
-        JOIN segstack_%(segstack_id)s.assembly a
-          ON (ssol.assembly_id = a.id)
+        FROM segstack_%(segstack_id)s.assembly a
+        JOIN segstack_%(segstack_id)s.assembly_segment aseg
+          ON (aseg.assembly_id = a.id)
         JOIN segstack_%(segstack_id)s.segment_slice ss
-          ON (ss.segment_id = ssol.segment_id)
+          ON (ss.segment_id = aseg.segment_id)
         JOIN segstack_%(segstack_id)s.slice s
           ON (s.id = ss.slice_id)
         WHERE a.equivalence_id = %(equivalence_id)s
-        GROUP BY ssol.segment_id
+        GROUP BY aseg.segment_id
         ''' % {'segstack_id': segstack.id, 'equivalence_id': equivalence_id})
     segments = cursor.fetchall()
 
@@ -226,17 +129,18 @@ def generate_assembly_equivalences(segmentation_stack_id):
     cursor = connection.cursor()
     cursor.execute("""
         SELECT
-          a.id,
+          sola.assembly_id,
           ARRAY_TO_JSON(ARRAY_CAT(
               ARRAY_AGG(DISTINCT ar.assembly_a_id),
               ARRAY_AGG(DISTINCT ar.assembly_b_id)))
         FROM segstack_%(segstack_id)s.solution_precedence sp
         JOIN segstack_%(segstack_id)s.core c ON (c.id = sp.core_id)
-        JOIN segstack_%(segstack_id)s.assembly a ON (a.solution_id = sp.solution_id)
+        JOIN segstack_%(segstack_id)s.solution_assembly sola
+          ON sola.solution_id = sp.solution_id
         JOIN segstack_%(segstack_id)s.assembly_relation ar
-          ON (ar.assembly_a_id = a.id OR ar.assembly_b_id = a.id)
+          ON (ar.assembly_a_id = sola.assembly_id OR ar.assembly_b_id = sola.assembly_id)
             AND ar.relation = 'Compatible'
-        GROUP BY a.id
+        GROUP BY sola.assembly_id
         """ % {'segstack_id': segmentation_stack_id})
     assemblies = cursor.fetchall()
 
@@ -297,10 +201,10 @@ def generate_compatible_assemblies_between_cores(segstack_id, core_a_id, core_b_
     compatible_query = """
         SELECT ar.assembly_a_id, ar.assembly_b_id, 'Compatible'::assemblyrelation
         FROM segstack_%(segstack_id)s.assembly_relation ar
-        JOIN segstack_%(segstack_id)s.assembly a_a ON a_a.id = ar.assembly_a_id
-        JOIN segstack_%(segstack_id)s.assembly a_b ON a_b.id = ar.assembly_b_id
-        JOIN segstack_%(segstack_id)s.solution_precedence sp_a ON sp_a.solution_id = a_a.solution_id
-        JOIN segstack_%(segstack_id)s.solution_precedence sp_b ON sp_b.solution_id = a_b.solution_id
+        JOIN segstack_%(segstack_id)s.solution_assembly sola_a ON sola_a.assembly_id = ar.assembly_a_id
+        JOIN segstack_%(segstack_id)s.solution_assembly sola_b ON sola_b.assembly_id = ar.assembly_b_id
+        JOIN segstack_%(segstack_id)s.solution_precedence sp_a ON sp_a.solution_id = sola_a.solution_id
+        JOIN segstack_%(segstack_id)s.solution_precedence sp_b ON sp_b.solution_id = sola_b.solution_id
         WHERE (sp_a.core_id = %(core_a_id)s AND sp_b.core_id = %(core_b_id)s)
           OR (sp_a.core_id = %(core_b_id)s AND sp_b.core_id = %(core_a_id)s)
         GROUP BY ar.assembly_a_id, ar.assembly_b_id
@@ -320,11 +224,13 @@ def generate_conflicting_assemblies_between_cores(segstack_id, core_a_id, core_b
     """
     # Find conflicts and concurrency-safe upsert to assembly relations.
     conflict_query = """
-        SELECT DISTINCT ssol1.assembly_id, ssol2.assembly_id, 'Conflict'::assemblyrelation
+        SELECT DISTINCT sola1.assembly_id, sola2.assembly_id, 'Conflict'::assemblyrelation
         FROM segstack_%(segstack_id)s.solution_precedence sp1
-        JOIN segstack_%(segstack_id)s.segment_solution ssol1
-          ON (ssol1.solution_id = sp1.solution_id AND ssol1.assembly_id IS NOT NULL)
-        JOIN segstack_%(segstack_id)s.segment_slice ss1 ON ss1.segment_id = ssol1.segment_id
+        JOIN segstack_%(segstack_id)s.solution_assembly sola1
+          ON sola1.solution_id = sp1.solution_id
+        JOIN segstack_%(segstack_id)s.assembly_segment aseg1
+          ON aseg1.assembly_id = sola1.assembly_id
+        JOIN segstack_%(segstack_id)s.segment_slice ss1 ON ss1.segment_id = aseg1.segment_id
         JOIN segstack_%(segstack_id)s.slice_conflict sc
           ON (sc.slice_a_id = ss1.slice_id OR sc.slice_b_id = ss1.slice_id)
         JOIN segstack_%(segstack_id)s.segment_slice ss2
@@ -333,9 +239,11 @@ def generate_conflicting_assemblies_between_cores(segstack_id, core_a_id, core_b
             OR (ss1.slice_id = ss2.slice_id
                 AND ss1.segment_id <> ss2.segment_id
                 AND ss1.direction = ss2.direction)) /* Exclusive segments */
-        JOIN segstack_%(segstack_id)s.segment_solution ssol2
-          ON (ssol2.segment_id = ss2.segment_id AND ssol2.assembly_id IS NOT NULL)
-        JOIN segstack_%(segstack_id)s.solution_precedence sp2 ON sp2.solution_id = ssol2.solution_id
+        JOIN segstack_%(segstack_id)s.assembly_segment aseg2
+          ON aseg2.segment_id = ss2.segment_id
+        JOIN segstack_%(segstack_id)s.solution_assembly sola2
+          ON sola2.assembly_id = aseg2.assembly_id
+        JOIN segstack_%(segstack_id)s.solution_precedence sp2 ON sp2.solution_id = sola2.solution_id
         WHERE sp1.core_id = %(core_a_id)s AND sp2.core_id = %(core_b_id)s;
         """ % {'segstack_id': segstack_id, 'core_a_id': core_a_id, 'core_b_id': core_b_id}
     _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id, 'Conflict', conflict_query)
@@ -347,16 +255,20 @@ def generate_continuing_assemblies_between_cores(segstack_id, core_a_id, core_b_
     """
     # Find continuations and concurrency-safe upsert to assembly relations.
     continuation_query = """
-        SELECT DISTINCT ssol1.assembly_id, ssol2.assembly_id, 'Continuation'::assemblyrelation
+        SELECT DISTINCT sola1.assembly_id, sola2.assembly_id, 'Continuation'::assemblyrelation
         FROM segstack_%(segstack_id)s.solution_precedence sp1
-        JOIN segstack_%(segstack_id)s.segment_solution ssol1
-          ON (ssol1.solution_id = sp1.solution_id AND ssol1.assembly_id IS NOT NULL)
-        JOIN segstack_%(segstack_id)s.segment_slice ss1 ON ss1.segment_id = ssol1.segment_id
+        JOIN segstack_%(segstack_id)s.solution_assembly sola1
+          ON sola1.solution_id = sp1.solution_id
+        JOIN segstack_%(segstack_id)s.assembly_segment aseg1
+          ON aseg1.assembly_id = sola1.assembly_id
+        JOIN segstack_%(segstack_id)s.segment_slice ss1 ON ss1.segment_id = aseg1.segment_id
         JOIN segstack_%(segstack_id)s.segment_slice ss2
           ON (ss2.slice_id = ss1.slice_id AND ss2.segment_id <> ss1.segment_id)
-        JOIN segstack_%(segstack_id)s.segment_solution ssol2
-          ON (ssol2.segment_id = ss2.segment_id AND ssol2.assembly_id IS NOT NULL)
-        JOIN segstack_%(segstack_id)s.solution_precedence sp2 ON sp2.solution_id = ssol2.solution_id
+        JOIN segstack_%(segstack_id)s.assembly_segment aseg2
+          ON aseg2.segment_id = ss2.segment_id
+        JOIN segstack_%(segstack_id)s.solution_assembly sola2
+          ON sola2.assembly_id = aseg2.assembly_id
+        JOIN segstack_%(segstack_id)s.solution_precedence sp2 ON sp2.solution_id = sola2.solution_id
         WHERE sp1.core_id = %(core_a_id)s AND sp2.core_id = %(core_b_id)s;
         """ % {'segstack_id': segstack_id, 'core_a_id': core_a_id, 'core_b_id': core_b_id}
     _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id, 'Continuation', continuation_query)
@@ -380,8 +292,7 @@ def _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id,
         WITH core_assemblies AS (
             SELECT a.id AS assembly_id
             FROM segstack_%(segstack_id)s.assembly a
-            JOIN segstack_%(segstack_id)s.solution s ON a.solution_id = s.id
-            WHERE core_id IN (%(core_a_id)s, %(core_b_id)s))
+            WHERE a.core_id IN (%(core_a_id)s, %(core_b_id)s))
         DELETE FROM segstack_%(segstack_id)s.assembly_relation ar
         WHERE relation = '%(relation)s'::assemblyrelation
           AND (ar.assembly_a_id IN (SELECT assembly_id FROM core_assemblies) AND
