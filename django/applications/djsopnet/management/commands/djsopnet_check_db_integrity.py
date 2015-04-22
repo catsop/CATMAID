@@ -19,17 +19,21 @@ class Command(NoArgsCommand):
         self.stdout.write('Check that no conflicting slices are in the same solution...')
         cursor.execute('''
                 SELECT count(*)
-                FROM segment_solution ssol1
+                FROM solution_assembly sola1
+                  JOIN assembly_segment aseg1
+                    ON (aseg1.assembly_id = sola1.assembly_id)
                   JOIN segment_slice ss1
-                    ON (ss1.segment_id = ssol1.segment_id)
+                    ON (ss1.segment_id = aseg1.segment_id)
                   JOIN slice_conflict scs
                     ON (ss1.slice_id = scs.slice_a_id OR ss1.slice_id = scs.slice_b_id)
                   JOIN segment_slice ss2
                     ON ((ss2.slice_id = scs.slice_a_id OR ss2.slice_id = scs.slice_b_id)
                         AND ss2.slice_id <> ss1.slice_id)
-                  JOIN segment_solution ssol2
-                    ON (ssol2.segment_id = ss2.segment_id)
-                  WHERE ss1.segment_id <> ss2.segment_id AND ssol1.solution_id = ssol2.solution_id
+                  JOIN assembly_segment aseg2
+                    ON (aseg2.segment_id = ss2.segment_id)
+                  JOIN solution_assembly sola2
+                    ON (sola1.assembly_id = aseg2.assembly_id)
+                  WHERE ss1.segment_id <> ss2.segment_id AND sola1.solution_id = sola2.solution_id
                 ''')
         row = cursor.fetchone()
         if row[0] == 0:
@@ -46,13 +50,17 @@ class Command(NoArgsCommand):
                     ON (ss1.slice_id = s.id)
                   JOIN segment_slice ss2
                     ON (ss2.slice_id = s.id AND ss1.segment_id <> ss2.segment_id)
-                  JOIN segment_solution ssol1
-                    ON (ssol1.segment_id = ss1.segment_id)
-                  JOIN segment_solution ssol2
-                    ON (ssol2.segment_id = ss2.segment_id
-                        AND ssol1.segment_id <> ssol2.segment_id
-                        AND ssol1.solution_id = ssol2.solution_id)
-                  GROUP BY s.id, ssol1.solution_id
+                  JOIN assembly_segment aseg1
+                    ON (aseg1.segment_id = ss1.segment_id)
+                  JOIN assembly_segment aseg2
+                    ON (aseg2.segment_id = ss2.segment_id
+                        AND aseg1.segment_id <> aseg2.segment_id)
+                  JOIN solution_assembly sola1
+                    ON (sola1.assembly_id = aseg1.assembly_id)
+                  JOIN solution_assembly sola2
+                    ON (sola2.assembly_id = aseg2.assembly_id
+                        AND sola1.solution_id = sola2.solution_id)
+                  GROUP BY s.id, sola1.solution_id
                     HAVING count(*) > 2
                 ''')
         if cursor.rowcount == 0:
