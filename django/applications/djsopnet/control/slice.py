@@ -89,9 +89,12 @@ def _slice_select_query(segmentation_stack_id, slice_id_query):
             LEFT JOIN segstack_%(segstack_id)s.slice_conflict scs_as_b ON (scs_as_b.slice_b_id = s.id)
             JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.slice_id = s.id)
             LEFT JOIN
-              (SELECT ssol.segment_id, ssol.solution_id, ssol.assembly_id, sp.core_id
-                  FROM segstack_%(segstack_id)s.segment_solution ssol
-                  JOIN segstack_%(segstack_id)s.solution_precedence sp ON sp.solution_id = ssol.solution_id)
+              (SELECT aseg.segment_id, sola.solution_id, sola.assembly_id, sp.core_id
+                  FROM segstack_%(segstack_id)s.assembly_segment aseg
+                  JOIN segstack_%(segstack_id)s.solution_assembly sola
+                    ON sola.assembly_id = aseg.assembly_id
+                  JOIN segstack_%(segstack_id)s.solution_precedence sp
+                    ON sp.solution_id = sola.solution_id)
               AS ssol
                 ON (ssol.segment_id = ss.segment_id)
             GROUP BY s.id
@@ -240,9 +243,12 @@ def retrieve_slices_by_bounding_box(request, project_id, segmentation_stack_id):
         cursor = connection.cursor()
         cursor.execute(_slice_select_query(segmentation_stack_id, '''
                 SELECT s.id AS slice_id
-                  FROM segstack_%(segstack_id)s.segment_solution ssol
-                  JOIN segstack_%(segstack_id)s.solution_precedence sp ON (sp.solution_id = ssol.solution_id)
-                  JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.segment_id = ssol.segment_id)
+                  FROM segstack_%(segstack_id)s.assembly_segment aseg
+                  JOIN segstack_%(segstack_id)s.solution_assembly sola
+                    ON sola.assembly_id = aseg.assembly_id
+                  JOIN segstack_%(segstack_id)s.solution_precedence sp
+                    ON sp.solution_id = sola.solution_id
+                  JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.segment_id = aseg.segment_id)
                   JOIN segstack_%(segstack_id)s.slice s ON (s.id = ss.slice_id)
                   WHERE s.section = %(z)s
                     AND s.min_x <= %(max_x)s
