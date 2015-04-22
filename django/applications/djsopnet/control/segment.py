@@ -124,9 +124,12 @@ def _segment_select_query(segmentation_stack_id, segment_id_query):
             JOIN (%(segment_id_query)s) AS segment_id_query
               ON (segment_id_query.segment_id = s.id)
             LEFT JOIN
-              (SELECT ssol.segment_id, ssol.solution_id, ssol.assembly_id, sp.core_id
-                  FROM segstack_%(segstack_id)s.segment_solution ssol
-                  JOIN segstack_%(segstack_id)s.solution_precedence sp ON sp.solution_id = ssol.solution_id)
+              (SELECT aseg.segment_id, sola.solution_id, sola.assembly_id, sp.core_id
+                  FROM segstack_%(segstack_id)s.assembly_segment aseg
+                  JOIN segstack_%(segstack_id)s.solution_assembly sola
+                    ON sola.assembly_id = aseg.assembly_id
+                  JOIN segstack_%(segstack_id)s.solution_precedence sp
+                    ON sp.solution_id = sola.solution_id)
               AS ssol
                 ON (ssol.segment_id = s.id)
             GROUP BY s.id
@@ -404,11 +407,13 @@ def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
             INSERT INTO segstack_%(segstack_id)s.correction (constraint_id, mistake_id)
             SELECT c.id, conflict.segment_id
             FROM (VALUES (%(constraint_id)s)) AS c (id),
-                (SELECT DISTINCT ssol.segment_id AS segment_id
+                (SELECT DISTINCT aseg.segment_id AS segment_id
                     FROM segstack_%(segstack_id)s.solution_precedence sp
-                    JOIN segstack_%(segstack_id)s.segment_solution ssol
-                      ON (sp.solution_id = ssol.solution_id AND ssol.segment_id <> %(segment_id)s)
-                    JOIN segstack_%(segstack_id)s.segment_slice ss ON (ssol.segment_id = ss.segment_id)
+                    JOIN segstack_%(segstack_id)s.solution_assembly sola
+                      ON sola.solution_id = sp.solution_id
+                    JOIN segstack_%(segstack_id)s.assembly_segment aseg
+                      ON (aseg.assembly_id = sola.assembly_id AND aseg.segment_id <> %(segment_id)s)
+                    JOIN segstack_%(segstack_id)s.segment_slice ss ON (aseg.segment_id = ss.segment_id)
                     WHERE ss.slice_id IN (
                             SELECT scs_a.slice_a_id AS slice_id
                               FROM segstack_%(segstack_id)s.slice_conflict scs_a, req_seg_slices
