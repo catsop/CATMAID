@@ -6,7 +6,6 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from djsopnet.control.assembly import *
 from djsopnet.control.assembly import \
-	_generate_assemblies_for_core, \
 	_map_assembly_equivalence_to_skeleton
 from djsopnet.models import BlockInfo, SegmentationConfiguration, SegmentationStack
 from djsopnet.control.block import _blockcursor_to_namedtuple
@@ -21,15 +20,7 @@ sc = SegmentationConfiguration.objects.get(pk=st.segmentation_configuration_id)
 request = Reqfake(user=u, project_id=sc.project_id)
 segstack = sc.segmentationstack_set.get(type='Membrane')
 
-# Generate assemblies for all solved cores.
-print 'Generating assemblies...'
 cursor = connection.cursor()
-cursor.execute('''
-	SELECT id FROM segstack_%s.core WHERE solution_set_flag = TRUE
-	''' % segstack.id)
-core_ids = [r[0] for r in cursor.fetchall()]
-for core_id in core_ids:
-	_generate_assemblies_for_core(segstack.id, core_id)
 
 # Generate assembly compatibility edges for all (6-)neighboring, solved cores.
 bi = sc.block_info
