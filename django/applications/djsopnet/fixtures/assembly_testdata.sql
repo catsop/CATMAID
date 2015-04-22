@@ -3,8 +3,8 @@ TRUNCATE
     segstack_2.slice, segstack_2.slice_conflict, segstack_2.slice_block_relation,
     segstack_2.conflict_clique, segstack_2.conflict_clique_edge,
     segstack_2.segment, segstack_2.segment_slice, segstack_2.segment_block_relation,
-    segstack_2.segment_solution, segstack_2.solution, segstack_2.solution_precedence,
-    segstack_2.assembly CASCADE;
+    segstack_2.solution_assembly, segstack_2.solution, segstack_2.solution_precedence,
+    segstack_2.assembly, segstack_2.assembly_segment CASCADE;
 
 -- core and block ids are of the form xyz
 INSERT INTO segstack_2.block
@@ -79,7 +79,7 @@ SELECT 000, s.id FROM segstack_2.slice s WHERE s.id BETWEEN 1000000 AND 1000999
 UNION
 SELECT 001, s.id FROM segstack_2.slice s WHERE s.id BETWEEN 1001000 AND 1001999;
 
--- slice IDs are of the form [1][core_x][core_y][core_z][arbitrary ID][section sup (2 digits)]
+-- segment IDs are of the form [1][core_x][core_y][core_z][arbitrary ID][section sup (2 digits)]
 INSERT INTO segstack_2.segment
 (id, section_sup, min_x, min_y, max_x, max_y, type)
 -- CORE (0, 0, 0)
@@ -179,23 +179,52 @@ INSERT INTO segstack_2.solution_precedence
 (000, 0001),
 (001, 0011);
 
-INSERT INTO segstack_2.segment_solution
-(segment_id, solution_id)
-SELECT s.id, 0000 FROM segstack_2.segment s
-WHERE s.id BETWEEN 1000000 AND 1000099
-   OR s.id BETWEEN 1000100 AND 1000108
-UNION
-SELECT s.id, 0001 FROM segstack_2.segment s
-WHERE s.id BETWEEN 1000000 AND 1000099
-   OR s.id BETWEEN 1000100 AND 1000199
-   OR s.id BETWEEN 1000400 AND 1000499
-UNION
-SELECT s.id, 0011 FROM segstack_2.segment s
-WHERE s.id BETWEEN 1001000 AND 1001099
-   OR s.id BETWEEN 1001200 AND 1001299
-   OR s.id BETWEEN 1001411 AND 1001499;
+-- assembly IDs are fo the form 1[core_x][core_y][core_z][arbitrary ID related to segments][sequence #]
+INSERT INTO segstack_2.assembly
+(id, core_id, hash) VALUES
+(1000001, 000, 1000001),
+(1000101, 000, 1000101), -- Bad assembly from solution 000
+(1000102, 000, 1000102), -- revised version from solution 001
+(1000401, 000, 1000401),
+(1001001, 001, 1001001),
+(1001201, 001, 1001201),
+(1001401, 001, 1001401);
 
-INSERT INTO segstack_2.segment_solution
-(segment_id, solution_id) VALUES
-(1000309, 0000),
-(1001610, 0011);
+INSERT INTO segstack_2.solution_assembly
+(solution_id, assembly_id) VALUES
+(0000, 1000001),
+(0000, 1000101),
+(0001, 1000001),
+(0001, 1000102),
+(0001, 1000401),
+(0011, 1001001),
+(0011, 1001201),
+(0011, 1001401);
+
+INSERT INTO segstack_2.assembly_segment
+(segment_id, assembly_id)
+SELECT s.id, 1000001 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1000000 AND 1000099
+UNION
+SELECT s.id, 1000101 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1000100 AND 1000108
+UNION
+SELECT s.id, 1000102 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1000100 AND 1000199
+UNION
+SELECT s.id, 1000401 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1000400 AND 1000499
+UNION
+SELECT s.id, 1001001 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1001000 AND 1001099
+UNION
+SELECT s.id, 1001201 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1001200 AND 1001299
+UNION
+SELECT s.id, 1001401 FROM segstack_2.segment s
+WHERE s.id BETWEEN 1001411 AND 1001499;
+
+INSERT INTO segstack_2.assembly_segment
+(segment_id, assembly_id) VALUES
+(1000309, 1000101),
+(1001610, 1001401);
