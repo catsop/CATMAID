@@ -160,6 +160,10 @@ def generate_assembly_equivalences(segmentation_stack_id):
             equivalence_map.append(idx)
             assembly_ids.append(assembly)
 
+    # If no equivalences exist, do nothing.
+    if not equivalence_map:
+        return
+
     # Bulk create the number of assembly equivalences needed.
     cursor.execute('''
         INSERT INTO segstack_%(segstack_id)s.assembly_equivalence (skeleton_id)
