@@ -134,7 +134,6 @@ def generate_assembly_equivalences(segmentation_stack_id):
               ARRAY_AGG(DISTINCT ar.assembly_a_id),
               ARRAY_AGG(DISTINCT ar.assembly_b_id)))
         FROM segstack_%(segstack_id)s.solution_precedence sp
-        JOIN segstack_%(segstack_id)s.core c ON (c.id = sp.core_id)
         JOIN segstack_%(segstack_id)s.solution_assembly sola
           ON sola.solution_id = sp.solution_id
         JOIN segstack_%(segstack_id)s.assembly_relation ar
