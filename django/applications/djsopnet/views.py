@@ -36,7 +36,7 @@ def segmentation_configurations(request, project_id, stack_id):
                     SELECT 1 FROM segmentation_stack sse
                     WHERE sse.configuration_id = sc.id AND sse.project_stack_id = %s)
                 GROUP BY sc.id) config
-                ''', [project_id, stack_id])
+                ''', [project_id, ps.id])
         configs = [r[0] for r in cursor.fetchall()]
         if len(configs) == 0:
             raise Http404('No segmentation is configured involving this project and stack.')
