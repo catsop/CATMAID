@@ -136,7 +136,7 @@ def generate_assembly_equivalences(segmentation_stack_id):
         FROM segstack_%(segstack_id)s.solution_precedence sp
         JOIN segstack_%(segstack_id)s.solution_assembly sola
           ON sola.solution_id = sp.solution_id
-        JOIN segstack_%(segstack_id)s.assembly_relation ar
+        LEFT JOIN segstack_%(segstack_id)s.assembly_relation ar
           ON (ar.assembly_a_id = sola.assembly_id OR ar.assembly_b_id = sola.assembly_id)
             AND ar.relation = 'Compatible'
         GROUP BY sola.assembly_id
@@ -149,7 +149,8 @@ def generate_assembly_equivalences(segmentation_stack_id):
     for assembly in assemblies:
         g.add_node(assembly[0])
         for compatibility in json.loads(assembly[1]):
-            g.add_edge(assembly[0], compatibility)
+            if compatibility is not None:
+                g.add_edge(assembly[0], compatibility)
 
     equivalence_ccs = nx.connected_components(g)
     equivalence_map = []
