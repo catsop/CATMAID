@@ -8,10 +8,11 @@ from optparse import make_option
 import tempfile
 
 class Command(BaseCommand):
+    args = '<segmentation_stack_id>'
     help = '''
         Verifies features and solutions in the database against a known standard
         (or exports such a standard) to test for changes or regressions in
-        solutions
+        solutions for a specified segmentation stack
         '''
 
     option_list = BaseCommand.option_list + (
@@ -26,7 +27,16 @@ class Command(BaseCommand):
             metavar='FILE')
     )
 
+    def __init__(self, *args, **kwargs):
+        super(Command, self).__init__(*args, **kwargs)
+        self.segstack_id = None
+
     def handle(self, *args, **options):
+        if len(args) == 1:
+            self.segstack_id = int(args[0])
+        else:
+            raise CommandError('Must specify a single segmentation stack ID')
+
         if options['export_filename']:
             self.stdout.write('Exporting regression standard to %s...' % options['export_filename'])
             with open(options['export_filename'], 'wb') as csvfile:
@@ -48,22 +58,22 @@ class Command(BaseCommand):
         cursor = connection.cursor()
         cursor.execute('''
             SELECT sf.segment_id, sf.features
-            FROM djsopnet_segment seg
-            JOIN djsopnet_segmentfeatures sf ON (sf.segment_id = seg.id)
-            WHERE seg.stack_id = %s
+            FROM segstack_%(segstack_id)s.segment seg
+            JOIN segstack_%(segstack_id)s.segment_features sf ON (sf.segment_id = seg.id)
             ORDER BY sf.segment_id ASC
-            ''' % settings.SOPNET_RAW_STACK_ID)
+            ''' % {'segstack_id': self.segstack_id})
         for row in cursor.fetchall():
             filewriter.writerow(row)
 
         cursor = connection.cursor()
         cursor.execute('''
-            SELECT sol.segment_id
-            FROM djsopnet_segment seg
-            JOIN djsopnet_segmentsolution sol ON (sol.segment_id = seg.id)
-            JOIN djsopnet_solutionprecedence sp ON (sol.solution_id = sp.solution_id)
-            WHERE seg.stack_id = %s
-            ORDER BY sol.segment_ID ASC
-            ''' % settings.SOPNET_RAW_STACK_ID)
+            SELECT aseg.segment_id
+            FROM segstack_%(segstack_id)s.solution_precedence sp
+            JOIN segstack_%(segstack_id)s.solution_assembly sola
+              ON sola.solution_id = sp.solution_id
+            JOIN segstack_%(segstack_id)s.assembly_segment aseg
+              ON aseg.assembly_id = sola.assembly_id
+            ORDER BY aseg.segment_id ASC
+            ''' % {'segstack_id': self.segstack_id})
         for row in cursor.fetchall():
             filewriter.writerow(row)
