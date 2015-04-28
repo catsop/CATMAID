@@ -28,7 +28,7 @@ def map_assembly_equivalence_to_skeleton(request, project_id, segmentation_stack
 
     return HttpResponse(json.dumps(ids), content_type='text/json')
 
-def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id):
+def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id, min_nodes=2):
     segstack = SegmentationStack.objects.get(id=segmentation_stack_id)
     project_id = segstack.configuration.project_id
     # Check that this equivalence is populated with segments.
@@ -43,6 +43,8 @@ def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equiva
         return
 
     arborescence = map_assembly_equivalence_to_arborescence(segmentation_stack_id, equivalence_id)
+    if arborescence.number_of_nodes() < min_nodes:
+        return
     imported_skeleton = _import_skeleton(request, project_id, arborescence,
             name='AssemblyEquivalence %s' % equivalence_id)
 
