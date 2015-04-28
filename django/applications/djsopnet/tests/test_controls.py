@@ -193,7 +193,7 @@ class AssemblyTests(TestCase):
             SELECT count(*)
             FROM segstack_%s.assembly_equivalence ae
             """ % self.test_segstack_id)
-        self.assertEqual(cursor.fetchone()[0], 1)
+        self.assertEqual(cursor.fetchone()[0], 5)
 
         self.assertAssembliesForSegmentsInEquivalence(1000000, 000, 1001020, 001)
 
