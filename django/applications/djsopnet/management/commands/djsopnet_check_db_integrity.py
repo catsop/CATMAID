@@ -41,6 +41,54 @@ class Command(NoArgsCommand):
         else:
             self.stdout.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
 
+        self.stdout.write('Check that no segment is in more than one assembly in the same solution...')
+        cursor = connection.cursor()
+        cursor.execute('''
+                SELECT seg.id, count(*)
+                FROM segment seg
+                  JOIN assembly_segment aseg1
+                    ON (aseg1.segment_id = seg.id)
+                  JOIN assembly_segment aseg2
+                    ON (aseg2.segment_id = seg.id
+                        AND aseg1.assembly_id <> aseg2.assembly_id)
+                  JOIN solution_assembly sola1
+                    ON (sola1.assembly_id = aseg1.assembly_id)
+                  JOIN solution_assembly sola2
+                    ON (sola2.assembly_id = aseg2.assembly_id
+                        AND sola1.solution_id = sola2.solution_id)
+                  GROUP BY seg.id, sola1.solution_id
+                ''')
+        if cursor.rowcount == 0:
+            self.stdout.write('OK')
+        else:
+            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+
+        self.stdout.write('Check that no slice is in more than one assembly in the same solution...')
+        cursor = connection.cursor()
+        cursor.execute('''
+                SELECT s.id, count(*)
+                FROM slice s
+                  JOIN segment_slice ss1
+                    ON (ss1.slice_id = s.id)
+                  JOIN segment_slice ss2
+                    ON (ss2.slice_id = s.id AND ss1.segment_id <> ss2.segment_id)
+                  JOIN assembly_segment aseg1
+                    ON (aseg1.segment_id = ss1.segment_id)
+                  JOIN assembly_segment aseg2
+                    ON (aseg2.segment_id = ss2.segment_id
+                        AND aseg1.assembly_id <> aseg2.assembly_id)
+                  JOIN solution_assembly sola1
+                    ON (sola1.assembly_id = aseg1.assembly_id)
+                  JOIN solution_assembly sola2
+                    ON (sola2.assembly_id = aseg2.assembly_id
+                        AND sola1.solution_id = sola2.solution_id)
+                  GROUP BY s.id, sola1.solution_id
+                ''')
+        if cursor.rowcount == 0:
+            self.stdout.write('OK')
+        else:
+            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+
         self.stdout.write('Check that no slice is in more than two segments in the same solution...')
         cursor = connection.cursor()
         cursor.execute('''
