@@ -70,10 +70,10 @@ def _retrieve_slices_in_boundingbox_multiple_locations(segmentation_stack_id, re
     return all_slices
 
 
-def _generate_user_constraint_from_intersection_segments(segmentation_stack_id, user, skt, allCompatibleSegments):
+def _generate_user_constraint_from_intersection_segments(segmentation_stack_id, user, skt, all_compatible_segments):
     cursor = connection.cursor()
 
-    for current_and_successor_node_id, compatible_segments in allCompatibleSegments:
+    for current_and_successor_node_id, compatible_segments in all_compatible_segments:
         cursor.execute('''
                 INSERT INTO segstack_%(segstack_id)s.solution_constraint
                 (user_id, creation_time, edition_time, skeleton_id, relation, value) VALUES
@@ -152,9 +152,9 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
     section_node_dictionary = _get_section_node_dictionary(super_graph)
 
     graph_traversal_nodes = [super_graph_root_node_id]
-    allCompatibleSegments = []
+    all_compatible_segments = []
     # List of edges for which no compatible segment could be found:
-    uncompatibleLocations = []
+    incompatible_locations = []
     cursor = connection.cursor()
     for current_node_id in graph_traversal_nodes:
         # We will need the successors of the current node to traverse the graph and to find the segments that constitute the skeleton constraints.
@@ -176,17 +176,17 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
             top_node = super_graph.node[top_node_id]
             bottom_node = super_graph.node[bottom_node_id]
 
-            bottomSectionSliceSet = []
-            for nodeInSection in section_node_dictionary[bottom_node['z']]:
-                bottomSectionSliceSet.extend(list(bottom_node['sliceset']))
+            bottom_section_slice_set = []
+            for node_in_section in section_node_dictionary[bottom_node['z']]:
+                bottom_section_slice_set.extend(list(bottom_node['sliceset']))
 
-            topSectionSliceSet = []
-            for nodeInSection in section_node_dictionary[top_node['z']]:
-                topSectionSliceSet.extend(list(top_node['sliceset']))
+            top_section_slice_set = []
+            for node_in_section in section_node_dictionary[top_node['z']]:
+                top_section_slice_set.extend(list(top_node['sliceset']))
 
-            segmentsContainingEdge_id = set()
+            segment_containing_edge_ids = set()
 
-            if len(bottomSectionSliceSet) != 0 and len(topSectionSliceSet) != 0:
+            if len(bottom_section_slice_set) != 0 and len(top_section_slice_set) != 0:
 
                 string_top_node_sliceset = '('
                 for n in top_node['sliceset']:
@@ -213,13 +213,13 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
                                'top_sliceset': string_top_node_sliceset,
                                'bottom_sliceset': string_bottom_node_sliceset})
 
-                segmentsContainingEdge_id.update([r[0] for r in cursor.fetchall()])
+                segment_containing_edge_ids.update([r[0] for r in cursor.fetchall()])
 
-            print 'SegmentsContainingEdge: ' + str(segmentsContainingEdge_id)
+            print 'SegmentsContainingEdge: ' + str(segment_containing_edge_ids)
 
-            compatibleSegments_id = []
+            compatible_segment_ids = []
             # Then select those where all (the other) top and bottom sections are in the respective section slice sets
-            for segment_id in segmentsContainingEdge_id:
+            for segment_id in segment_containing_edge_ids:
                 # Get the slices that constitute the segment
                 cursor.execute('''
                         SELECT slice_id, direction
@@ -229,24 +229,24 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
                 segment_slices = cursor.fetchall()
                 top_slices = set([s[0] for s in segment_slices if s[1]])
                 bottom_slices = set([s[0] for s in segment_slices if not s[1]])
-                if top_slices <= set(topSectionSliceSet) and bottom_slices <= set(bottomSectionSliceSet):
-                    compatibleSegments_id.append(segment_id)
+                if top_slices <= set(top_section_slice_set) and bottom_slices <= set(bottom_section_slice_set):
+                    compatible_segment_ids.append(segment_id)
 
             # When no compatible segment is found for a particular edge we want to store the edge in a lookup table to review that location later manually.
             # In this case no user constraint should be added.
-            if len(compatibleSegments_id) == 0:
-                skeletonNodesInCurrentNode = super_graph.node[current_node_id]['nodes_in_same_section']
-                skeletonNodesInSuccessorNode = super_graph.node[successor_id]['nodes_in_same_section']
-                super_edge_in_skeleton = (skeletonNodesInCurrentNode, skeletonNodesInSuccessorNode)
+            if len(compatible_segment_ids) == 0:
+                skeleton_nodes_in_current_node = super_graph.node[current_node_id]['nodes_in_same_section']
+                skeleton_nodes_in_successor_node = super_graph.node[successor_id]['nodes_in_same_section']
+                super_edge_in_skeleton = (skeleton_nodes_in_current_node, skeleton_nodes_in_successor_node)
                 super_graph_edge = (current_node_id, successor_id)
-                uncompatibleLocations.append((super_edge_in_skeleton, super_graph_edge))
+                incompatible_locations.append((super_edge_in_skeleton, super_graph_edge))
             else:
-                allCompatibleSegments.append(((current_node_id, successor_id), compatibleSegments_id))
+                all_compatible_segments.append(((current_node_id, successor_id), compatible_segment_ids))
 
     # generate user constraints from intersection
-    _generate_user_constraint_from_intersection_segments(segstack.id, u, skt, allCompatibleSegments)
+    _generate_user_constraint_from_intersection_segments(segstack.id, u, skt, all_compatible_segments)
 
-    return {'all_compatible_segments': allCompatibleSegments, 'uncompatible_locations': uncompatibleLocations}
+    return {'all_compatible_segments': all_compatible_segments, 'incompatible_locations': incompatible_locations}
 
 
 def generate_user_constraints(request, project_id=None, segmentation_stack_id=None, skeleton_id=None):
