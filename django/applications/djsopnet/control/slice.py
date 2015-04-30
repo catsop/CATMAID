@@ -189,11 +189,8 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id, segmentation_sta
 def retrieve_slices_by_location(request, project_id, segmentation_stack_id):
     """Retrieve slices and their conflicts for a given location in stack coordinates."""
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    bi = segstack.configuration.block_info
-
-    zoom = 2**(-bi.scale)
-    x = int(float(request.POST.get('x', None))) * zoom
-    y = int(float(request.POST.get('y', None))) * zoom
+    x = int(float(request.POST.get('x', None)))
+    y = int(float(request.POST.get('y', None)))
     z = int(float(request.POST.get('z', None)))
 
     slice_ids = _slice_ids_intersecting_point(segmentation_stack_id, x, y, z)
@@ -205,7 +202,12 @@ def retrieve_slices_by_location(request, project_id, segmentation_stack_id):
 
 
 def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
-    # Find slices whose bounding box intersects the requested location
+    """Find slices whose bounding box intersects the requested stack location.
+    """
+    segstack = SegmentationStack.objects.get(pk=segmentation_stack_id)
+    bi = segstack.configuration.block_info
+
+    zoom = 2**(-bi.scale)
     cursor = connection.cursor()
     cursor.execute('''
             SELECT s.id, s.min_x, s.min_y
@@ -215,7 +217,8 @@ def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
                 AND s.max_x >= %(x)s
                 AND s.min_y <= %(y)s
                 AND s.max_y >= %(y)s
-            ''' % {'segstack_id': segmentation_stack_id, 'z': z, 'x': x, 'y': y})
+            ''' % {'segstack_id': segmentation_stack_id,
+                   'z': z, 'x': x * zoom, 'y': y * zoom})
 
     # Check masks of the candidate slices to check for intersection
     candidates = cursor.fetchall()
