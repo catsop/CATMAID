@@ -82,7 +82,8 @@ CatsopWidget.prototype.init = function (container) {
           return config.type === 'Membrane';
         })[0].id;
 
-        requestQueue.register(django_url + 'sopnet/' + this.activeConfiguration + '/block',
+        requestQueue.register(
+            django_url + 'sopnet/' + project.id + '/configuration/' + this.activeConfiguration + '/block',
             'GET',
             {},
             CATMAID.jsonResponseHandler((function (json) {

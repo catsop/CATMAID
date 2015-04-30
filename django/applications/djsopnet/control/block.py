@@ -6,6 +6,8 @@ from django.db import connection
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
+from catmaid.control.authentication import requires_user_role
+from catmaid.models import UserRole
 from djsopnet.models import BlockInfo, SegmentationStack
 
 
@@ -67,6 +69,7 @@ def generate_block_info_response(block_info):
 
 
 # --- Blocks and Cores ---
+@requires_user_role(UserRole.Annotate)
 def setup_blocks(request, project_id, segmentation_stack_id):
     '''
     Initialize and store the blocks and block info in the db, associated with
@@ -217,6 +220,7 @@ def bound_query(table, segmentation_stack, request):
         return _blockcursor_to_namedtuple(cursor, size)
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def spatial_unit_at_location(request, project_id, segmentation_stack_id, unit_type):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     unit = location_query(unit_type, segstack, request)
@@ -226,6 +230,7 @@ def spatial_unit_at_location(request, project_id, segmentation_stack_id, unit_ty
         return generate_core_response(unit)
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_spatial_units_by_bounding_box(request, project_id, segmentation_stack_id, unit_type):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     units = bound_query(unit_type, segstack, request)
@@ -235,6 +240,7 @@ def retrieve_spatial_units_by_bounding_box(request, project_id, segmentation_sta
         return generate_cores_response(units)
 
 
-def block_info(request, configuration_id=None):
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
+def block_info(request, project_id, configuration_id=None):
     block_info = get_object_or_404(BlockInfo, configuration_id=configuration_id)
     return generate_block_info_response(block_info)

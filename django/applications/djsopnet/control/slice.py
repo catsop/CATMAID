@@ -9,6 +9,8 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.templatetags.static import static
 
+from catmaid.control.authentication import requires_user_role
+from catmaid.models import UserRole
 from djsopnet.control.common import error_response, safe_split, hash_to_id, id_to_hash
 from djsopnet.models import SegmentationStack
 
@@ -149,6 +151,7 @@ def _retrieve_slices_by_ids(segmentation_stack_id, slice_ids):
     return slices
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_slices_by_blocks_and_conflict(request, project_id, segmentation_stack_id):
     """Retrieve slices and slices in conflict sets for a set of blocks.
 
@@ -182,6 +185,7 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id, segmentation_sta
         return error_response()
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_slices_by_location(request, project_id, segmentation_stack_id):
     """Retrieve slices and their conflicts for a given location in stack coordinates."""
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
@@ -229,6 +233,7 @@ def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
     return slice_ids
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_slices_by_bounding_box(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     bi = segstack.configuration.block_info
@@ -265,6 +270,7 @@ def retrieve_slices_by_bounding_box(request, project_id, segmentation_stack_id):
         return error_response()
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_conflict_sets(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     try:
@@ -285,6 +291,7 @@ def retrieve_conflict_sets(request, project_id, segmentation_stack_id):
         return error_response()
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_slices_for_skeleton(request, project_id=None, stack_id=None, skeleton_id=None):
     """To visualize the slices found for a given skeleton, for which UserConstraints and solutions were generated,
     we retrieve all segments with their solution flag, and retrieve all associated slices, and mark the
@@ -371,6 +378,7 @@ def retrieve_slices_for_skeleton(request, project_id=None, stack_id=None, skelet
     return HttpResponse(json.dumps((data), separators=(',', ':')))
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_connected_component_starting_from_initial_slice(request, slice_id=None):
     """ Retrieve slices and segments that are connected from an initial starting slice
 

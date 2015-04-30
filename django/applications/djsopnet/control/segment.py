@@ -7,8 +7,8 @@ from django.db import connection
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 
-from catmaid.models import UserRole
 from catmaid.control.authentication import requires_user_role
+from catmaid.models import UserRole
 
 from djsopnet.control.common import error_response, safe_split, hash_to_id, id_to_hash
 from djsopnet.control.slice import slice_dict, _retrieve_slices_by_ids, \
@@ -150,6 +150,7 @@ def _retrieve_segments_by_ids(segmentation_stack_id, segment_ids):
     return segments
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_segment_and_conflicts(request, project_id, segmentation_stack_id):
     """
     Retrieve a segment (or set of co-section conflicting segments), its slices,
@@ -430,6 +431,7 @@ def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
         return error_response()
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_user_constraints_by_blocks(request, project_id=None, stack_id=None):
     try:
         block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]

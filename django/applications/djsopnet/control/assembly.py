@@ -16,6 +16,7 @@ from djsopnet.control.block import _blockcursor_to_namedtuple
 @requires_user_role(UserRole.Annotate)
 def map_assembly_equivalence_to_skeleton(request, project_id, segmentation_stack_id, equivalence_id):
     segstack = get_object_or_404(SegmentationStack, id=segmentation_stack_id)
+    equivalence_id = int(equivalence_id)
     cursor = connection.cursor()
     cursor.execute('''
         SELECT 1 FROM segstack_{0}.assembly_equivalence WHERE id = %s

@@ -23,6 +23,7 @@ from djcelery.models import TaskState
 
 
 # --- Configuration ---
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
 def segmentation_configurations(request, project_id, stack_id):
     if request.method == 'GET':
         ps = get_object_or_404(ProjectStack, project_id=project_id, stack_id=stack_id)
@@ -52,6 +53,7 @@ def stack_info(request, project_id = None, stack_id = None):
 
 
 # --- convenience code for debug purposes ---
+@requires_user_role(UserRole.Annotate)
 def clear_slices(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
@@ -61,6 +63,7 @@ def clear_slices(request, project_id = None, stack_id = None):
     else:
         HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
+@requires_user_role(UserRole.Annotate)
 def clear_segments(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
@@ -70,6 +73,7 @@ def clear_segments(request, project_id = None, stack_id = None):
     else:
         HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
+@requires_user_role(UserRole.Annotate)
 def clear_blocks(request, project_id = None, stack_id = None):
     s = get_object_or_404(Stack, pk = stack_id)
     sure = request.GET.get('sure')
@@ -81,6 +85,7 @@ def clear_blocks(request, project_id = None, stack_id = None):
     else:
         HttpResponse(json.dumps({'ok' : False}), content_type='text/json')
 
+@requires_user_role(UserRole.Annotate)
 def clear_djsopnet(request, project_id = None, stack_id = None):
     sure = request.GET.get('sure')
     if sure == 'yes':
