@@ -1,11 +1,13 @@
 import json
 import networkx as nx
 
+from django.db import connection
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
 from catmaid.models import Treenode, Stack, Project, User, ProjectStack, ClassInstance
-from djsopnet.models import Slice, Segment, SegmentSlice, Constraint, ConstraintSegmentRelation
+from djsopnet.control.slice import _slice_ids_intersecting_point
+from djsopnet.models import SegmentationStack
 
 
 def _build_skeleton_super_graph(skeleton_graph):
@@ -53,33 +55,38 @@ def _build_skeleton_super_graph(skeleton_graph):
     return skeleton_super_graph
 
 
-def _retrieve_slices_in_boundingbox(resolution, translation, location):
-    retslices = Slice.objects.filter(
-            section=int((location['z'] - translation['z']) / resolution['z']),
-            min_x__lte=(location['x'] - translation['x']) / resolution['x'],
-            max_x__gte=(location['x'] - translation['x']) / resolution['x'],
-            min_y__lte=(location['y'] - translation['y']) / resolution['y'],
-            max_y__gte=(location['y'] - translation['y']) / resolution['y'],
-    ).values('id')
-    # TODO: for retrieved slices, perform a pixel-based lookup to select only the
-    # really intersecting slices
-    return set([r['id'] for r in retslices])
+def _retrieve_slices_in_boundingbox(segmentation_stack_id, resolution, translation, location):
+    return set(_slice_ids_intersecting_point(segmentation_stack_id,
+            (location['x'] - translation['x']) / resolution['x'],
+            (location['y'] - translation['y']) / resolution['y'],
+            int((location['z'] - translation['z']) / resolution['z'])))
 
 
-def _retrieve_slices_in_boundingbox_multiple_locations(resolution, translation, locations):
-    all_slices = _retrieve_slices_in_boundingbox(resolution, translation, locations[0])
+def _retrieve_slices_in_boundingbox_multiple_locations(segmentation_stack_id, resolution, translation, locations):
+    all_slices = _retrieve_slices_in_boundingbox(segmentation_stack_id, resolution, translation, locations[0])
     if len(locations) > 1:
         for i, location in enumerate(locations[1:]):
-            all_slices = all_slices.intersection(_retrieve_slices_in_boundingbox(resolution, translation, location))
+            all_slices = all_slices.intersection(_retrieve_slices_in_boundingbox(segmentation_stack_id, resolution, translation, location))
     return all_slices
 
 
-def _generate_user_constraint_from_intersection_segments(skt, super_graph, allCompatibleSegments, u, p):
+def _generate_user_constraint_from_intersection_segments(segmentation_stack_id, user, skt, allCompatibleSegments):
+    cursor = connection.cursor()
+
     for current_and_successor_node_id, compatible_segments in allCompatibleSegments:
-        constraint = Constraint(user=u, project=p) # skeleton = skt <-- needs database modification
-        constraint.save()
+        cursor.execute('''
+                INSERT INTO segstack_%(segstack_id)s.solution_constraint
+                (user_id, creation_time, edition_time, skeleton_id, relation, value) VALUES
+                (%(user_id)s, now(), now(), %(skeleton_id)s, 'Equal'::constraintrelation, 1.0)
+                RETURNING id;
+                ''' % {'segstack_id': segmentation_stack_id, 'user_id': user.id, 'skeleton_id': skt.id})
+        constraint_id = cursor.fetchone()[0]
         for segment in compatible_segments:
-            ConstraintSegmentRelation(constraint=constraint, segment_id=int(segment)).save()
+            cursor.execute('''
+                    INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
+                    (constraint_id, segment_id, coefficient) VALUES
+                    (%(constraint_id)s, %(segment_id)s, 1);
+                    ''' % {'segstack_id': segmentation_stack_id, 'constraint_id': constraint_id, 'segment_id': segment})
 
 
 def _get_section_node_dictionary(super_graph):
@@ -96,14 +103,13 @@ def _get_section_node_dictionary(super_graph):
     return section_node_dictionary
 
 
-def _generate_user_constraints(user_id=None, project_id=None, stack_id=None, skeleton_id=None):
+def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleton_id=None):
     u = get_object_or_404(User, pk=user_id)
-    s = get_object_or_404(Stack, pk=stack_id)
+    segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     skt = get_object_or_404(ClassInstance, pk=skeleton_id)
-    p = get_object_or_404(Project, pk=project_id)
-    t = ProjectStack.objects.filter(stack=s, project=p)[0].translation
+    t = segstack.project_stack.translation
     translation = {'x': t.x, 'y': t.y, 'z': t.z}
-    r = s.resolution
+    r = segstack.project_stack.stack.resolution
     resolution = {'x': r.x, 'y': r.y, 'z': r.z}
 
     skeleton_nodes = Treenode.objects.filter(skeleton_id=skeleton_id).values('id', 'location_x',
@@ -128,7 +134,7 @@ def _generate_user_constraints(user_id=None, project_id=None, stack_id=None, ske
 
     for node_id, d in super_graph.nodes_iter(data=True):
         data_for_skeleton_nodes = [skeleton_graph.node[skeleton_node_id] for skeleton_node_id in d['nodes_in_same_section']]
-        d['sliceset'] = _retrieve_slices_in_boundingbox_multiple_locations(resolution, translation, data_for_skeleton_nodes)
+        d['sliceset'] = _retrieve_slices_in_boundingbox_multiple_locations(segstack.id, resolution, translation, data_for_skeleton_nodes)
 
     # iterate the supergraph in order to select segments between each edge/leaf node
     super_graph_root_node_id = [n for n, d in super_graph.in_degree().items() if d == 0][0]
@@ -149,6 +155,7 @@ def _generate_user_constraints(user_id=None, project_id=None, stack_id=None, ske
     allCompatibleSegments = []
     # List of edges for which no compatible segment could be found:
     uncompatibleLocations = []
+    cursor = connection.cursor()
     for current_node_id in graph_traversal_nodes:
         # We will need the successors of the current node to traverse the graph and to find the segments that constitute the skeleton constraints.
         successors_of_node = super_graph.successors(current_node_id)
@@ -195,16 +202,18 @@ def _generate_user_constraints(user_id=None, project_id=None, stack_id=None, ske
                 string_bottom_node_sliceset = string_bottom_node_sliceset + ')'
                 print 'Bottom node slice set: ' + string_bottom_node_sliceset
 
-                query_string = '''
-                        SELECT DISTINCT ss1.id FROM djsopnet_segmentslice ss1
-                        JOIN djsopnet_segmentslice ss2
+                cursor.execute('''
+                        SELECT DISTINCT ss1.segment_id
+                        FROM segstack_%(segstack_id)s.segment_slice ss1
+                        JOIN segstack_%(segstack_id)s.segment_slice ss2
                         ON ss1.segment_id = ss2.segment_id
-                        WHERE ss1.slice_id IN %s
-                        AND ss2.slice_id IN %s;
-                        ''' % (string_top_node_sliceset, string_bottom_node_sliceset)
+                        WHERE ss1.slice_id IN %(top_sliceset)s
+                        AND ss2.slice_id IN %(bottom_sliceset)s;
+                        ''' % {'segstack_id': segstack.id,
+                               'top_sliceset': string_top_node_sliceset,
+                               'bottom_sliceset': string_bottom_node_sliceset})
 
-                for ss in SegmentSlice.objects.raw(query_string):
-                    segmentsContainingEdge_id.add(ss.segment.id)
+                segmentsContainingEdge_id.update([r[0] for r in cursor.fetchall()])
 
             print 'SegmentsContainingEdge: ' + str(segmentsContainingEdge_id)
 
@@ -212,8 +221,14 @@ def _generate_user_constraints(user_id=None, project_id=None, stack_id=None, ske
             # Then select those where all (the other) top and bottom sections are in the respective section slice sets
             for segment_id in segmentsContainingEdge_id:
                 # Get the slices that constitute the segment
-                top_slices = set([s['slice'] for s in SegmentSlice.objects.filter(segment=segment_id, direction=True).values('slice')])
-                bottom_slices = set([s['slice'] for s in SegmentSlice.objects.filter(segment=segment_id, direction=False).values('slice')])
+                cursor.execute('''
+                        SELECT slice_id, direction
+                        FROM segstack_%s.segment_slice
+                        WHERE segment_id = %s
+                        ''' % (segstack.id, segment_id))
+                segment_slices = cursor.fetchall()
+                top_slices = set([s[0] for s in segment_slices if s[1]])
+                bottom_slices = set([s[0] for s in segment_slices if not s[1]])
                 if top_slices <= set(topSectionSliceSet) and bottom_slices <= set(bottomSectionSliceSet):
                     compatibleSegments_id.append(segment_id)
 
@@ -229,14 +244,14 @@ def _generate_user_constraints(user_id=None, project_id=None, stack_id=None, ske
                 allCompatibleSegments.append(((current_node_id, successor_id), compatibleSegments_id))
 
     # generate user constraints from intersection
-    _generate_user_constraint_from_intersection_segments(skt, super_graph, allCompatibleSegments, u, p)
+    _generate_user_constraint_from_intersection_segments(segstack.id, u, skt, allCompatibleSegments)
 
     return {'all_compatible_segments': allCompatibleSegments, 'uncompatible_locations': uncompatibleLocations}
 
 
-def generate_user_constraints(request, project_id=None, stack_id=None, skeleton_id=None):
+def generate_user_constraints(request, project_id=None, segmentation_stack_id=None, skeleton_id=None):
     """ For a given skeleton, generate user constraints """
-    data = _generate_user_constraints(request.user.id, project_id, stack_id, skeleton_id)
+    data = _generate_user_constraints(request.user.id, segmentation_stack_id, skeleton_id)
     return HttpResponse(json.dumps((data), separators=(',', ':')))
 
 # TODO: keep a lookup table of locations that are inconsistent with the skeleton
@@ -246,4 +261,3 @@ def generate_user_constraints(request, project_id=None, stack_id=None, skeleton_
 # -> those location are not mapped to any user constraint to constrain the solution, but stored and displayed for review
 
 #_generate_user_constraints( 1, 1, 1, 40 )
-
