@@ -283,7 +283,7 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
     try:
         slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
 
-        segment = _create_segment_for_slices(segstack.id, slice_ids)
+        segment = _create_segment_for_slices(segstack.id, slice_ids, request.POST.get('section_sup', None))
 
         return generate_segment_response(segment)
     except ValidationError as ve:
@@ -299,7 +299,7 @@ class DuplicateSegmentException(Exception):
     pass
 
 
-def _create_segment_for_slices(segmentation_stack_id, slice_ids):
+def _create_segment_for_slices(segmentation_stack_id, slice_ids, section_sup):
     """Creates a segment joining a specified set of slices. Ends must specify section supremum."""
     if len(slice_ids) == 0:
         raise ValidationError('Must specify at least one slices for a segment')
@@ -319,10 +319,9 @@ def _create_segment_for_slices(segmentation_stack_id, slice_ids):
 
     # Set segment section_sup
     #   If continuation or branch, should be max(sections)
-    #   If an end, should be request param, otherwise 400
+    #   If an end, should be request param, otherwise invalid request
     section_sup = max(sections)
     if len(slices) == 1:
-        section_sup = request.POST.get('section_sup', None)
         if section_sup is None:
             raise ValidationError('End segments must specify section supremum')
 
