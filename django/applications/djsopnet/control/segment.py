@@ -3,6 +3,7 @@ from collections import namedtuple
 
 import pysopnet
 
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -281,84 +282,99 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     try:
         slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
-        if len(slice_ids) == 0:
-            return HttpResponseBadRequest(json.dumps({'error': 'Must specify at least one slices for a segment'}), content_type='application/json')
 
-        slices = _retrieve_slices_by_ids(segmentation_stack_id, slice_ids)
-        if len(slices) != len(slice_ids):
-            return HttpResponseBadRequest(json.dumps({'error': 'Segment refers to non-existent slices'}), content_type='application/json')
-
-        sections = [x.section for x in slices]
-        section_span = max(sections) - min(sections)
-        if section_span > 1:
-            return HttpResponseBadRequest(json.dumps({'error': 'Slices must be in adjacent sections'}), content_type='application/json')
-        if section_span == 0 and len(slices) > 1:
-            return HttpResponseBadRequest(json.dumps({'error': 'End segments must contain exactly one slice'}), content_type='application/json')
-        if len(slices) > 3:
-            return HttpResponseBadRequest(json.dumps({'error': 'SOPNET only supports branches of 1:2 slices'}), content_type='application/json')
-
-        # Set segment section_sup
-        #   If continuation or branch, should be max(sections)
-        #   If an end, should be request param, otherwise 400
-        section_sup = max(sections)
-        if len(slices) == 1:
-            section_sup = request.POST.get('section_sup', None)
-            if section_sup is None:
-                return HttpResponseBadRequest(json.dumps({'error': 'End segments must specify section supremum'}), content_type='application/json')
-
-        # Set segment extents extrema of slice extents
-        min_x = min([x.min_x for x in slices])
-        min_y = min([x.min_y for x in slices])
-        max_x = min([x.max_x for x in slices])
-        max_y = min([x.max_y for x in slices])
-
-        # Get segment hash from SOPNET
-        leftSliceHashes = pysopnet.SliceHashVector()
-        leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_sup])
-        rightSliceHashes = pysopnet.SliceHashVector()
-        rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_sup])
-        segment_hash = pysopnet.segmentHashValue(leftSliceHashes, rightSliceHashes)
-        segment_id = hash_to_id(segment_hash)
-
-        cursor = connection.cursor()
-        cursor.execute('SELECT 1 FROM segstack_%s.segment WHERE id = %s LIMIT 1' % (segstack.id, segment_id))
-        if cursor.rowcount > 0:
-            return HttpResponse(json.dumps(
-                    {'error': 'Segment already exists with hash: %s id: %s' % (segment_hash, segment_id)}),
-                    status=409, content_type='application/json')
-
-        type = len(slices) - 1
-        # Create segment, associate slices to segment, and associate segment to blocks
-        cursor.execute('''
-                INSERT INTO segstack_%(segstack_id)s.segment
-                (id, section_sup, type, min_x, min_y, max_x, max_y) VALUES
-                (%(segment_id)s, %(section_sup)s, %(type)s,
-                    %(min_x)s, %(min_y)s, %(max_x)s, %(max_y)s);
-
-                INSERT INTO segstack_%(segstack_id)s.segment_slice
-                (segment_id, slice_id, direction)
-                SELECT seg.id, slice.id, slice.section <> %(section_sup)s
-                FROM (VALUES (%(segment_id)s)) AS seg (id),
-                (SELECT id, section FROM segstack_%(segstack_id)s.slice
-                    WHERE id IN (%(slice_ids)s)) AS slice (id);
-
-                INSERT INTO segstack_%(segstack_id)s.segment_block_relation
-                (segment_id, block_id)
-                SELECT seg.id, sbr.block_id
-                FROM (VALUES (%(segment_id)s)) AS seg (id),
-                (SELECT DISTINCT block_id FROM segstack_%(segstack_id)s.slice_block_relation
-                    WHERE slice_id IN (%(slice_ids)s)) AS sbr;
-                ''' % {'segstack_id': segstack.id, 'segment_id': segment_id,
-                    'section_sup': section_sup, 'type': type,
-                    'min_x': min_x, 'min_y': min_y,
-                    'max_x': max_x, 'max_y': max_y,
-                    'slice_ids': ','.join(map(str, slice_ids))})
-
-        segment = _retrieve_segments_by_ids(segmentation_stack_id, [segment_id])[0]
+        segment = _create_segment_for_slices(segstack.id, slice_ids)
 
         return generate_segment_response(segment)
+    except ValidationError as ve:
+        return HttpResponseBadRequest(json.dumps({'error': str(ve)}), content_type='application/json')
+    except DuplicateSegmentException as dse:
+        return HttpResponse(json.dumps({'error': str(dse)}), status=409, content_type='application/json')
     except:
         return error_response()
+
+
+class DuplicateSegmentException(Exception):
+    """Indicates a segment for a set of slices already exists."""
+    pass
+
+
+def _create_segment_for_slices(segmentation_stack_id, slice_ids):
+    """Creates a segment joining a specified set of slices. Ends must specify section supremum."""
+    if len(slice_ids) == 0:
+        raise ValidationError('Must specify at least one slices for a segment')
+
+    slices = _retrieve_slices_by_ids(segmentation_stack_id, slice_ids)
+    if len(slices) != len(slice_ids):
+        raise ValidationError('Segment refers to non-existent slices')
+
+    sections = [x.section for x in slices]
+    section_span = max(sections) - min(sections)
+    if section_span > 1:
+        raise ValidationError('Slices must be in adjacent sections')
+    if section_span == 0 and len(slices) > 1:
+        raise ValidationError('End segments must contain exactly one slice')
+    if len(slices) > 3:
+        raise ValidationError('SOPNET only supports branches of 1:2 slices')
+
+    # Set segment section_sup
+    #   If continuation or branch, should be max(sections)
+    #   If an end, should be request param, otherwise 400
+    section_sup = max(sections)
+    if len(slices) == 1:
+        section_sup = request.POST.get('section_sup', None)
+        if section_sup is None:
+            raise ValidationError('End segments must specify section supremum')
+
+    # Set segment extents extrema of slice extents
+    min_x = min([x.min_x for x in slices])
+    min_y = min([x.min_y for x in slices])
+    max_x = min([x.max_x for x in slices])
+    max_y = min([x.max_y for x in slices])
+
+    # Get segment hash from SOPNET
+    leftSliceHashes = pysopnet.SliceHashVector()
+    leftSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section != section_sup])
+    rightSliceHashes = pysopnet.SliceHashVector()
+    rightSliceHashes.extend([long(id_to_hash(x.id)) for x in slices if x.section == section_sup])
+    segment_hash = pysopnet.segmentHashValue(leftSliceHashes, rightSliceHashes)
+    segment_id = hash_to_id(segment_hash)
+
+    cursor = connection.cursor()
+    cursor.execute('SELECT 1 FROM segstack_%s.segment WHERE id = %s LIMIT 1' % (segmentation_stack_id, segment_id))
+    if cursor.rowcount > 0:
+        raise DuplicateSegmentException('Segment already exists with hash: %s id: %s' % (segment_hash, segment_id))
+
+    type = len(slices) - 1
+    # Create segment, associate slices to segment, and associate segment to blocks
+    cursor.execute('''
+            INSERT INTO segstack_%(segstack_id)s.segment
+            (id, section_sup, type, min_x, min_y, max_x, max_y) VALUES
+            (%(segment_id)s, %(section_sup)s, %(type)s,
+                %(min_x)s, %(min_y)s, %(max_x)s, %(max_y)s);
+
+            INSERT INTO segstack_%(segstack_id)s.segment_slice
+            (segment_id, slice_id, direction)
+            SELECT seg.id, slice.id, slice.section <> %(section_sup)s
+            FROM (VALUES (%(segment_id)s)) AS seg (id),
+            (SELECT id, section FROM segstack_%(segstack_id)s.slice
+                WHERE id IN (%(slice_ids)s)) AS slice (id);
+
+            INSERT INTO segstack_%(segstack_id)s.segment_block_relation
+            (segment_id, block_id)
+            SELECT seg.id, sbr.block_id
+            FROM (VALUES (%(segment_id)s)) AS seg (id),
+            (SELECT DISTINCT block_id FROM segstack_%(segstack_id)s.slice_block_relation
+                WHERE slice_id IN (%(slice_ids)s)) AS sbr;
+            ''' % {'segstack_id': segmentation_stack_id, 'segment_id': segment_id,
+                'section_sup': section_sup, 'type': type,
+                'min_x': min_x, 'min_y': min_y,
+                'max_x': max_x, 'max_y': max_y,
+                'slice_ids': ','.join(map(str, slice_ids))})
+
+    segment = _retrieve_segments_by_ids(segmentation_stack_id, [segment_id])[0]
+
+    return segment
 
 
 @requires_user_role(UserRole.Annotate)
