@@ -188,18 +188,10 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
 
             if len(bottom_section_slice_set) != 0 and len(top_section_slice_set) != 0:
 
-                string_top_node_sliceset = '('
-                for n in top_node['sliceset']:
-                    string_top_node_sliceset = string_top_node_sliceset + str(n) + ','
-                string_top_node_sliceset = string_top_node_sliceset[:-1]
-                string_top_node_sliceset = string_top_node_sliceset + ')'
+                string_top_node_sliceset = '(' + ','.join(map(str, top_node['sliceset'])) + ')'
                 print 'Top node slice set: ' + string_top_node_sliceset
 
-                string_bottom_node_sliceset = '('
-                for n in bottom_node['sliceset']:
-                    string_bottom_node_sliceset = string_bottom_node_sliceset + str(n) + ','
-                string_bottom_node_sliceset = string_bottom_node_sliceset[:-1]
-                string_bottom_node_sliceset = string_bottom_node_sliceset + ')'
+                string_bottom_node_sliceset = '(' + ','.join(map(str, bottom_node['sliceset'])) + ')'
                 print 'Bottom node slice set: ' + string_bottom_node_sliceset
 
                 cursor.execute('''
