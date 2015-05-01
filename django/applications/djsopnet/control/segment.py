@@ -320,10 +320,13 @@ def _create_segment_for_slices(segmentation_stack_id, slice_ids, section_sup):
     # Set segment section_sup
     #   If continuation or branch, should be max(sections)
     #   If an end, should be request param, otherwise invalid request
-    section_sup = max(sections)
     if len(slices) == 1:
         if section_sup is None:
             raise ValidationError('End segments must specify section supremum')
+        if section_sup < max(sections) or section_sup > max(sections) + 1:
+            raise ValidationError('End segment section supremum must be slice section or next section')
+    else:
+        section_sup = max(sections)
 
     # Set segment extents extrema of slice extents
     min_x = min([x.min_x for x in slices])
