@@ -291,7 +291,7 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
         sections = [x.section for x in slices]
         section_span = max(sections) - min(sections)
         if section_span > 1:
-            return HttpResponseBadRequest(json.dumps({'error': 'Slices must be in adjacent sections'}))
+            return HttpResponseBadRequest(json.dumps({'error': 'Slices must be in adjacent sections'}), content_type='application/json')
         if section_span == 0 and len(slices) > 1:
             return HttpResponseBadRequest(json.dumps({'error': 'End segments must contain exactly one slice'}), content_type='application/json')
         if len(slices) > 3:
