@@ -251,5 +251,3 @@ def generate_user_constraints(request, project_id=None, segmentation_stack_id=No
 #   - N-way branch for which no branch segment exists: in supergraph if more than two successors
 #   - continuation where no continuation segment exists
 # -> those location are not mapped to any user constraint to constrain the solution, but stored and displayed for review
-
-#_generate_user_constraints( 1, 1, 1, 40 )
