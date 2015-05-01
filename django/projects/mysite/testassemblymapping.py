@@ -67,4 +67,3 @@ for equivalence_id in equivalence_ids:
 	except Exception as e:
 		print '...error'
 		print str(e)
-		pass
