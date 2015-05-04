@@ -81,12 +81,15 @@ def _generate_user_constraint_from_intersection_segments(segmentation_stack_id, 
                 RETURNING id;
                 ''' % {'segstack_id': segmentation_stack_id, 'user_id': user.id, 'skeleton_id': skt.id})
         constraint_id = cursor.fetchone()[0]
-        for segment in compatible_segments:
-            cursor.execute('''
-                    INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
-                    (constraint_id, segment_id, coefficient) VALUES
-                    (%(constraint_id)s, %(segment_id)s, 1);
-                    ''' % {'segstack_id': segmentation_stack_id, 'constraint_id': constraint_id, 'segment_id': segment})
+        segment_ids = '),('.join(map(str, compatible_segments))
+        cursor.execute('''
+                INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
+                (constraint_id, segment_id, coefficient)
+                SELECT %(constraint_id)s, seg.id, 1
+                FROM (VALUES (%(segment_ids)s)) AS seg(id);
+                ''' % {'segstack_id': segmentation_stack_id,
+                       'constraint_id': constraint_id,
+                       'segment_ids': segment_ids})
 
 
 def _get_section_node_dictionary(super_graph):
