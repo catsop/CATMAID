@@ -82,11 +82,29 @@ def _generate_user_constraint_from_intersection_segments(segmentation_stack_id, 
                 ''' % {'segstack_id': segmentation_stack_id, 'user_id': user.id, 'skeleton_id': skt.id})
         constraint_id = cursor.fetchone()[0]
         segment_ids = '),('.join(map(str, compatible_segments))
+        # Insert constraint coefficients for all compatible segments, then
+        # update coefficient weights to prevent segments compatible with
+        # multiple skeletons being selection. For example, if a segment has
+        # constraints from four skeketons, its weight will be set to 4, which
+        # will prevent it from being selected since the equality constraint has
+        # a value of 1.
         cursor.execute('''
                 INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
                 (constraint_id, segment_id, coefficient)
                 SELECT %(constraint_id)s, seg.id, 1
                 FROM (VALUES (%(segment_ids)s)) AS seg(id);
+
+                UPDATE segstack_%(segstack_id)s.constraint_segment_relation
+                SET coefficient = chk.cnt
+                FROM (SELECT csr.segment_id, COUNT(DISTINCT sc.skeleton_id)
+                        FROM (VALUES (%(segment_ids)s)) AS seg(id)
+                        JOIN segstack_%(segstack_id)s.constraint_segment_relation csr
+                          ON csr.segment_id = seg.id
+                        JOIN segstack_%(segstack_id)s.solution_constraint sc
+                          ON sc.id = csr.constraint_id
+                        WHERE sc.skeleton_id IS NOT NULL
+                        GROUP BY csr.segment_id) AS chk(segment_id,cnt)
+                WHERE chk.segment_id = constraint_segment_relation.segment_id;
                 ''' % {'segstack_id': segmentation_stack_id,
                        'constraint_id': constraint_id,
                        'segment_ids': segment_ids})
