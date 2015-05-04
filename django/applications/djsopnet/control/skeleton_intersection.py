@@ -236,18 +236,21 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
 
             compatible_segment_ids = []
             # Then select those where all (the other) top and bottom sections are in the respective section slice sets
-            for segment_id in segment_containing_edge_ids:
+            cursor.execute('''
+                    SELECT
+                      segment_id,
+                      ARRAY_TO_JSON(ARRAY_AGG(ROW(slice_id, direction)))
+                    FROM segstack_%s.segment_slice
+                    WHERE segment_id IN (%s)
+                    GROUP BY segment_id
+                    ''' % (segstack.id, ','.join(map(str, segment_containing_edge_ids))))
+            for row in cursor.fetchall():
                 # Get the slices that constitute the segment
-                cursor.execute('''
-                        SELECT slice_id, direction
-                        FROM segstack_%s.segment_slice
-                        WHERE segment_id = %s
-                        ''' % (segstack.id, segment_id))
-                segment_slices = cursor.fetchall()
-                top_slices = set([s[0] for s in segment_slices if s[1]])
-                bottom_slices = set([s[0] for s in segment_slices if not s[1]])
+                segment_slices = json.loads(row[1])
+                top_slices = set([s['f1'] for s in segment_slices if s['f2']])
+                bottom_slices = set([s['f1'] for s in segment_slices if not s['f2']])
                 if top_slices <= set(top_section_slice_set) and bottom_slices <= set(bottom_section_slice_set):
-                    compatible_segment_ids.append(segment_id)
+                    compatible_segment_ids.append(row[0])
 
             # When no compatible segment is found for a particular edge we want to store the edge in a lookup table to review that location later manually.
             # In this case no user constraint should be added.
