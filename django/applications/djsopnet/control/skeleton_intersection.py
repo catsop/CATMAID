@@ -152,8 +152,6 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
     # that is all upper slices are contained within the section slice set of the upper node
     # and all the bottom slices are contained within the section slice set of the bottom node.
 
-    section_node_dictionary = _get_section_node_dictionary(super_graph)
-
     graph_traversal_nodes = [super_graph_root_node_id]
     all_compatible_segments = []
     # List of edges for which no compatible segment could be found:
@@ -179,13 +177,9 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
             top_node = super_graph.node[top_node_id]
             bottom_node = super_graph.node[bottom_node_id]
 
-            bottom_section_slice_set = []
-            for node_in_section in section_node_dictionary[bottom_node['z']]:
-                bottom_section_slice_set.extend(list(bottom_node['sliceset']))
+            bottom_section_slice_set = list(bottom_node['sliceset'])
 
-            top_section_slice_set = []
-            for node_in_section in section_node_dictionary[top_node['z']]:
-                top_section_slice_set.extend(list(top_node['sliceset']))
+            top_section_slice_set = list(top_node['sliceset'])
 
             segment_containing_edge_ids = set()
 
