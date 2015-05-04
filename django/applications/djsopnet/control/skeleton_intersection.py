@@ -5,7 +5,9 @@ from django.db import connection
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
-from catmaid.models import Treenode, Stack, Project, User, ProjectStack, ClassInstance
+from catmaid.control.authentication import requires_user_role
+from catmaid.models import Treenode, Stack, Project, User, UserRole, \
+        ProjectStack, ClassInstance
 from djsopnet.control.slice import _slice_ids_intersecting_point
 from djsopnet.models import SegmentationStack
 
@@ -256,6 +258,7 @@ def _generate_user_constraints(user_id=None, segmentation_stack_id=None, skeleto
     return {'all_compatible_segments': all_compatible_segments, 'incompatible_locations': incompatible_locations}
 
 
+@requires_user_role(UserRole.Annotate)
 def generate_user_constraints(request, project_id=None, segmentation_stack_id=None, skeleton_id=None):
     """ For a given skeleton, generate user constraints """
     data = _generate_user_constraints(request.user.id, segmentation_stack_id, skeleton_id)
