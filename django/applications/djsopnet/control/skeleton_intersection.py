@@ -91,6 +91,14 @@ def _generate_user_constraint_from_intersection_segments(segmentation_stack_id, 
         # will prevent it from being selected since the equality constraint has
         # a value of 1.
         cursor.execute('''
+                INSERT INTO segstack_%(segstack_id)s.block_constraint_relation
+                (block_id, constraint_id)
+                SELECT sbr.block_id, %(constraint_id)s
+                FROM (SELECT DISTINCT sbr.block_id
+                        FROM (VALUES (%(segment_ids)s)) AS seg(id)
+                        JOIN segstack_%(segstack_id)s.segment_block_relation sbr
+                          ON sbr.segment_id = seg.id) AS sbr(block_id);
+
                 INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
                 (constraint_id, segment_id, coefficient)
                 SELECT %(constraint_id)s, seg.id, 1
