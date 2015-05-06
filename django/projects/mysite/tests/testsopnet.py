@@ -130,13 +130,13 @@ class SopnetTest(object):
 			stackType = ps.StackType.Raw if segstack.type == 'Raw' else ps.StackType.Membrane
 			conf.setCatmaidStackIds(stackType, stackIds)
 		conf.setCatmaidHost(self.catmaid_host)
-		conf.setCatmaidStackScale(self.stack_scale)
+		conf.setCatmaidStackScale(bi.scale)
 		conf.setComponentDirectory(self.component_dir)
-		conf.setBlockSize(ps.point3(self.block_width, self.block_height, self.block_depth))
+		conf.setBlockSize(ps.point3(bi.block_dim_x, bi.block_dim_y, bi.block_dim_z))
 		conf.setVolumeSize(ps.point3(bi.block_dim_x*bi.num_x,
 				bi.block_dim_y*bi.num_y,
 				bi.block_dim_z*bi.num_z))
-		conf.setCoreSize(ps.point3(self.core_width, self.core_height, self.core_depth))
+		conf.setCoreSize(ps.point3(bi.core_dim_x, bi.core_dim_y, bi.core_dim_z))
 		conf.setPostgreSqlDatabase(self.postgresql_database)
 		conf.setPostgreSqlHost(self.postgresql_host)
 		conf.setPostgreSqlPort(self.postgresql_port)
