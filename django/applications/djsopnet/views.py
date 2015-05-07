@@ -18,9 +18,6 @@ from celerysopnet.tasks import TraceNeuronTask
 from djsopnet.control.block import _blockcursor_to_namedtuple
 from djcelery.models import TaskState
 
-# from djsopnet.control.slice import retrieve_slices_for_skeleton
-# from djsopnet.control.skeleton_intersection import generate_user_constraints
-
 
 # --- Configuration ---
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
