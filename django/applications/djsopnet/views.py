@@ -150,7 +150,7 @@ def create_project_config(configuration_id):
                              bi.block_dim_z*bi.num_z]
 
     optional_params = [
-            'backend_type', 'catmaid_host', 'component_dir', 'loglevel',
+            'backend_type', 'component_dir', 'loglevel',
             'postgresql_database', 'postgresql_host', 'postgresql_port',
             'postgresql_user', 'postgresql_password']
     for param_name in optional_params:
