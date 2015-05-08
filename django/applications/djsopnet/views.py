@@ -132,16 +132,23 @@ def create_project_config(configuration_id):
     Creates a configuration dictionary for Sopnet.
     """
     pc = get_object_or_404(SegmentationConfiguration, pk=configuration_id)
-    config = {'catmaid_project_id': pc.project_id, 'catmaid_stack_ids': {}}
-    for segstack in pc.segmentationstack_set.all():
-        config['catmaid_stack_ids'][segstack.type] = {
-            'id': segstack.project_stack.stack.id,
-            'segmentation_id': segstack.id
-        }
-
     bi = pc.block_info
 
-    config['catmaid_stack_scale'] = bi.scale
+    config = {'catmaid_project_id': pc.project_id, 'catmaid_stacks': {}}
+    for segstack in pc.segmentationstack_set.all():
+        stack = segstack.project_stack.stack
+        stack_dict = {
+            'width': stack.dimension.x,
+            'height': stack.dimension.y,
+            'depth': stack.dimension.z,
+            'scale': bi.scale,
+            'id': stack.id,
+            'segmentation_id': segstack.id
+        }
+        for name in ['image_base', 'file_extension', 'tile_source_type', 'tile_width', 'tile_height']:
+            stack_dict[name] = getattr(stack, name)
+        config['catmaid_stacks'][segstack.type] = stack_dict
+
     config['block_size'] = [bi.block_dim_x, bi.block_dim_y, bi.block_dim_z]
     config['core_size'] = [bi.core_dim_x, bi.core_dim_y, bi.core_dim_z]
     config['volume_size'] = [bi.block_dim_x*bi.num_x,

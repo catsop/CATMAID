@@ -1,4 +1,5 @@
 import os
+import re
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
@@ -123,14 +124,27 @@ class SopnetTest(object):
 		conf = ps.ProjectConfiguration()
 		conf.setBackendType(ps.BackendType.PostgreSql)
 		conf.setCatmaidProjectId(sc.project_id)
+
 		for segstack in SegmentationStack.objects.filter(configuration=sc):
-			stackIds = ps.StackIds()
-			stackIds.id = segstack.project_stack.stack.id
-			stackIds.segmentation_id = segstack.id
+			stack = segstack.project_stack.stack
+			stackDesc = ps.StackDescription()
+			# Strings require special handling to convert from unicode to std::string
+			stackDesc.imageBase = stack.image_base.encode('utf8')
+			stackDesc.fileExtension = stack.file_extension.encode('utf8')
+			stackDesc.width = stack.dimension.x
+			stackDesc.height = stack.dimension.y
+			stackDesc.depth = stack.dimension.z
+			stackDesc.scale = bi.scale
+			stackDesc.id = stack.id
+			stackDesc.segmentationId = segstack.id
+			for name in ['tile_source_type', 'tile_width', 'tile_height']:
+				camelName = re.sub(r'(?!^)_([a-zA-Z])', lambda m: m.group(1).upper(), name)
+				setattr(stackDesc, camelName, getattr(stack, name))
+
 			stackType = ps.StackType.Raw if segstack.type == 'Raw' else ps.StackType.Membrane
-			conf.setCatmaidStackIds(stackType, stackIds)
+			conf.setCatmaidStack(stackType, stackDesc)
+
 		conf.setCatmaidHost(self.catmaid_host)
-		conf.setCatmaidStackScale(bi.scale)
 		conf.setComponentDirectory(self.component_dir)
 		conf.setBlockSize(ps.point3(bi.block_dim_x, bi.block_dim_y, bi.block_dim_z))
 		conf.setVolumeSize(ps.point3(bi.block_dim_x*bi.num_x,
