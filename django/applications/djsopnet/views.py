@@ -128,7 +128,7 @@ def create_project_config(configuration_id):
     pc = get_object_or_404(SegmentationConfiguration, pk=configuration_id)
     bi = pc.block_info
 
-    config = {'catmaid_project_id': pc.project_id, 'catmaid_stacks': {}}
+    config = {'catmaid_stacks': {}}
     for segstack in pc.segmentationstack_set.all():
         stack = segstack.project_stack.stack
         stack_dict = {

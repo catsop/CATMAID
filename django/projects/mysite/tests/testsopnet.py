@@ -123,7 +123,6 @@ class SopnetTest(object):
 		bi = BlockInfo.objects.get(configuration=sc)
 		conf = ps.ProjectConfiguration()
 		conf.setBackendType(ps.BackendType.PostgreSql)
-		conf.setCatmaidProjectId(sc.project_id)
 
 		for segstack in SegmentationStack.objects.filter(configuration=sc):
 			stack = segstack.project_stack.stack
