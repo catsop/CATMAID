@@ -43,12 +43,6 @@ def segmentation_configurations(request, project_id, stack_id):
     return HttpResponseNotAllowed(['GET'])
 
 
-def stack_info(request, project_id = None, stack_id = None):
-    # TODO: circumventing user role requirements in CATMAID
-    result=get_stack_info(project_id, stack_id, request.user)
-    return HttpResponse(json.dumps(result, sort_keys=True, indent=4), content_type="text/json")
-
-
 # --- convenience code for debug purposes ---
 @requires_user_role(UserRole.Annotate)
 def clear_slices(request, project_id = None, stack_id = None):
