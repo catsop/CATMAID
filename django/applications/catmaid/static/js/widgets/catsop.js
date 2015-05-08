@@ -200,10 +200,17 @@ CatsopWidget.prototype.loadSegmentsAtLocation = function () {
               .filter(function (ss) { return ss.direction; })
               .map(function (ss) { return ss.segment_hash; }));
         }, []);
-        if (segments.length)
+        if (segments.length) {
           this.activateSegment(segments);
-        else
+        } else if (json.slices.length) {
+          growlAlert('Information', 'No segments at location');
+          this.sliceRows = json.slices;
+          this.segmentRows = [];
+          this.updateSlices();
+          this.updateSegments();
+        } else {
           growlAlert('Information', 'No slices at location');
+        }
       }).bind(this)));
 };
 
@@ -253,6 +260,7 @@ CatsopWidget.prototype.updateSegments = function () {
       layer.addSlice(slice, 'hidden');
     });
     segmap.nodes.push(slice);
+    slice.breadth = 0;
     slice.segment_summaries.forEach(function (segsum) {
       var match = self.segmentRows.filter(function (sr) {
         return sr.hash === segsum.segment_hash && sr.section === activeSegment.section;});
@@ -620,6 +628,7 @@ CatsopWidget.prototype.moveToActiveSegment = function() {
  * Moves the stack view to any object with section and ctr or box properties.
  */
 CatsopWidget.prototype.moveToObject = function (obj) {
+  if (obj === undefined) return;
   var mag = Math.pow(2, this.blockInfo.scale);
   var z = obj.section - (('mask' in obj) ? 0 : 1), // For segments, move to the left section
       y, x;

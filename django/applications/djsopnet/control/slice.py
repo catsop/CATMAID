@@ -89,7 +89,7 @@ def _slice_select_query(segmentation_stack_id, slice_id_query):
               ON (slice_id_query.slice_id = s.id)
             LEFT JOIN segstack_%(segstack_id)s.slice_conflict scs_as_a ON (scs_as_a.slice_a_id = s.id)
             LEFT JOIN segstack_%(segstack_id)s.slice_conflict scs_as_b ON (scs_as_b.slice_b_id = s.id)
-            JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.slice_id = s.id)
+            LEFT JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.slice_id = s.id)
             LEFT JOIN
               (SELECT aseg.segment_id, sola.solution_id, sola.assembly_id, sp.core_id
                   FROM segstack_%(segstack_id)s.assembly_segment aseg
@@ -127,7 +127,7 @@ def _slicecursor_to_namedtuple(cursor):
                 ]),
                 'segment_summaries': [
                     {segment_map[k]: v for k, v in summary.items()}
-                    for summary in json.loads(rowdict['segment_summaries'])
+                    for summary in json.loads(rowdict['segment_summaries']) if summary['f1']
                 ]
             })
         if not any(rowdict['in_solution'].keys()):
