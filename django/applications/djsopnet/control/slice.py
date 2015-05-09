@@ -1,7 +1,7 @@
 import json
 import os
 from collections import namedtuple
-from pgmagick import Image, Blob, Color, CompositeOperator
+from pgmagick import Image
 
 from django.conf import settings
 from django.db import connection
@@ -51,23 +51,6 @@ def generate_slices_response(slices, with_conflicts=False, with_solutions=False)
 
 
 # --- Slices ---
-
-def slice_alpha_mask(request, project_id=None, segmentation_stack_id=None, slice_hash=None):
-    # For performance the existence of project, stack and slice are not verified.
-    slice_id = hash_to_id(slice_hash) # Also effectively sanitizes slice_hash.
-
-    gray_mask_file = os.path.join(settings.SOPNET_COMPONENT_DIR, str(slice_id) + '.png')
-    if not os.path.isfile(gray_mask_file): raise(Http404)
-
-    gray_mask = Image(gray_mask_file)
-    alpha_mask = Image(gray_mask.size(), Color('#FFF'))
-    alpha_mask.composite(gray_mask, 0, 0, CompositeOperator.CopyOpacityCompositeOp)
-    response_blob = Blob()
-    alpha_mask.magick('PNG')
-    alpha_mask.write(response_blob)
-
-    return HttpResponse(response_blob.data, content_type='image/png')
-
 
 def _slice_select_query(segmentation_stack_id, slice_id_query):
     """Build a querystring to select slices and relationships given an ID query.

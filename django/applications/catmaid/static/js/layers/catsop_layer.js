@@ -79,11 +79,28 @@ CatsopResultsLayer.prototype.addSlice = function (slice, status) {
 
   var $sliceImg = $('<img class="slice-mask slice-hash-' + slice.hash + '" />')
       .hide()
-      .css('-webkit-mask-box-image', 'url("' +
-          [django_url + 'sopnet', project.id, 'segmentation', this.segmentationStack, 'slice', slice.hash, 'alpha_mask'].join('/')  +
-          '") 0 stretch')
       .addClass(status)
       .appendTo($(this.view));
+  var image = new Image();
+  image.onload = function () {
+    var canvas = document.createElement('canvas');
+    canvas.width = slice.box[2] - slice.box[0];
+    canvas.height = slice.box[3] - slice.box[1];
+    var context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    var imageData = context.getImageData(0, 0, slice.box[2] - slice.box[0], slice.box[3] - slice.box[1]);
+    var pix = imageData.data;
+
+    for (var i = 0, l = pix.length; i < l; i += 4) {
+      if (pix[i] === 0 && pix[i+1] === 0 && pix[i+2] === 0)
+        pix[i+3] = 0;
+    }
+
+    context.putImageData(imageData, 0, 0);
+    $sliceImg.css('-webkit-mask-box-image', 'url("' + canvas.toDataURL() + '")');
+  };
+  image.src = slice.mask;
+
   if (slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId)) $sliceImg.addClass('in-solution');
   this.slices[slice.hash] = {
     x: slice.box[0],
