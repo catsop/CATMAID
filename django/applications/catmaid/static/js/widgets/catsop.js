@@ -62,6 +62,7 @@ var CatsopWidget = function () {
   this.activeSolutionId = null;
   this.stack = null;
   this.offsetStack = null;
+  this.graphValue = null;
 };
 
 CatsopWidget.prototype = {};
@@ -70,6 +71,7 @@ $.extend(CatsopWidget.prototype, new InstanceRegistry());
 CatsopWidget.prototype.init = function (container) {
   this.container = container;
   this.stack = project.focusedStack;
+  this.selectGraphValue();
 
   requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
           '/configurations',
@@ -214,6 +216,15 @@ CatsopWidget.prototype.loadSegmentsAtLocation = function () {
       }).bind(this)));
 };
 
+CatsopWidget.prototype.selectGraphValue = function () {
+  var selectedValue = $('#catsop-results' + this.widgetID + '_graph_value option:selected').get(0);
+  this.graphValue = {
+    'Slice Value': function (segment, slice) { return slice.value; },
+    'Slice Size': function (segment, slice) { return Math.sqrt(slice.size); },
+    'Segment Cost': function (segment, slice) { return -segment.cost; }
+  }[selectedValue.text];
+};
+
 CatsopWidget.prototype.updateSegments = function () {
   var $table = $('#' + this.tableContainers.segments.attr('id') + '-table');
   $table.empty();
@@ -267,9 +278,9 @@ CatsopWidget.prototype.updateSegments = function () {
       if (match.length) {
         slice.breadth = segsum.direction ? 0 : 2;
         if (segsum.direction) segmap.links.push({
-            source: slice, target: match[0], graphValue: Math.sqrt(slice.size)});
+            source: slice, target: match[0], graphValue: self.graphValue(match[0], slice)});
         else segmap.links.push({
-            source: match[0], target: slice, graphValue: Math.sqrt(slice.size)});
+            source: match[0], target: slice, graphValue: self.graphValue(match[0], slice)});
       }
     });
   });
@@ -370,7 +381,7 @@ CatsopWidget.prototype.updateSegments = function () {
       .attr("height", function (d) { return d.dy; })
       .attr("width", seggraph.nodeWidths()[1])
     .append("title")
-      .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
+      .text(function (d) { return d.name + "\n" + d.size + " pixels, cost: " + d.cost; });
 
   // Slice nodes
   sliceNodes
@@ -417,7 +428,7 @@ CatsopWidget.prototype.updateSegments = function () {
             + 3; })
       .attr("xlink:href", function (d) { return d.mask; })
     .append("title")
-      .text(function (d) { return d.name + "\n" + d.size + " pixels"; });
+      .text(function (d) { return d.name + "\n" + d.size + " pixels, value: " + d.value; });
   sliceNodes
     .append('polygon')
       .attr('transform', function (d) {

@@ -3065,6 +3065,11 @@ var WindowMaker = new function()
        ['Recenter', CW.moveToActiveSegment.bind(CW)],
        ['Create Segment for Selected Slices', CW.createSegmentForSlices.bind(CW)],
        ['Load Current Location', CW.loadSegmentsAtLocation.bind(CW)]]);
+    var graphValueSelectLabel = $('<label>Graph value:</label>').get(0);
+    var graphValueSelect = appendSelect(graphValueSelectLabel, '', ['Slice Size', 'Slice Value', 'Segment Cost']);
+    graphValueSelect.id = 'catsop-results' + CW.widgetID + '_graph_value';
+    graphValueSelect.onchange = CW.selectGraphValue.bind(CW);
+    tabs['Graph'].appendChild(graphValueSelectLabel);
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],

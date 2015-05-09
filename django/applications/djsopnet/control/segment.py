@@ -21,7 +21,8 @@ def segment_dict(segment, with_solution=False):
     sd = {'hash': id_to_hash(segment.id),
           'section': segment.section_sup,
           'box': [segment.min_x, segment.min_y, segment.max_x, segment.max_y],
-          'type': segment.type}
+          'type': segment.type,
+          'cost': segment.cost}
 
     if with_solution:
         sd['in_solution'] = segment.in_solution
