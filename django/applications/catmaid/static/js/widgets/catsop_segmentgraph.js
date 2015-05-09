@@ -155,7 +155,15 @@ CatsopWidget.SegmentGraph = function() {
       var ky = d3.min(nodesByBreadth, function(nodes) {
         return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, graphValue);
       });
-      ky = Math.min(ky, heightScale); // Prevent links being larger than slices.
+      // Prevent links being larger than slices.
+      var maxSliceValueSizeRatio = nodesByBreadth
+          .filter(function (ns) { return sliceNode(ns[0]); })
+          .reduce(function (maxRatio, nodes) {
+            var ratio = nodes.reduce(function (r, n) {
+              return Math.max(r, d3.max(n.targetLinks.length ? n.targetLinks : n.sourceLinks, graphValue) / (n.box[3] - n.box[1])); }, 0);
+            return Math.max(ratio, maxRatio);
+          }, 0);
+      if (maxSliceValueSizeRatio * ky / heightScale > 1) ky = heightScale / maxSliceValueSizeRatio;
 
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
