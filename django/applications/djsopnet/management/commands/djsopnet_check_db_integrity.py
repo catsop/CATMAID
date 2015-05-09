@@ -148,4 +148,19 @@ class Command(NoArgsCommand):
         else:
             self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
+        self.stdout.write('Check that all segments have the correct number of slices...')
+        cursor = connection.cursor()
+        cursor.execute('''
+                SELECT seg.id, seg.type, count(ss.slice_id)
+                FROM segment seg
+                  JOIN segment_slice ss
+                    ON (ss.segment_id = seg.id)
+                  GROUP BY seg.id
+                  HAVING count(ss.slice_id) > seg.type + 1
+                ''')
+        if cursor.rowcount == 0:
+            self.stdout.write('OK')
+        else:
+            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+
         cursor.execute('RESET search_path;')
