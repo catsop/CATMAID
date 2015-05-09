@@ -396,12 +396,20 @@ CatsopWidget.prototype.updateSegments = function () {
           var $this = d3.select(this);
           if ($this.classed('active')) {
             $this.classed('active', false);
+            // Deactivate any other slice objects for this slice.
+            d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', false);
           } else {
             var thisSlice = d;
             $this.classed('active', true);
+            // Activate any other slice objects for this slice.
+            d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', true);
+            // Deactivate conflicting slices.
             sliceNodes
                 .filter(function (d) { return thisSlice.conflicts.split(',').indexOf(d.hash) >= 0; })
-                .classed('active', false);
+                .classed('active', false)
+                .each(function (d) { // Also deactivate any other slice objects for this conflict.
+                  d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', false);
+                });
           }
           // Set active segments based on intersection of active slices.
           segmentNodes.classed('active', false);
@@ -410,7 +418,7 @@ CatsopWidget.prototype.updateSegments = function () {
             .data()
             .reduce(function (selector, d) {
               return selector + '[class~="slice-hash-' + d.hash + '"]';
-            }, ''))).classed('active', true);
+            }, ''), svg.node())).classed('active', true);
         })
     .append("rect")
       .attr("height", function (d) { return d.dy; })
