@@ -152,9 +152,10 @@ CatsopWidget.SegmentGraph = function() {
           }, 1);
       var heightScale = seggraph.sliceScale;
 
-      var ky = d3.min(nodesByBreadth, function(nodes) {
+      var graphValueScale = d3.min(nodesByBreadth, function(nodes) {
         return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, graphValue);
       });
+
       // Prevent links being larger than slices.
       var maxSliceValueSizeRatio = nodesByBreadth
           .filter(function (ns) { return sliceNode(ns[0]); })
@@ -163,18 +164,20 @@ CatsopWidget.SegmentGraph = function() {
               return Math.max(r, d3.max(n.targetLinks.length ? n.targetLinks : n.sourceLinks, graphValue) / (n.box[3] - n.box[1])); }, 0);
             return Math.max(ratio, maxRatio);
           }, 0);
-      if (maxSliceValueSizeRatio * ky / heightScale > 1) ky = heightScale / maxSliceValueSizeRatio;
+      if (maxSliceValueSizeRatio * graphValueScale / heightScale > 1){
+        graphValueScale = heightScale / maxSliceValueSizeRatio;
+      }
 
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
           node.y = i;
           if (sliceNode(node)) node.dy = heightScale * (node.box[3] - node.box[1]);
-          else node.dy = Math.max(1, node.graphValue * ky);
+          else node.dy = Math.max(1, node.graphValue * graphValueScale);
         });
       });
 
       links.forEach(function(link) {
-        link.dy = link.graphValue * ky;
+        link.dy = link.graphValue * graphValueScale;
       });
     }
 
