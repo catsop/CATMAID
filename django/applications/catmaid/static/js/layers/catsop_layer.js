@@ -65,6 +65,10 @@ CatsopResultsLayer.prototype.unregister = function () {
   this.stack.getView().removeChild(this.view);
 };
 
+CatsopResultsLayer.prototype.setSolutionId = function (solutionId) {
+  this.solutionId = solutionId;
+};
+
 CatsopResultsLayer.prototype.clear = function () {
   $(this.view).empty();
   this.slices = {};
@@ -164,6 +168,11 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
           sliceImg.css('background-color', CatsopResultsLayer.assemblyColors[assemblyId]);
         });
       })));
+};
+
+CatsopResultsLayer.Overlays.Assemblies.prototype.setSolutionId = function (solutionId) {
+  this.solutionId = solutionId;
+  this.clear();
 };
 
 CatsopResultsLayer.assemblyColors = {};

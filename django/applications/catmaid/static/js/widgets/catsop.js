@@ -123,8 +123,12 @@ CatsopWidget.prototype.destroy = function () {
 };
 
 CatsopWidget.prototype.refresh = function () {
+  var solutionId = this.activeSolutionId;
   for (var name in this.layers) {
-    this.layers[name].forEach(function (layer) { layer.refresh(); });
+    this.layers[name].forEach(function (layer) {
+      layer.setSolutionId(solutionId);
+      layer.refresh();
+    });
   }
 
   this.refreshSegments();
