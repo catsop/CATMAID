@@ -623,7 +623,8 @@ CatsopWidget.prototype.activateSolution = function () {
 CatsopWidget.prototype.updateSolutions = function () {
   var solutionIds = this.sliceRows.reduce(function (ids, row) {
     Object.keys(row.in_solution).forEach(function (solutionId) {
-      if (ids.indexOf(solutionId) < 0) ids.push(solutionId);
+      if (solutionId !== 'null' && ids.indexOf(solutionId) < 0)
+        ids.push(solutionId);
     });
     return ids;
   }, []);
