@@ -146,7 +146,7 @@ CREATE TABLE segment_slice (
   slice_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
   segment_id bigint NOT NULL REFERENCES segment(id) DEFERRABLE INITIALLY IMMEDIATE,
   direction boolean NOT NULL,
-  PRIMARY KEY (slice_id, segment_id),
+  PRIMARY KEY (segment_id, slice_id),
   CHECK (false) NO INHERIT -- prevent any rows populating this table
 ) WITH (
   OIDS=FALSE
