@@ -86,7 +86,7 @@ def clear_djsopnet(request, project_id = None, stack_id = None):
         return HttpResponse(json.dumps({'ok': False}), content_type='text/json')
 
 def _clear_djsopnet(segmentation_stack_id=None, delete_slices=True,
-        delete_segments=True):
+        delete_segments=True, delete_solutions=True):
     segmentation_stack_id = int(segmentation_stack_id)
     s = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     delete_config = delete_slices and delete_segments
@@ -103,6 +103,11 @@ def _clear_djsopnet(segmentation_stack_id=None, delete_slices=True,
     if delete_segments:
         cursor.execute('TRUNCATE TABLE segstack_%s.segment CASCADE;' % segmentation_stack_id)
         cursor.execute('UPDATE segstack_%s.block SET segments_flag = FALSE;' % segmentation_stack_id)
+
+    if delete_solutions:
+        cursor.execute('TRUNCATE TABLE segstack_%s.assembly CASCADE;' % segmentation_stack_id)
+        cursor.execute('TRUNCATE TABLE segstack_%s.solution CASCADE;' % segmentation_stack_id)
+        cursor.execute('UPDATE segstack_%s.core SET solution_set_flag = FALSE;' % segmentation_stack_id)
 
     if delete_config:
         cursor.execute('TRUNCATE TABLE segstack_%s.block CASCADE;' % segmentation_stack_id)

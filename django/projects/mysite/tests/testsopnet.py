@@ -93,18 +93,16 @@ class SopnetTest(object):
 	def log(self, msg):
 		print("[Test script] %s" % msg)
 
-	def clear_database(self, clear_slices=True, clear_segments=True):
-		if clear_slices and clear_segments:
-			self.log("Clearing complete database")
-		elif clear_slices:
-			self.log("Clearing database, segments are kept")
-		elif clear_segments:
-			self.log("Clearing database, slices are kept")
-		else:
-			self.log("Clearing database, slices and segments are kept")
+	def clear_database(self, clear_slices=True, clear_segments=True, clear_solutions=True):
+		if clear_slices:
+			self.log("Clearing slices")
+		if clear_segments:
+			self.log("Clearing segments")
+		if clear_solutions:
+			self.log("Clearing solution")
 
 		for ss_id in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id).values_list('id', flat=True):
-			_clear_djsopnet(ss_id, clear_slices, clear_segments)
+			_clear_djsopnet(ss_id, clear_slices, clear_segments, clear_solutions)
 
 	def setup_sopnet(self, loglevel=None):
 		self.log("Setting up blocks for segmentation stacks")
