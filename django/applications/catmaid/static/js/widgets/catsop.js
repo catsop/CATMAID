@@ -104,6 +104,7 @@ CatsopWidget.prototype.initLayers = function (offsetStack) {
   this.offsetStack = offsetStack;
 
   project.setFocusedStack(this.stack);
+  this.stack.getWindow().focus();
 
   var name = 'base';
   this.layers[name] = [];
