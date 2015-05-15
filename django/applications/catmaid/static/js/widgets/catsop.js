@@ -124,6 +124,11 @@ CatsopWidget.prototype.destroy = function () {
 };
 
 CatsopWidget.prototype.refresh = function () {
+  this.refreshLayers();
+  this.refreshSegments();
+};
+
+CatsopWidget.prototype.refreshLayers = function () {
   var solutionId = this.activeSolutionId;
   for (var name in this.layers) {
     this.layers[name].forEach(function (layer) {
@@ -131,8 +136,6 @@ CatsopWidget.prototype.refresh = function () {
       layer.refresh();
     });
   }
-
-  this.refreshSegments();
 };
 
 CatsopWidget.prototype.getLayerKey = function (name) {
@@ -619,6 +622,7 @@ CatsopWidget.prototype.generateAssembliesAtLocation = function () {
 CatsopWidget.prototype.activateSolution = function () {
   var selectedSolution = $('#catsop-results' + this.widgetID + '_solution_id option:selected').get(0);
   this.activeSolutionId = selectedSolution.value === 'Union' ? null : selectedSolution.value;
+  this.refreshLayers();
 };
 
 CatsopWidget.prototype.updateSolutions = function () {
