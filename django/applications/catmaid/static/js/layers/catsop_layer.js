@@ -6,25 +6,19 @@ function CatsopResultsLayer (stack, segmentationStack, scale, solutionId) {
   this.opacity = 0.5;
   this.radius = 3;
 
-  // Create container, aligned to the upper left
-  this.view = document.createElement("div");
-  this.view.className = "catsop-layer";
-
-  this.slices = {};
-
-  // Append it to DOM
-  stack.getView().appendChild(this.view);
+  if (!CATMAID.PixiLayer.contexts.get(this.stack)) {
+    growlAlert('ERROR', 'CATSOP requires WebGL rendering. Enable WebGL from the settings widget and reload.');
+    return;
+  }
+  CATMAID.PixiLayer.call(this);
+  CATMAID.PixiLayer.prototype._initBatchContainer.call(this);
 }
 
-CatsopResultsLayer.prototype = {};
+CatsopResultsLayer.prototype = Object.create(CATMAID.PixiLayer.prototype);
+CatsopResultsLayer.prototype.constructor = CatsopResultsLayer;
 
 CatsopResultsLayer.prototype.getLayerName = function () {
   return "CATSOP results";
-};
-
-CatsopResultsLayer.prototype.setOpacity = function (val) {
-  this.view.style.opacity = val;
-  this.opacity = val;
 };
 
 CatsopResultsLayer.prototype.getOpacity = function () {
@@ -36,23 +30,16 @@ CatsopResultsLayer.prototype.resize = function () {
 };
 
 CatsopResultsLayer.prototype.redraw = function (completionCallback) {
+  if (!this.batchContainer) return; // Layer construction failed, likely due to no WebGL.
   var mag = Math.pow(2, this.scale - this.stack.s);
+  this.batchContainer.position.x = -this.stack.xc;
+  this.batchContainer.position.y = -this.stack.yc;
+  this.batchContainer.scale.x = mag;
+  this.batchContainer.scale.y = mag;
 
-  for (var hash in this.slices) {
-    var slice = this.slices[hash];
-    if (slice.z === this.stack.z) {
-      slice.$img
-          .css('left',  mag * slice.x - this.stack.xc)
-          .css('top', mag * slice.y - this.stack.yc)
-          .css('width', mag * slice.width)
-          .css('height', mag * slice.height)
-          .css('display', ''); // Show the slice, but don't override CSS hides.
-    } else {
-      slice.$img.hide();
-    }
-  }
+  this.renderer.render(this.stage);
 
-  if (completionCallback) {
+  if (typeof completionCallback === 'function') {
       completionCallback();
   }
 };
@@ -62,7 +49,8 @@ CatsopResultsLayer.prototype.refresh = function () {
 };
 
 CatsopResultsLayer.prototype.unregister = function () {
-  this.stack.getView().removeChild(this.view);
+  this.stage.removeChild(this.batchContainer);
+  this.renderer.render(this.stage);
 };
 
 CatsopResultsLayer.prototype.setSolutionId = function (solutionId) {
@@ -70,63 +58,103 @@ CatsopResultsLayer.prototype.setSolutionId = function (solutionId) {
 };
 
 CatsopResultsLayer.prototype.clear = function () {
-  $(this.view).empty();
+  this.batchContainer.removeChildren();
+};
+
+
+CatsopResultsLayer.Slices = function (stack, segmentationStack, scale, solutionId) {
+  CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
+
+  this.slices = {};
+  this.statusStyles = {
+    hidden:        {visible: false, color: 0x000000},
+    active:        {visible: true,  color: 0xFFFF00},
+    conflict:      {visible: true,  color: 0xFF0000},
+    'in-solution': {visible: true,  color: 0x00FF00},
+    highlight:     {visible: true,  color: 0x0000FF}
+  };
+};
+
+CatsopResultsLayer.Slices.prototype = Object.create(CatsopResultsLayer.prototype);
+CatsopResultsLayer.Slices.prototype.constructor = CatsopResultsLayer.Slices;
+
+CatsopResultsLayer.Slices.prototype.redraw = function (completionCallback) {
+  var self = this;
+
+  for (var hash in this.slices) {
+    var slice = this.slices[hash];
+
+    var style = slice.statuses.reduce(function (style, status) {
+      style.visible = style.visible || self.statusStyles[status].visible;
+      style.color = self.statusStyles[status].color;
+      return style;
+    }, {visible: true, color: null});
+
+    slice.sprite.visible = style.visible && slice.z === this.stack.z;
+    if (style.color !== null) slice.sprite.tint = style.color;
+  }
+
+  CatsopResultsLayer.prototype.redraw.call(this, completionCallback);
+};
+
+CatsopResultsLayer.Slices.prototype.clear = function () {
+  CatsopResultsLayer.prototype.clear.call(this);
   this.slices = {};
 };
 
-CatsopResultsLayer.prototype.addSlice = function (slice, status) {
+CatsopResultsLayer.Slices.prototype.addSlice = function (slice, statuses) {
   if (slice.hash in this.slices) {
-    var $sliceImg = this.slices[slice.hash].$img;
-    $sliceImg.addClass(status);
-    return $sliceImg;
+    var slice = this.slices[slice.hash];
+    slice.statuses = statuses || [];
+    return slice;
   }
 
-  var $sliceImg = $('<img class="slice-mask slice-hash-' + slice.hash + '" />')
-      .hide()
-      .addClass(status)
-      .appendTo($(this.view));
-  var image = new Image();
-  image.onload = function () {
-    var canvas = document.createElement('canvas');
-    canvas.width = slice.box[2] - slice.box[0];
-    canvas.height = slice.box[3] - slice.box[1];
-    var context = canvas.getContext('2d');
-    context.drawImage(image, 0, 0);
-    var imageData = context.getImageData(0, 0, slice.box[2] - slice.box[0], slice.box[3] - slice.box[1]);
-    var pix = imageData.data;
+  var sprite = new PIXI.Sprite.fromImage(slice.mask);
+  sprite.texture.once('update', this.redraw.bind(this));
+  sprite.x = slice.box[0];
+  sprite.y = slice.box[1];
+  sprite.width = slice.box[2] - slice.box[0];
+  sprite.height = slice.box[3] - slice.box[1];
+  sprite.blendMode = PIXI.blendModes.ADD;
+  if (this.batchContainer) this.batchContainer.addChild(sprite);
 
-    for (var i = 0, l = pix.length; i < l; i += 4) {
-      if (pix[i] === 0 && pix[i+1] === 0 && pix[i+2] === 0)
-        pix[i+3] = 0;
-    }
-
-    context.putImageData(imageData, 0, 0);
-    $sliceImg.css('-webkit-mask-box-image', 'url("' + canvas.toDataURL() + '")');
-  };
-  image.src = slice.mask;
-
-  if (slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId)) $sliceImg.addClass('in-solution');
   this.slices[slice.hash] = {
-    x: slice.box[0],
-    y: slice.box[1],
     z: slice.section,
-    width: slice.box[2] - slice.box[0],
-    height: slice.box[3] - slice.box[1],
-    $img: $sliceImg};
+    sprite: sprite,
+    statuses: statuses || []
+  };
   this.redraw();
-  return $sliceImg;
+
+  return sprite;
+};
+
+CatsopResultsLayer.Slices.prototype.addStatus = function (sliceHash, status) {
+  var slice = this.slices[sliceHash];
+  if (typeof slice === 'undefined') return;
+
+  slice.statuses.push(status);
+  this.redraw();
+};
+
+CatsopResultsLayer.Slices.prototype.removeStatus = function (sliceHash, status) {
+  var slice = this.slices[sliceHash];
+  if (typeof slice === 'undefined') return;
+
+  slice.statuses = slice.statuses.filter(function (oldStatus) { return oldStatus !== status; });
+  this.redraw();
 };
 
 // Namespace for overlays extending CatsopResultsLayer
 CatsopResultsLayer.Overlays = {};
 
+
 CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStack, scale, solutionId) {
-  CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
+  CatsopResultsLayer.Slices.call(this, stack, segmentationStack, scale, solutionId);
 
   this.old_z = null;
 };
 
-CatsopResultsLayer.Overlays.Assemblies.prototype = Object.create(CatsopResultsLayer.prototype);
+CatsopResultsLayer.Overlays.Assemblies.prototype = Object.create(CatsopResultsLayer.Slices.prototype);
 
 CatsopResultsLayer.Overlays.Assemblies.prototype.getLayerName = function () {
   return "CATSOP assemblies";
@@ -138,7 +166,7 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.redraw = function (completionCa
     this.refresh();
   }
 
-  CatsopResultsLayer.prototype.redraw.call(this, completionCallback);
+  CatsopResultsLayer.Slices.prototype.redraw.call(this, completionCallback);
 };
 
 CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
@@ -159,13 +187,13 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
         json.slices.forEach(function (slice) {
           if (!(slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId))) return;
 
-          var sliceImg = self.addSlice(slice, 'active');
+          var sprite = self.addSlice(slice);
           var assemblyId = slice.in_solution[self.solutionId];
           if (!(assemblyId in CatsopResultsLayer.assemblyColors)) {
-            CatsopResultsLayer.assemblyColors[assemblyId] = czer.pickColor().getStyle();
+            CatsopResultsLayer.assemblyColors[assemblyId] = czer.pickColor().getHex();
           }
 
-          sliceImg.css('background-color', CatsopResultsLayer.assemblyColors[assemblyId]);
+          sprite.tint = CatsopResultsLayer.assemblyColors[assemblyId];
         });
       })));
 };
@@ -177,13 +205,17 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.setSolutionId = function (solut
 
 CatsopResultsLayer.assemblyColors = {};
 
+
 CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStack, scale, solutionId) {
   CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
 
   this.z_lim = null;
   this.regions = {};
   this.regionType = 'blocks';
-  this.regionFlags = ['slices', 'segments'];
+  this.flagStyles = {
+    slices:   {visible: true, color: 0xFFFF00},
+    segments: {visible: true, color: 0x00FF00}
+  };
 };
 
 CatsopResultsLayer.Overlays.Blocks.prototype = Object.create(CatsopResultsLayer.prototype);
@@ -198,25 +230,28 @@ CatsopResultsLayer.Overlays.Blocks.prototype.redraw = function (completionCallba
     this.refresh();
   }
 
-  var mag = Math.pow(2, -this.stack.s);
-
+  var self = this;
   for (var id in this.regions) {
     var region = this.regions[id];
-    if (region.z <= this.stack.z && region.z + region.depth > this.stack.z) {
-      region.$div
-          .css('left',  mag * region.x - this.stack.xc)
-          .css('top', mag * region.y - this.stack.yc)
-          .css('width', mag * region.width)
-          .css('height', mag * region.height)
-          .show();
-    } else {
-      region.$div.hide();
+
+    var style = region.flags.reduce(function (style, flag) {
+      style.visible = style.visible || self.flagStyles[flag].visible;
+      style.color = self.flagStyles[flag].color;
+      return style;
+    }, {visible: false, color: 0x000000});
+
+    region.graphics.visible = region.text.visible =
+        style.visible && region.z <= this.stack.z && region.z + region.depth > this.stack.z;
+    region.graphics.tint = style.color;
+    var colorStr = style.color.toString(16);
+    while (colorStr.length < 6) { colorStr = '0' + colorStr; }
+    colorStr = '#' + colorStr;
+    if (region.text.style.fill !== colorStr) {
+      region.text.setStyle({fill: colorStr});
     }
   }
 
-  if (completionCallback) {
-      completionCallback();
-  }
+  CatsopResultsLayer.prototype.redraw.call(this, completionCallback);
 };
 
 CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
@@ -243,9 +278,9 @@ CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
         }
 
         json[self.regionType].forEach(function (region) {
-          self.addRegion(region, self.regionFlags.map(function (flag) {
-                return region[flag] ? flag + '_flag' : '';
-              }).join(' '));
+          self.addRegion(region, Object.keys(self.flagStyles).filter(function (flag) {
+                return region[flag];
+              }));
         });
       })));
 };
@@ -256,33 +291,47 @@ CatsopResultsLayer.Overlays.Blocks.prototype.clear = function () {
   this.regions = {};
 };
 
-CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, statuses) {
+CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, flags) {
   if (region.id in this.regions) {
-    this.regions[region.id].$div.removeClass().addClass('region').addClass(statuses);
+    this.regions[region.id].flags = flags;
     return;
   }
 
-  var $div = $('<div class="region"><h2>' + region.id + '</h2></div>')
-      .hide()
-      .addClass(statuses)
-      .appendTo($(this.view));
+  var graphics = new PIXI.Graphics();
+  var LINE_WIDTH = 3;
+  graphics.beginFill(0x000000, 0);
+  graphics.lineStyle(LINE_WIDTH, 0xFFFFFF);
+  graphics.drawRect(
+      region.box[0] + LINE_WIDTH,
+      region.box[1] + LINE_WIDTH,
+      region.box[3] - region.box[0] - LINE_WIDTH,
+      region.box[4] - region.box[1] - LINE_WIDTH);
+  this.batchContainer.addChild(graphics);
+
+  var text = new PIXI.Text(region.id);
+  var OFFSET = 0.1;
+  text.x = (1 - OFFSET)*region.box[0] + OFFSET*region.box[3];
+  text.y = (1 - OFFSET)*region.box[1] + OFFSET*region.box[4];
+  this.batchContainer.addChild(text);
 
   this.regions[region.id] = {
-    x: region.box[0],
-    y: region.box[1],
     z: region.box[2],
-    width: region.box[3] - region.box[0],
-    height: region.box[4] - region.box[1],
     depth: region.box[5] - region.box[2],
-    $div: $div};
+    graphics: graphics,
+    text: text,
+    flags: flags
+  };
   this.redraw();
 };
+
 
 CatsopResultsLayer.Overlays.Cores = function (stack, segmentationStack, scale, solutionId) {
   CatsopResultsLayer.Overlays.Blocks.call(this, stack, segmentationStack, scale, solutionId);
 
   this.regionType = 'cores';
-  this.regionFlags = ['solutions'];
+  this.flagStyles = {
+    solutions: {visible: true, color: 0x00FF00}
+  };
 };
 
 CatsopResultsLayer.Overlays.Cores.prototype = Object.create(CatsopResultsLayer.Overlays.Blocks.prototype);

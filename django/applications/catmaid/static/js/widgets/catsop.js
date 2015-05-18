@@ -109,7 +109,7 @@ CatsopWidget.prototype.initLayers = function (offsetStack) {
   var name = 'base';
   this.layers[name] = [];
   [this.stack, this.offsetStack].forEach((function(s) {
-    var layer = new CatsopResultsLayer(s, this.activeSegmentationStack, this.blockInfo.scale);
+    var layer = new CatsopResultsLayer.Slices(s, this.activeSegmentationStack, this.blockInfo.scale);
     this.layers[name].push(layer);
     s.addLayer(this.getLayerKey(name), layer);
     s.redraw();
@@ -276,7 +276,7 @@ CatsopWidget.prototype.updateSegments = function () {
   this.sliceRows.forEach(function (slice) {
     slice.name = 'Sli:' + slice.hash;
     self.layers.base.forEach(function (layer) {
-      layer.addSlice(slice, 'hidden');
+      layer.addSlice(slice, ['hidden']);
     });
     segmap.nodes.push(slice);
     slice.breadth = 0;
@@ -371,6 +371,7 @@ CatsopWidget.prototype.updateSegments = function () {
           d.linkPartners().forEach(function (d) {
               $('.slice-hash-' + d.hash).addClass('highlight');
               d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
+              self.layers.base.forEach(function (l) { l.addStatus(d.hash, 'highlight'); });
             });
           // Class selectors do not work for SVG elements, so use a jQuery
           // attribute string containing selector, then pass to D3 because
@@ -381,6 +382,7 @@ CatsopWidget.prototype.updateSegments = function () {
           d.linkPartners().forEach(function (d) {
               $('.slice-hash-' + d.hash).removeClass('highlight');
               d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
+              self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'highlight'); });
             });
           d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', false);
         })
@@ -396,9 +398,11 @@ CatsopWidget.prototype.updateSegments = function () {
       .classed('slice-node', true)
       .on('mouseover', function (d) {
           d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
+          self.layers.base.forEach(function (l) { l.addStatus(d.hash, 'highlight'); });
         })
       .on('mouseout', function (d) {
           d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
+          self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'highlight'); });
         })
       .on('click', function (d) {
           var $this = d3.select(this);
@@ -406,17 +410,20 @@ CatsopWidget.prototype.updateSegments = function () {
             $this.classed('active', false);
             // Deactivate any other slice objects for this slice.
             d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', false);
+            self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'active'); });
           } else {
             var thisSlice = d;
             $this.classed('active', true);
             // Activate any other slice objects for this slice.
             d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', true);
+            self.layers.base.forEach(function (l) { l.addStatus(d.hash, 'active'); });
             // Deactivate conflicting slices.
             sliceNodes
                 .filter(function (d) { return thisSlice.conflicts.split(',').indexOf(d.hash) >= 0; })
                 .classed('active', false)
                 .each(function (d) { // Also deactivate any other slice objects for this conflict.
                   d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', false);
+                  self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'active'); });
                 });
           }
           // Set active segments based on intersection of active slices.
@@ -489,7 +496,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
   this.moveToSlice(rowIndex);
   var slice = this.sliceRows[rowIndex];
   this.layers.base.forEach(function (layer) {
-    layer.addSlice(slice, 'active');
+    layer.addSlice(slice, ['active']);
   });
 
   requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +
@@ -505,7 +512,7 @@ CatsopWidget.prototype.activateSlice = function (rowIndex) {
               .forEach(function (conflictSlice) {
                   if (conflictSlice.hash !== slice.hash) {
                     self.layers.base.forEach(function (layer) {
-                      layer.addSlice(conflictSlice, 'conflict');
+                      layer.addSlice(conflictSlice, ['conflict']);
                     });
                   }
           });
