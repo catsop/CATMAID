@@ -628,7 +628,7 @@ CatsopWidget.prototype.generateAssembliesAtLocation = function () {
 
 CatsopWidget.prototype.activateSolution = function () {
   var selectedSolution = $('#catsop-results' + this.widgetID + '_solution_id option:selected').get(0);
-  this.activeSolutionId = selectedSolution.value === 'Union' ? null : selectedSolution.value;
+  this.activeSolutionId = selectedSolution.innerText === 'Union' ? null : selectedSolution.value;
   this.refreshLayers();
 };
 
