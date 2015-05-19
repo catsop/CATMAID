@@ -67,7 +67,7 @@ CatsopResultsLayer.Slices = function (stack, segmentationStack, scale, solutionI
 
   this.slices = {};
   this.statusStyles = {
-    hidden:        {visible: false, color: 0x000000},
+    hidden:        {visible: false, color: 0xFFFFFF}, // This must be #FFF to remove Pixi's tint image processing.
     active:        {visible: true,  color: 0xFFFF00},
     conflict:      {visible: true,  color: 0xFF0000},
     'in-solution': {visible: true,  color: 0x00FF00},
@@ -88,7 +88,7 @@ CatsopResultsLayer.Slices.prototype.redraw = function (completionCallback) {
       style.visible = style.visible || self.statusStyles[status].visible;
       style.color = self.statusStyles[status].color;
       return style;
-    }, {visible: true, color: null});
+    }, {visible: false, color: null});
 
     slice.sprite.visible = style.visible && slice.z === this.stack.z;
     if (style.color !== null) slice.sprite.tint = style.color;
@@ -150,6 +150,9 @@ CatsopResultsLayer.Overlays = {};
 
 CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStack, scale, solutionId) {
   CatsopResultsLayer.Slices.call(this, stack, segmentationStack, scale, solutionId);
+  this.statusStyles = {
+    'in-solution': {visible: true,  color: null}
+  };
 
   this.old_z = null;
 };
@@ -187,7 +190,7 @@ CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
         json.slices.forEach(function (slice) {
           if (!(slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId))) return;
 
-          var sprite = self.addSlice(slice);
+          var sprite = self.addSlice(slice, ['in-solution']);
           var assemblyId = slice.in_solution[self.solutionId];
           if (!(assemblyId in CatsopResultsLayer.assemblyColors)) {
             CatsopResultsLayer.assemblyColors[assemblyId] = czer.pickColor().getHex();
