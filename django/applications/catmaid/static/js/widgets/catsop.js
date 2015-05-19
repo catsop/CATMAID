@@ -262,7 +262,7 @@ CatsopWidget.prototype.updateSegments = function () {
   var self = this;
   var activeSegment = this.segmentRows.filter(function (seg) {return seg.hash === self.activeSegmentHash;})[0];
   this.activeSegment = activeSegment;
-  this.moveToObject(activeSegment);
+  if (activeSegment.section !== this.stack.z + 1) this.moveToObject(activeSegment);
 
   this.segmentRows.filter(function (seg) {
     return seg.section === activeSegment.section;
