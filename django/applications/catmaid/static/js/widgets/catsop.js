@@ -367,25 +367,22 @@ CatsopWidget.prototype.updateSegments = function () {
           'segment-node',
           'seg-hash-' + d.hash
         ]).join(' ');})
+      // On mouseover, hightlight slices and links involved in this segment.
       .on('mouseover', function (d) {
           d.linkPartners().forEach(function (d) {
-              $('.slice-hash-' + d.hash).addClass('highlight');
-              d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
+              node.selectAll('.slice-hash-' + d.hash).classed('highlight', true);
               self.layers.base.forEach(function (l) { l.addStatus(d.hash, 'highlight'); });
             });
-          // Class selectors do not work for SVG elements, so use a jQuery
-          // attribute string containing selector, then pass to D3 because
-          // jQuery addClass does not work with SVG elements.
-          d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', true);
+          svg.selectAll('.seg-hash-' + d.hash).classed('highlight', true);
         })
       .on('mouseout', function (d) {
           d.linkPartners().forEach(function (d) {
-              $('.slice-hash-' + d.hash).removeClass('highlight');
-              d3.selectAll($('rect[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
+              node.selectAll('.slice-hash-' + d.hash).classed('highlight', false);
               self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'highlight'); });
             });
-          d3.selectAll($('[class~="seg-hash-' + d.hash + '"]')).classed('highlight', false);
+          svg.selectAll('.seg-hash-' + d.hash).classed('highlight', false);
         })
+      // On double click, create a solution constraint for this segment.
       .on('dblclick', function (d) { self.constrainSegment(d.hash); })
     .append("rect")
       .attr("height", function (d) { return d.dy; })
@@ -396,33 +393,36 @@ CatsopWidget.prototype.updateSegments = function () {
   // Slice nodes
   sliceNodes
       .classed('slice-node', true)
+      // On mouseover, highlight this slice and its links to segments.
       .on('mouseover', function (d) {
-          d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', true);
+          svg.selectAll('.slice-hash-' + d.hash).classed('highlight', true);
           self.layers.base.forEach(function (l) { l.addStatus(d.hash, 'highlight'); });
         })
       .on('mouseout', function (d) {
-          d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('highlight', false);
+          svg.selectAll('.slice-hash-' + d.hash).classed('highlight', false);
           self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'highlight'); });
         })
+      // On click, select this slice to identify segments compatible with it and
+      // other selected slices.
       .on('click', function (d) {
           var $this = d3.select(this);
           if ($this.classed('active')) {
             $this.classed('active', false);
             // Deactivate any other slice objects for this slice.
-            d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', false);
+            svg.selectAll('.slice-hash-' + d.hash).classed('active', false);
             self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'active'); });
           } else {
             var thisSlice = d;
             $this.classed('active', true);
             // Activate any other slice objects for this slice.
-            d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', true);
+            svg.selectAll('.slice-hash-' + d.hash).classed('active', true);
             self.layers.base.forEach(function (l) { l.addStatus(d.hash, 'active'); });
             // Deactivate conflicting slices.
             sliceNodes
                 .filter(function (d) { return thisSlice.conflicts.split(',').indexOf(d.hash) >= 0; })
                 .classed('active', false)
                 .each(function (d) { // Also deactivate any other slice objects for this conflict.
-                  d3.selectAll($('[class~="slice-hash-' + d.hash + '"]')).classed('active', false);
+                  svg.selectAll('.slice-hash-' + d.hash).classed('active', false);
                   self.layers.base.forEach(function (l) { l.removeStatus(d.hash, 'active'); });
                 });
           }
