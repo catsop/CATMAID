@@ -6,6 +6,13 @@
 	stroke: #000;
 }
 
+.segment-graph .segment-node text {
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-khtml-user-select: none;
+	-ms-user-select: none;
+}
+
 .segment-graph .segment-node.active rect {
 	stroke: #FF0;
 	stroke-width: 5;
