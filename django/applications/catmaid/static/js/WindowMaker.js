@@ -3038,7 +3038,7 @@ var WindowMaker = new function()
 
   var createCatsopWindow = function()
   {
-    var CW = new CatsopWidget();
+    var CW = new CATMAID.CatsopWidget();
     var win = new CMWWindow("CATSOP Results");
     var content = win.getFrame();
     var container = createContainer('catsop-results' + CW.widgetID);
@@ -3095,7 +3095,7 @@ var WindowMaker = new function()
     tabs['Solution'].appendChild(solutionSelectLabel);
 
     appendToTab(tabs['Overlays'],
-      Object.keys(CatsopResultsLayer.Overlays).map(function (overlay) {
+      Object.keys(CATMAID.CatsopResultsLayer.Overlays).map(function (overlay) {
         return [overlay, false, CW.toggleOverlay.bind(CW, overlay), false];
       }));
 
