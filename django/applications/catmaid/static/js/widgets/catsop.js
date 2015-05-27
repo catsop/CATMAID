@@ -441,16 +441,19 @@
         .attr("height", function (d) { return d.dy; })
         .attr("width", seggraph.nodeWidths()[0])
         .attr("class", function (d) { return 'slice-hash-' + d.hash; });
+
+    const SLICE_IMAGE_PAD = 3;
     sliceNodes
       .append("image")
-        .attr("y", 3) // Offset and shrink slice mask slightly to not overlap stroke.
-        .attr("height", function (d) { return d.dy - 6; })
+        .attr("y", SLICE_IMAGE_PAD) // Offset and shrink slice mask slightly to not overlap stroke.
+        .attr("height", function (d) { return d.dy - SLICE_IMAGE_PAD*2; })
         .attr("width", function (d) {
-          return Math.min(seggraph.sliceScale * (d.box[2] - d.box[0]), seggraph.nodeWidths()[0] - 6); })
+          return Math.min(seggraph.sliceScale * (d.box[2] - d.box[0]),
+                          seggraph.nodeWidths()[0] - SLICE_IMAGE_PAD*2); })
         .attr("x", function (d) {
           return Math.max(0,
-                ((seggraph.nodeWidths()[0] - 6) - this.attributes.width.value) / 2)
-              + 3; })
+                ((seggraph.nodeWidths()[0] - SLICE_IMAGE_PAD*2) - this.attributes.width.value) / 2)
+              + SLICE_IMAGE_PAD; })
         .attr("xlink:href", function (d) { return d.mask; })
       .append("title")
         .text(function (d) { return d.name + "\n" + d.size + " pixels, value: " + d.value; });
