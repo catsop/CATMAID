@@ -121,6 +121,7 @@ class SopnetTest(object):
 		bi = BlockInfo.objects.get(configuration=sc)
 		conf = ps.ProjectConfiguration()
 		conf.setBackendType(ps.BackendType.PostgreSql)
+		minDepth = float('inf')
 
 		for segstack in SegmentationStack.objects.filter(configuration=sc):
 			stack = segstack.project_stack.stack
@@ -131,6 +132,7 @@ class SopnetTest(object):
 			stackDesc.width = stack.dimension.x
 			stackDesc.height = stack.dimension.y
 			stackDesc.depth = stack.dimension.z
+			minDepth = min(stackDesc.depth, minDepth)
 			stackDesc.scale = bi.scale
 			stackDesc.id = stack.id
 			stackDesc.segmentationId = segstack.id
@@ -145,7 +147,7 @@ class SopnetTest(object):
 		conf.setBlockSize(ps.point3(bi.block_dim_x, bi.block_dim_y, bi.block_dim_z))
 		conf.setVolumeSize(ps.point3(bi.block_dim_x*bi.num_x,
 				bi.block_dim_y*bi.num_y,
-				bi.block_dim_z*bi.num_z))
+				min(bi.block_dim_z*bi.num_z, minDepth)))
 		conf.setCoreSize(ps.point3(bi.core_dim_x, bi.core_dim_y, bi.core_dim_z))
 		conf.setPostgreSqlDatabase(self.postgresql_database)
 		conf.setPostgreSqlHost(self.postgresql_host)
