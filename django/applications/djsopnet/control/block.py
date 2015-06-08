@@ -107,6 +107,16 @@ def _setup_blocks(segmentation_stack_id, scale, width, height, depth, corewib, c
 
     try:
         info = BlockInfo.objects.get(configuration=segstack.configuration)
+        info.block_dim_x = width
+        info.block_dim_y = height
+        info.block_dim_z = depth
+        info.core_dim_x = corewib
+        info.core_dim_y = corehib
+        info.core_dim_z = coredib
+        info.num_x = nx
+        info.num_y = ny
+        info.num_z = nz
+        info.save()
     except BlockInfo.DoesNotExist:
         info = BlockInfo(configuration=segstack.configuration, scale=scale,
                          block_dim_y=height, block_dim_x=width, block_dim_z=depth,
