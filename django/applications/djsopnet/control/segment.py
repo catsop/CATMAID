@@ -198,7 +198,7 @@ def retrieve_segment_and_conflicts(request, project_id, segmentation_stack_id):
         segments = _retrieve_segments_by_ids(segstack.id, expanded_segment_ids)
 
         segment_list = [segment_dict(segment, with_solution=True) for segment in segments]
-        slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices or conflict_slices]
+        slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices]
         return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
     except:
         return error_response()
