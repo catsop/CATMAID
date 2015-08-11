@@ -16,6 +16,9 @@ class SegmentationConfiguration(models.Model):
 
     project = models.ForeignKey(Project)
 
+    def __unicode__(self):
+        return u'%s (%s)' % (self.project, self.pk)
+
 
 class SegmentationStack(models.Model):
     class Meta:
@@ -24,6 +27,9 @@ class SegmentationStack(models.Model):
     configuration = models.ForeignKey(SegmentationConfiguration)
     project_stack = models.ForeignKey(ProjectStack)
     type = models.CharField(max_length=128)
+
+    def __unicode__(self):
+        return u'Segstack %s: %s' % (self.pk, self.project_stack)
 
 
 @receiver(post_save, sender=SegmentationStack)
@@ -56,7 +62,8 @@ class BlockInfo(models.Model):
     configuration = models.OneToOneField(SegmentationConfiguration, primary_key=True,
             related_name='block_info')
 
-    scale = models.IntegerField(default=0)
+    scale = models.IntegerField(default=0, help_text='''
+        Zoom level for segmentation data relative to raw stack.''')
 
     # Block height, width, depth, measured units of scaled pixels
     block_dim_x = models.IntegerField(default=256)
@@ -72,6 +79,9 @@ class BlockInfo(models.Model):
     num_x = models.IntegerField(default=0)
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)
+
+    def __unicode__(self):
+        return u'%s block info' % (self.configuration,)
 
     def save(self, *args, **kwargs):
         # Set the number of blocks based on the size of the raw stack.
@@ -163,6 +173,9 @@ class FeatureName(models.Model):
 
     name = models.CharField(max_length=128)
 
+    def __unicode__(self):
+        return self.name
+
 
 class FeatureInfo(models.Model):
     class Meta:
@@ -172,3 +185,6 @@ class FeatureInfo(models.Model):
     size = models.IntegerField(default=0)
     name_ids = IntegerArrayField()
     weights = DoubleArrayField()
+
+    def __unicode__(self):
+        return u'%s feature info' % (self.segmentation_stack,)
