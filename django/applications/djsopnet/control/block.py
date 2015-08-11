@@ -8,7 +8,8 @@ from django.shortcuts import get_object_or_404
 
 from catmaid.control.authentication import requires_user_role
 from catmaid.models import UserRole
-from djsopnet.models import BlockInfo, SegmentationStack
+from djsopnet.models import BlockInfo, SegmentationConfiguration, \
+        SegmentationStack
 
 
 def block_dict(block):
@@ -70,11 +71,12 @@ def generate_block_info_response(block_info):
 
 # --- Blocks and Cores ---
 @requires_user_role(UserRole.Annotate)
-def setup_blocks(request, project_id, segmentation_stack_id):
+def setup_blocks(request, project_id, configuration_id):
     '''
     Initialize and store the blocks and block info in the db, associated with
     the given stack, if these things don't already exist.
     '''
+    get_object_or_404(SegmentationConfiguration, pk=configuration_id)
     try:
         scale = int(request.GET.get('scale'))
         width = int(request.GET.get('width'))
@@ -86,71 +88,15 @@ def setup_blocks(request, project_id, segmentation_stack_id):
         coredib = int(request.GET.get('core_dim_z'))
     except TypeError:
         return HttpResponse(json.dumps({'ok': False, 'reason': 'malformed'}), content_type='text/json')
+
     try:
-        _setup_blocks(segmentation_stack_id, scale, width, height, depth,
-                      corewib, corehib, coredib)
+        BlockInfo.update_or_create(configuration_id, scale,
+                                   width, height, depth,
+                                   corewib, corehib, coredib)
     except ValueError as e:
         return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), content_type='text/json')
 
     return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
-
-
-def _setup_blocks(segmentation_stack_id, scale, width, height, depth, corewib, corehib, coredib):
-    segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    s = segstack.project_stack.stack
-
-    # The number of blocks is the ceiling of the stack size divided by block dimension
-    def int_ceil(num, den): return ((num - 1) // den) + 1
-    nx = int_ceil(s.dimension.x, width * 2**scale)
-    ny = int_ceil(s.dimension.y, height * 2**scale)
-    nz = int_ceil(s.dimension.z, depth)
-
-    try:
-        info = BlockInfo.objects.get(configuration=segstack.configuration)
-        info.block_dim_x = width
-        info.block_dim_y = height
-        info.block_dim_z = depth
-        info.core_dim_x = corewib
-        info.core_dim_y = corehib
-        info.core_dim_z = coredib
-        info.num_x = nx
-        info.num_y = ny
-        info.num_z = nz
-        info.save()
-    except BlockInfo.DoesNotExist:
-        info = BlockInfo(configuration=segstack.configuration, scale=scale,
-                         block_dim_y=height, block_dim_x=width, block_dim_z=depth,
-                         core_dim_y=corehib, core_dim_x=corewib, core_dim_z=coredib,
-                         num_x=nx, num_y=ny, num_z=nz)
-        info.save()
-
-    # Create new Blocks
-    cursor = connection.cursor()
-    cursor.execute('SELECT 1 FROM segstack_%s.block LIMIT 1' % segstack.id)
-    if cursor.rowcount > 0:
-        raise ValueError('Blocks for SegmentationStack %s are already setup.' % segstack.id)
-
-    cursor.execute('''
-            INSERT INTO segstack_%(segstack_id)s.block
-              (slices_flag, segments_flag, coordinate_x, coordinate_y, coordinate_z)
-                SELECT false, false, x.id, y.id, z.id FROM
-                  generate_series(0, %(nx)s - 1) AS x (id),
-                  generate_series(0, %(ny)s - 1) AS y (id),
-                  generate_series(0, %(nz)s - 1) AS z (id);
-            ''' % {'segstack_id': segstack.id, 'nx': nx, 'ny': ny, 'nz': nz})
-
-    # Create new Cores, round up if number of blocks is not divisible by core size
-    nzc = (nz + coredib - 1)/coredib
-    nyc = (ny + corehib - 1)/corehib
-    nxc = (nx + corewib - 1)/corewib
-    cursor.execute('''
-            INSERT INTO segstack_%(segstack_id)s.core
-              (solution_set_flag, coordinate_x, coordinate_y, coordinate_z)
-                SELECT false, x.id, y.id, z.id FROM
-                  generate_series(0, %(nx)s - 1) AS x (id),
-                  generate_series(0, %(ny)s - 1) AS y (id),
-                  generate_series(0, %(nz)s - 1) AS z (id);
-            ''' % {'segstack_id': segstack.id, 'nx': nxc, 'ny': nyc, 'nz': nzc})
 
 
 def _blockcursor_to_namedtuple(cursor, size):

@@ -12,8 +12,7 @@ from django.db import connection
 import djsopnet
 from djsopnet.models import SegmentationConfiguration, SegmentationStack, \
 		BlockInfo, FeatureName, FeatureInfo
-from djsopnet.views import create_project_config, _clear_djsopnet
-from djsopnet.control.block import _setup_blocks
+from djsopnet.views import _clear_djsopnet
 import pysopnet as ps
 
 
@@ -106,14 +105,10 @@ class SopnetTest(object):
 
 	def setup_sopnet(self, loglevel=None):
 		self.log("Setting up blocks for segmentation stacks")
-		for ss_id in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id).values_list('id', flat=True):
-			try:
-				_setup_blocks(ss_id, self.stack_scale,
-						self.block_width, self.block_height,
-						self.block_depth, self.core_width,
-						self.core_height, self.core_depth)
-			except ValueError as e:
-				print(e)
+		BlockInfo.update_or_create(self.segmentation_configuration_id, self.stack_scale,
+				self.block_width, self.block_height,
+				self.block_depth, self.core_width,
+				self.core_height, self.core_depth)
 		ps.setLogLevel(self.loglevel)
 
 	def get_configuration(self):

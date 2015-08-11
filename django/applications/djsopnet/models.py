@@ -73,6 +73,75 @@ class BlockInfo(models.Model):
     num_y = models.IntegerField(default=0)
     num_z = models.IntegerField(default=0)
 
+    def save(self, *args, **kwargs):
+        # Set the number of blocks based on the size of the raw stack.
+        if not kwargs.get('raw', False):
+            stack = SegmentationStack.objects.get(
+                            configuration_id=self.configuration_id,
+                            type='Raw').project_stack.stack
+
+            # The number of blocks is the ceiling of the stack size divided by block dimension
+            def int_ceil(num, den): return ((num - 1) // den) + 1
+            self.num_x = int_ceil(stack.dimension.x, self.block_dim_x * 2**self.scale)
+            self.num_y = int_ceil(stack.dimension.y, self.block_dim_y * 2**self.scale)
+            self.num_z = int_ceil(stack.dimension.z, self.block_dim_z)
+
+        super(BlockInfo, self).save(*args, **kwargs)
+
+        self.setup_blocks()
+
+    def setup_blocks(self):
+        """Creates blocks and cores in each segmentation stack schema."""
+        cursor = connection.cursor()
+        for segstack in self.configuration.segmentationstack_set.all():
+            cursor.execute('SELECT 1 FROM segstack_%s.block LIMIT 1' % segstack.id)
+            if cursor.rowcount > 0:
+                logger.warning('Blocks for SegmentationStack %s are already setup.', segstack.id)
+                continue
+
+            cursor.execute('''
+                    INSERT INTO segstack_{0}.block
+                      (slices_flag, segments_flag, coordinate_x, coordinate_y, coordinate_z)
+                        SELECT false, false, x.id, y.id, z.id FROM
+                          generate_series(0, %s - 1) AS x (id),
+                          generate_series(0, %s - 1) AS y (id),
+                          generate_series(0, %s - 1) AS z (id);
+                    '''.format(segstack.id), (self.num_x, self.num_y, self.num_z))
+
+            # Create new Cores, round up if number of blocks is not divisible by core size
+            nzc = (self.num_z + self.core_dim_z - 1)/self.core_dim_z
+            nyc = (self.num_y + self.core_dim_y - 1)/self.core_dim_y
+            nxc = (self.num_x + self.core_dim_x - 1)/self.core_dim_x
+            cursor.execute('''
+                    INSERT INTO segstack_{0}.core
+                      (solution_set_flag, coordinate_x, coordinate_y, coordinate_z)
+                        SELECT false, x.id, y.id, z.id FROM
+                          generate_series(0, %s - 1) AS x (id),
+                          generate_series(0, %s - 1) AS y (id),
+                          generate_series(0, %s - 1) AS z (id);
+                    '''.format(segstack.id), (nxc, nyc, nzc))
+
+    @staticmethod
+    def update_or_create(configuration_id, scale, width, height, depth, corewib, corehib, coredib):
+        """Updates or creates a segmentation configuration block decomposition.
+        """
+        # TODO: this method should be removed once upgraded to Django 1.7,
+        # since it provides this functionality with a different signature.
+        try:
+            info = BlockInfo.objects.get(configuration_id=configuration_id)
+            info.block_dim_x = width
+            info.block_dim_y = height
+            info.block_dim_z = depth
+            info.core_dim_x = corewib
+            info.core_dim_y = corehib
+            info.core_dim_z = coredib
+            info.save()
+        except BlockInfo.DoesNotExist:
+            info = BlockInfo(configuration_id=configuration_id, scale=scale,
+                             block_dim_y=height, block_dim_x=width, block_dim_z=depth,
+                             core_dim_y=corehib, core_dim_x=corewib, core_dim_z=coredib)
+            info.save()
+
     def size_for_unit(self, table):
         if table == 'block':
             zoom = 2**self.scale

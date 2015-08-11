@@ -4,7 +4,6 @@ os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
 from djsopnet.models import BlockInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
-from djsopnet.control.block import _setup_blocks
 from tests.testsopnet import SopnetTest, print_locations
 import pysopnet as ps
 
