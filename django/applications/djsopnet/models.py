@@ -1,8 +1,13 @@
+import logging
+import os
+import re
+
+from django.conf import settings
 from django.db import connection, models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-import os
-import logging
+
+import pysopnet
 
 from catmaid.fields import IntegerArrayField, DoubleArrayField
 from catmaid.models import Project, ProjectStack
@@ -18,6 +23,49 @@ class SegmentationConfiguration(models.Model):
 
     def __unicode__(self):
         return u'%s (%s)' % (self.project, self.pk)
+
+    def to_pysopnet_configuration(self):
+        bi = self.block_info
+        conf = pysopnet.ProjectConfiguration()
+        conf.setBackendType(pysopnet.BackendType.PostgreSql)
+        min_depth = float('inf')
+
+        for segstack in self.segmentationstack_set.all():
+            stack = segstack.project_stack.stack
+            stack_desc = pysopnet.StackDescription()
+            # Strings require special handling to convert from unicode to std::string
+            stack_desc.imageBase = stack.image_base.encode('utf8')
+            stack_desc.fileExtension = stack.file_extension.encode('utf8')
+            stack_desc.width = stack.dimension.x
+            stack_desc.height = stack.dimension.y
+            stack_desc.depth = stack.dimension.z
+            min_depth = min(stack_desc.depth, min_depth)
+            stack.resX = stack.resolution.x
+            stack.resY = stack.resolution.y
+            stack.resZ = stack.resolution.z
+            stack_desc.scale = bi.scale
+            stack_desc.id = stack.id
+            stack_desc.segmentationId = segstack.id
+            for name in ['tile_source_type', 'tile_width', 'tile_height']:
+                camel_name = re.sub(r'(?!^)_([a-zA-Z])', lambda m: m.group(1).upper(), name)
+                setattr(stack_desc, camel_name, getattr(stack, name))
+
+            stack_type = pysopnet.StackType.names[segstack.type]
+            conf.setCatmaidStack(stack_type, stack_desc)
+
+        conf.setComponentDirectory(settings.SOPNET_COMPONENT_DIR)
+        conf.setBlockSize(pysopnet.point3(bi.block_dim_x, bi.block_dim_y, bi.block_dim_z))
+        conf.setVolumeSize(pysopnet.point3(bi.block_dim_x*bi.num_x,
+                bi.block_dim_y*bi.num_y,
+                min(bi.block_dim_z*bi.num_z, min_depth)))
+        conf.setCoreSize(pysopnet.point3(bi.core_dim_x, bi.core_dim_y, bi.core_dim_z))
+        conf.setPostgreSqlDatabase(settings.SOPNET_DATABASE['NAME'])
+        conf.setPostgreSqlHost(settings.SOPNET_DATABASE['HOST'])
+        conf.setPostgreSqlPort(settings.SOPNET_DATABASE['PORT'])
+        conf.setPostgreSqlUser(settings.SOPNET_DATABASE['USER'])
+        conf.setPostgreSqlPassword(settings.SOPNET_DATABASE['PASSWORD'])
+
+        return conf
 
 
 class SegmentationStack(models.Model):

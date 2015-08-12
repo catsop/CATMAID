@@ -126,64 +126,28 @@ def get_task_list(request):
 
     return HttpResponse(json.dumps(task_data))
 
-def create_project_config(configuration_id):
-    """
-    Creates a configuration dictionary for Sopnet.
-    """
-    pc = get_object_or_404(SegmentationConfiguration, pk=configuration_id)
-    bi = pc.block_info
-
-    config = {'catmaid_stacks': {}}
-    for segstack in pc.segmentationstack_set.all():
-        stack = segstack.project_stack.stack
-        stack_dict = {
-            'width': stack.dimension.x,
-            'height': stack.dimension.y,
-            'depth': stack.dimension.z,
-            'scale': bi.scale,
-            'id': stack.id,
-            'segmentation_id': segstack.id
-        }
-        for name in ['image_base', 'file_extension', 'tile_source_type', 'tile_width', 'tile_height']:
-            stack_dict[name] = getattr(stack, name)
-        config['catmaid_stacks'][segstack.type] = stack_dict
-
-    config['block_size'] = [bi.block_dim_x, bi.block_dim_y, bi.block_dim_z]
-    config['core_size'] = [bi.core_dim_x, bi.core_dim_y, bi.core_dim_z]
-    config['volume_size'] = [bi.block_dim_x*bi.num_x,
-                             bi.block_dim_y*bi.num_y,
-                             bi.block_dim_z*bi.num_z]
-
-    optional_params = [
-            'backend_type', 'component_dir', 'loglevel',
-            'postgresql_database', 'postgresql_host', 'postgresql_port',
-            'postgresql_user', 'postgresql_password']
-    for param_name in optional_params:
-        settings_attr = 'SOPNET_%s' % param_name.upper()
-        if hasattr(settings, settings_attr):
-            config[param_name] = getattr(settings, settings_attr)
-
-    return config
-
-def test_sliceguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
-    config = create_project_config(pid, raw_sid, membrane_sid)
-    async_result = SliceGuarantorTask.delay(config, x, y, z)
+def test_sliceguarantor_task(request, project_id, configuration_id, x, y, z):
+    sc = get_object_or_404(SegmentationConfiguration, pk=configuration_id, project_id=project_id)
+    config = sc.to_pysopnet_configuration()
+    async_result = SliceGuarantorTask.delay(config, x, y, z, log_level=getattr(settings, 'SOPNET_LOG_LEVEL', None))
     return HttpResponse(json.dumps({
         'success': "Successfully queued slice guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_segmentguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
-    config = create_project_config(pid, raw_sid, membrane_sid)
-    async_result = SegmentGuarantorTask.delay(config, x, y, z)
+def test_segmentguarantor_task(request, project_id, configuration_id, x, y, z):
+    sc = get_object_or_404(SegmentationConfiguration, pk=configuration_id, project_id=project_id)
+    config = sc.to_pysopnet_configuration()
+    async_result = SegmentGuarantorTask.delay(config, x, y, z, log_level=getattr(settings, 'SOPNET_LOG_LEVEL', None))
     return HttpResponse(json.dumps({
         'success': "Successfully queued segment guarantor task.",
         'task_id': async_result.id
     }))
 
-def test_solutionguarantor_task(request, pid, raw_sid, membrane_sid, x, y, z):
-    config = create_project_config(pid, raw_sid, membrane_sid)
-    async_result = SolutionGuarantorTask.delay(config, x, y, z)
+def test_solutionguarantor_task(request, project_id, configuration_id, x, y, z):
+    sc = get_object_or_404(SegmentationConfiguration, pk=configuration_id, project_id=project_id)
+    config = sc.to_pysopnet_configuration()
+    async_result = SolutionGuarantorTask.delay(config, x, y, z, log_level=getattr(settings, 'SOPNET_LOG_LEVEL', None))
     return HttpResponse(json.dumps({
         'success': "Successfully queued solution guarantor task.",
         'task_id': async_result.id
@@ -199,7 +163,7 @@ def solve_core(request, project_id, segmentation_stack_id, core_id):
         '''.format(segstack.id), (core_id,))
     c = _blockcursor_to_namedtuple(cursor, segstack.configuration.block_info.size_for_unit('core'))[0]
     # SolutionGuarantor does not need to know membrane stack ID
-    config = create_project_config(segstack.configuration_id)
+    config = segstack.configuration.to_pysopnet_configuration()
     result = SolutionGuarantorTask.apply([config, c.coordinate_x, c.coordinate_y, c.coordinate_z, False])
     return HttpResponse(json.dumps({
         'success': result.result

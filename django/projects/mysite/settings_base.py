@@ -217,6 +217,3 @@ for subdirectory in ('projects', 'applications', 'lib'):
 # environment. The custom PostgreSQL database wrapper uses this flag to change
 # its behavior.
 TEST_RUNNER = 'custom_testrunner.TestSuiteRunner'
-
-# SOPNET defaults:
-SOPNET_POSTGRESQL_PORT = '5432'

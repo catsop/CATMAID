@@ -5,6 +5,8 @@ from settings_base import *
 import hashlib
 import djcelery
 
+import pysopnet
+
 DATABASES = {
     'default': {
         'ENGINE': 'custom_postgresql_psycopg2', # Add 'postgresql_psycopg2', 'postgresql', 'mysql', 'sqlite3' or 'oracle'.
@@ -106,3 +108,11 @@ CELERYD_CONCURRENCY = 1
 # Simple django-kumbo message broker
 INSTALLED_APPS += ("kombu.transport.django",)
 BROKER_URL = 'django://'
+
+## SOPNET configuration
+SOPNET_COMPONENT_DIR = 'CATMAID_WRITABLE_PATH/slicemasks'
+# SOPNET must connect to the same PostgreSQL database as CATMAID, but you may
+# want to specify different connection parameters here so that SOPNET workers
+# use different credentials. Dictionary format is the same as Django's.
+SOPNET_DATABASE = DATABASES['default']
+SOPNET_LOG_LEVEL = pysopnet.LogLevel.Debug

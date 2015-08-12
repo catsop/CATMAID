@@ -3,7 +3,6 @@ import os
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
 from djsopnet.models import BlockInfo
-from djsopnet.views import create_project_config, _clear_djsopnet
 from tests.testsopnet import SopnetTest
 import pysopnet as ps
 
@@ -15,12 +14,10 @@ if USE_PARALLEL:
 # Setup Sopnet environment
 st = SopnetTest()
 st.clear_database(clear_slices=True, clear_segments=False)
-st.setup_sopnet(loglevel=3)
+st.setup_sopnet(log_level=ps.LogLevel.Debug)
 st.log("Starting blockwise Sopnet")
 
 config = st.get_configuration()
-
-ps.setLogLevel(3)
 
 sliceGuarantor = ps.SliceGuarantor()
 

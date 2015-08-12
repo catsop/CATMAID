@@ -1,5 +1,4 @@
 import os
-import re
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
@@ -77,9 +76,8 @@ class SopnetTest(object):
 			'stack_scale',
 			'block_width', 'block_height', 'block_depth',
 			'core_width', 'core_height', 'core_depth',
-			'component_dir', 'loglevel',
-			'postgresql_database', 'postgresql_host', 'postgresql_port',
-			'postgresql_user', 'postgresql_password']
+			'component_dir', 'log_level',
+			'database']
 		for param_name in required_params:
 			setattr(self, param_name,
 				self.param('SOPNET_%s' % param_name.upper(), kwargs.get(param_name, None)))
@@ -98,54 +96,17 @@ class SopnetTest(object):
 		for ss_id in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id).values_list('id', flat=True):
 			_clear_djsopnet(ss_id, clear_slices, clear_segments, clear_solutions)
 
-	def setup_sopnet(self, loglevel=None):
+	def setup_sopnet(self, log_level=None):
 		self.log("Setting up blocks for segmentation stacks")
 		BlockInfo.update_or_create(self.segmentation_configuration_id, self.stack_scale,
 				self.block_width, self.block_height,
 				self.block_depth, self.core_width,
 				self.core_height, self.core_depth)
-		ps.setLogLevel(self.loglevel)
+		ps.setLogLevel(log_level if log_level else self.log_level)
 
 	def get_configuration(self):
 		sc = SegmentationConfiguration.objects.get(pk=self.segmentation_configuration_id)
-		bi = BlockInfo.objects.get(configuration=sc)
-		conf = ps.ProjectConfiguration()
-		conf.setBackendType(ps.BackendType.PostgreSql)
-		minDepth = float('inf')
-
-		for segstack in SegmentationStack.objects.filter(configuration=sc):
-			stack = segstack.project_stack.stack
-			stackDesc = ps.StackDescription()
-			# Strings require special handling to convert from unicode to std::string
-			stackDesc.imageBase = stack.image_base.encode('utf8')
-			stackDesc.fileExtension = stack.file_extension.encode('utf8')
-			stackDesc.width = stack.dimension.x
-			stackDesc.height = stack.dimension.y
-			stackDesc.depth = stack.dimension.z
-			minDepth = min(stackDesc.depth, minDepth)
-			stackDesc.scale = bi.scale
-			stackDesc.id = stack.id
-			stackDesc.segmentationId = segstack.id
-			for name in ['tile_source_type', 'tile_width', 'tile_height']:
-				camelName = re.sub(r'(?!^)_([a-zA-Z])', lambda m: m.group(1).upper(), name)
-				setattr(stackDesc, camelName, getattr(stack, name))
-
-			stackType = ps.StackType.Raw if segstack.type == 'Raw' else ps.StackType.Membrane
-			conf.setCatmaidStack(stackType, stackDesc)
-
-		conf.setComponentDirectory(self.component_dir)
-		conf.setBlockSize(ps.point3(bi.block_dim_x, bi.block_dim_y, bi.block_dim_z))
-		conf.setVolumeSize(ps.point3(bi.block_dim_x*bi.num_x,
-				bi.block_dim_y*bi.num_y,
-				min(bi.block_dim_z*bi.num_z, minDepth)))
-		conf.setCoreSize(ps.point3(bi.core_dim_x, bi.core_dim_y, bi.core_dim_z))
-		conf.setPostgreSqlDatabase(self.postgresql_database)
-		conf.setPostgreSqlHost(self.postgresql_host)
-		conf.setPostgreSqlPort(self.postgresql_port)
-		conf.setPostgreSqlUser(self.postgresql_user)
-		conf.setPostgreSqlPassword(self.postgresql_password)
-
-		return conf
+		return sc.to_pysopnet_configuration()
 
 	def import_weights(self, stack_type, dat_file):
 		segstack = SegmentationStack.objects.get(
