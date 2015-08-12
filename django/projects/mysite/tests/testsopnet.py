@@ -57,7 +57,7 @@ def create_testdata():
 		fi.name_ids = featureNames
 		fi.save()
 
-	print("SOPNET_SEGMENTATION_CONFIGURATION_ID = %s" % sc.id)
+	print("SOPNET_TEST_SEGMENTATION_CONFIGURATION_ID = %s" % sc.id)
 
 class SopnetTest(object):
 	def param(self, name, override):
