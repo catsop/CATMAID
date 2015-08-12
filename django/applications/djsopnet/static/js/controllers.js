@@ -8,29 +8,6 @@
         // Provide random number generator to template
         $scope.r = Tools.r;
 
-        $scope.resetDjangoSopnet = function(pid, sid)  {
-          $log.info("Clearing database for stack " + sid + " of project " + pid + ".");
-          return $http({
-            method: 'GET',
-            url: pid + '/stack/' + sid + '/clear_djsopnet',
-            params: {
-               'sure': 'yes'
-            }
-          }).success(function(data) {
-            return $log.info("Successfully cleared database for stack " + sid + " of project.");
-          }).error(function(data) {
-            return $log.info("Failed clearing database for stack " + sid + " of project.");
-          });
-        };
-
-        $scope.resetAllDjangoSopnet = function(pid, rsid, msid)  {
-          if (!confirm("Do you really want all generated data?")) {
-            return;
-          }
-          $scope.resetDjangoSopnet(pid, rsid);
-          $scope.resetDjangoSopnet(pid, msid);
-        };
-
         $scope.setupForSopnet = function(pid, sid, w, h, d, cw, ch, cd) {
           var bs = Tools.pstr(w, h, d);
           var cs = Tools.pstr(cw, ch, cd);

@@ -79,6 +79,29 @@ class SegmentationStack(models.Model):
     def __unicode__(self):
         return u'Segstack %s: %s' % (self.pk, self.project_stack)
 
+    def clear_schema(self, delete_slices=True, delete_segments=True, delete_solutions=True):
+        """Deletes segmentation data from the segstack-specific schema."""
+        delete_config = delete_slices and delete_segments
+
+        cursor = connection.cursor()
+
+        if delete_slices:
+            cursor.execute('TRUNCATE TABLE segstack_%s.slice CASCADE;' % self.id)
+            cursor.execute('UPDATE segstack_%s.block SET slices_flag = FALSE;' % self.id)
+
+        if delete_segments:
+            cursor.execute('TRUNCATE TABLE segstack_%s.segment CASCADE;' % self.id)
+            cursor.execute('UPDATE segstack_%s.block SET segments_flag = FALSE;' % self.id)
+
+        if delete_solutions:
+            cursor.execute('TRUNCATE TABLE segstack_%s.assembly CASCADE;' % self.id)
+            cursor.execute('TRUNCATE TABLE segstack_%s.solution CASCADE;' % self.id)
+            cursor.execute('UPDATE segstack_%s.core SET solution_set_flag = FALSE;' % self.id)
+
+        if delete_config:
+            cursor.execute('TRUNCATE TABLE segstack_%s.block CASCADE;' % self.id)
+            cursor.execute('TRUNCATE TABLE segstack_%s.core CASCADE;' % self.id)
+
 
 @receiver(post_save, sender=SegmentationStack)
 def create_segmentation_stack_schema(sender, instance, created, **kwargs):

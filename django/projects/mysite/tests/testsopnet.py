@@ -11,7 +11,6 @@ from django.db import connection
 import djsopnet
 from djsopnet.models import SegmentationConfiguration, SegmentationStack, \
 		BlockInfo, FeatureName, FeatureInfo
-from djsopnet.views import _clear_djsopnet
 import pysopnet as ps
 
 
@@ -93,8 +92,8 @@ class SopnetTest(object):
 		if clear_solutions:
 			self.log("Clearing solution")
 
-		for ss_id in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id).values_list('id', flat=True):
-			_clear_djsopnet(ss_id, clear_slices, clear_segments, clear_solutions)
+		for segstack in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id):
+			segstack.clear_schema(clear_slices, clear_segments, clear_solutions)
 
 	def setup_sopnet(self, log_level=None):
 		self.log("Setting up blocks for segmentation stacks")
