@@ -171,6 +171,30 @@ class BlockInfo(models.Model):
 
         self.setup_blocks()
 
+    def block_range(self, start=None, end=None):
+        """Generator yielding all block coordinates."""
+        if not start:
+            start = (0, 0, 0)
+        if not end:
+            end = (self.num_x, self.num_y, self.num_z)
+        for i in xrange(start[0], end[0]):
+            for j in xrange(start[1], end[1]):
+                for k in xrange(start[2], end[2]):
+                    yield (i, j, k)
+
+    def core_range(self, start=None, end=None):
+        """Generator yielding all core coordinates."""
+        if not start:
+            start = (0, 0, 0)
+        if not end:
+            end = (self.num_x/self.core_dim_x,
+                   self.num_y/self.core_dim_y,
+                   self.num_z/self.core_dim_z)
+        for i in xrange(start[0], end[0]):
+            for j in xrange(start[1], end[1]):
+                for k in xrange(start[2], end[2]):
+                    yield (i, j, k)
+
     def setup_blocks(self):
         """Creates blocks and cores in each segmentation stack schema."""
         cursor = connection.cursor()

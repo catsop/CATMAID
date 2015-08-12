@@ -25,31 +25,29 @@ cursor = connection.cursor()
 # Generate assembly compatibility edges for all (6-)neighboring, solved cores.
 bi = sc.block_info
 block_size = bi.size_for_unit('block')
-for i in xrange(0, bi.num_x/bi.core_dim_x):
-	for j in xrange(0, bi.num_y/bi.core_dim_y):
-		for k in xrange(0, bi.num_z/bi.core_dim_z):
-			cursor.execute('''
-				SELECT * FROM segstack_%s.core
-				WHERE coordinate_x = %s
-				  AND coordinate_y = %s
-				  AND coordinate_z = %s
-				''' % (segstack.id, i, j, k))
-			c = _blockcursor_to_namedtuple(cursor, block_size)[0]
-			if c.solution_set_flag:
-				print 'Generating compatibility for core %s (%s, %s, %s)' % (c.id, i, j, k)
-				for (di, dj, dk) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
-					if i+di < bi.num_x/bi.core_dim_x and \
-					   j+dj < bi.num_y/bi.core_dim_y and \
-					   k+dk < bi.num_z/bi.core_dim_z:
-						cursor.execute('''
-							SELECT * FROM segstack_%s.core
-							WHERE coordinate_x = %s
-							  AND coordinate_y = %s
-							  AND coordinate_z = %s
-							''' % (segstack.id, i+di, j+dj, k+dk))
-						nbr = _blockcursor_to_namedtuple(cursor, block_size)[0]
-						if nbr.solution_set_flag:
-							generate_compatible_assemblies_between_cores(segstack.id, c.id, nbr.id)
+for (i, j, k) in bi.core_range():
+	cursor.execute('''
+		SELECT * FROM segstack_%s.core
+		WHERE coordinate_x = %s
+		  AND coordinate_y = %s
+		  AND coordinate_z = %s
+		''' % (segstack.id, i, j, k))
+	c = _blockcursor_to_namedtuple(cursor, block_size)[0]
+	if c.solution_set_flag:
+		print 'Generating compatibility for core %s (%s, %s, %s)' % (c.id, i, j, k)
+		for (di, dj, dk) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
+			if i+di < bi.num_x/bi.core_dim_x and \
+			   j+dj < bi.num_y/bi.core_dim_y and \
+			   k+dk < bi.num_z/bi.core_dim_z:
+				cursor.execute('''
+					SELECT * FROM segstack_%s.core
+					WHERE coordinate_x = %s
+					  AND coordinate_y = %s
+					  AND coordinate_z = %s
+					''' % (segstack.id, i+di, j+dj, k+dk))
+				nbr = _blockcursor_to_namedtuple(cursor, block_size)[0]
+				if nbr.solution_set_flag:
+					generate_compatible_assemblies_between_cores(segstack.id, c.id, nbr.id)
 
 # Generate assembly equivalences.
 print 'Generating assembly equivalences...'

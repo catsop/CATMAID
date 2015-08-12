@@ -38,13 +38,11 @@ def fill_core(x, y, z):
 		raise Exception("There are (at least) the following segments missing: " + ', '.join(map(str, missing)))
 
 bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
-for i in range(0, bi.num_x/bi.core_dim_x):
-	for j in range(0, bi.num_y/bi.core_dim_y):
-		for k in range(0, bi.num_z/bi.core_dim_z):
-			if PARALLEL_JOBS:
-				jobs.append(delayed(fill_core)(i, j, k))
-			else:
-				fill_core(i, j, k)
+for core_coord in bi.core_range():
+	if PARALLEL_JOBS:
+		jobs.append(delayed(fill_core)(*core_coord))
+	else:
+		fill_core(*core_coord)
 
 if PARALLEL_JOBS:
 	Parallel(n_jobs=PARALLEL_JOBS)(jobs)

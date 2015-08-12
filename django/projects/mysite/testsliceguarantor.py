@@ -35,13 +35,11 @@ def fill_block(x, y, z):
 	sliceGuarantor.fill(request, sliceGuarantorParameters, config)
 
 bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
-for i in range(0, bi.num_x):
-	for j in range(0, bi.num_y):
-		for k in range(0, bi.num_z):
-			if PARALLEL_JOBS:
-				jobs.append(delayed(fill_block)(i, j, k))
-			else:
-				fill_block(i, j, k)
+for block_coord in bi.block_range():
+	if PARALLEL_JOBS:
+		jobs.append(delayed(fill_block)(*block_coord))
+	else:
+		fill_block(*block_coord)
 
 if PARALLEL_JOBS:
 	Parallel(n_jobs=PARALLEL_JOBS)(jobs)
