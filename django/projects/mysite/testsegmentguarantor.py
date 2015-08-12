@@ -4,7 +4,7 @@ os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
 from djsopnet.models import BlockInfo
 from djsopnet.views import create_project_config, _clear_djsopnet
-from tests.testsopnet import SopnetTest, print_locations
+from tests.testsopnet import SopnetTest
 import pysopnet as ps
 
 USE_PARALLEL = False
@@ -36,7 +36,7 @@ def fill_block(x, y, z):
 	missing = segmentGuarantor.fill(request, segmentGuarantorParameters, config)
 
 	if len(missing) > 0:
-		raise "There are (at least) the following segments missing: " + str(missing)
+		raise Exception("There are (at least) the following slices missing: " + ', '.join(map(str, missing)))
 
 bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
 for i in range(0, bi.num_x):

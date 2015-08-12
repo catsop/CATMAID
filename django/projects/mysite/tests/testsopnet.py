@@ -16,11 +16,6 @@ from djsopnet.views import _clear_djsopnet
 import pysopnet as ps
 
 
-def print_locations(locations):
-	def l_to_str(l):
-		return "(%s, %s, %s)" % (l.x, l.y, l.z)
-	print([l_to_str(l) for l in locations])
-
 def create_testdata():
 	# Create test stack for raw data
 	sr, created = Stack.objects.get_or_create(title="Catsop Test Raw",
