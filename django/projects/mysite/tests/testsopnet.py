@@ -71,15 +71,18 @@ class SopnetTest(object):
 					"with the appropriate parameters." % name)
 
 	def __init__(self, **kwargs):
-		required_params = ['segmentation_configuration_id',
-			'stack_scale',
-			'block_width', 'block_height', 'block_depth',
-			'core_width', 'core_height', 'core_depth',
-			'component_dir', 'log_level',
-			'database']
+		required_params = ['component_dir', 'log_level', 'database']
+		required_test_params = [
+				'segmentation_configuration_id',
+				'stack_scale',
+				'block_width', 'block_height', 'block_depth',
+				'core_width', 'core_height', 'core_depth']
 		for param_name in required_params:
 			setattr(self, param_name,
 				self.param('SOPNET_%s' % param_name.upper(), kwargs.get(param_name, None)))
+		for param_name in required_test_params:
+			setattr(self, param_name,
+				self.param('SOPNET_TEST_%s' % param_name.upper(), kwargs.get(param_name, None)))
 
 	def log(self, msg):
 		print("[Test script] %s" % msg)

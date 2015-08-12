@@ -2,13 +2,15 @@ import os
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
+from django.conf import settings
+
 from djsopnet.models import BlockInfo
 from tests.testsopnet import SopnetTest
 import pysopnet as ps
 
-USE_PARALLEL = False
+PARALLEL_JOBS = getattr(settings, 'SOPNET_TEST_PARALLEL_JOBS', {'SLICE': False})['SLICE']
 
-if USE_PARALLEL:
+if PARALLEL_JOBS:
 	from joblib import Parallel, delayed
 
 # Setup Sopnet environment
@@ -36,10 +38,10 @@ bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
 for i in range(0, bi.num_x):
 	for j in range(0, bi.num_y):
 		for k in range(0, bi.num_z):
-			if USE_PARALLEL:
+			if PARALLEL_JOBS:
 				jobs.append(delayed(fill_block)(i, j, k))
 			else:
 				fill_block(i, j, k)
 
-if USE_PARALLEL:
-	Parallel(n_jobs=8)(jobs)
+if PARALLEL_JOBS:
+	Parallel(n_jobs=PARALLEL_JOBS)(jobs)
