@@ -317,3 +317,23 @@ class FeatureInfo(models.Model):
 
     def __unicode__(self):
         return u'%s feature info' % (self.segmentation_stack,)
+
+    def import_weights(self, feature_weights_file):
+        fo = open(feature_weights_file, 'r')
+
+        weights = map(float, fo.readlines())
+        if len(weights) != self.size:
+            raise ValueError('Expected %s weights but found %s.' % (self.size, len(weights)))
+
+        self.weights = weights
+        self.save(update_fields=['weights'])
+
+@receiver(post_save, sender=FeatureInfo)
+def clear_cost_cache_on_feature_weights_update(**kwargs):
+    """Changing feature weights invalidates cached costs."""
+    if kwargs['update_fields'] and 'weights' in kwargs['update_fields']:
+        # Clear existing cached costs for segstack
+        cursor = connection.cursor()
+        cursor.execute('''
+            UPDATE segstack_%s.segment SET cost = NULL
+            ''' % kwargs['instance'].segmentation_stack_id)
