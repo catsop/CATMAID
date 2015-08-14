@@ -10,7 +10,8 @@ from django.dispatch import receiver
 import pysopnet
 
 from catmaid.fields import IntegerArrayField, DoubleArrayField
-from catmaid.models import Project, ProjectStack
+from catmaid.models import Project, ProjectStack, Stack
+import djsopnet
 from djsopnet.fields import *
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,39 @@ class SegmentationConfiguration(models.Model):
 
     def __unicode__(self):
         return u'%s (%s)' % (self.project, self.pk)
+
+    @staticmethod
+    def create(project_id, raw_stack_id, membrane_stack_id, feature_weights_file=None):
+        """Creates a configuration, segmentation stacks and feature infos."""
+        p = Project.objects.get(pk=project_id)
+        sr = Stack.objects.get(pk=raw_stack_id)
+        sm = Stack.objects.get(pk=membrane_stack_id)
+
+        # Link both stacks to project
+        psr, created = ProjectStack.objects.get_or_create(project=p, stack=sr)
+        psm, created = ProjectStack.objects.get_or_create(project=p, stack=sm)
+
+        sc = SegmentationConfiguration(project=p)
+        sc.save()
+        ssr, created = SegmentationStack.objects.get_or_create(
+                configuration=sc, project_stack=psr, type='Raw')
+        ssm, created = SegmentationStack.objects.get_or_create(
+                configuration=sc, project_stack=psm, type='Membrane')
+
+        if not feature_weights_file:
+            feature_weights_file = os.path.join(os.path.dirname(djsopnet.__file__), 'fixtures', 'feature_weights.dat')
+        fo = open(feature_weights_file, 'r')
+        feature_weights = map(float, fo.readlines())
+        fi, created = FeatureInfo.objects.get_or_create(segmentation_stack=ssm,
+            defaults={'size':len(feature_weights), 'name_ids':[0], 'weights':feature_weights})
+        if created:
+            unnamed_feature = FeatureName(name='Unnamed Feature')
+            unnamed_feature.save()
+            feature_names = [unnamed_feature.id for i in range(len(feature_weights))]
+            fi.name_ids = feature_names
+            fi.save()
+
+        return sc
 
     def to_pysopnet_configuration(self):
         bi = self.block_info

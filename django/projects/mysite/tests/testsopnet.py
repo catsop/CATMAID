@@ -8,7 +8,6 @@ from catmaid.fields import Double3D, Integer3D
 from django.conf import settings
 from django.db import connection
 
-import djsopnet
 from djsopnet.models import SegmentationConfiguration, SegmentationStack, \
 		BlockInfo, FeatureName, FeatureInfo
 import pysopnet as ps
@@ -36,26 +35,7 @@ def create_testdata():
 	# Create new test project
 	p, created = Project.objects.get_or_create(title="Catsop Test")
 
-	# Link both stacks to project
-	psr, created = ProjectStack.objects.get_or_create(project=p, stack=sr)
-	psm, created = ProjectStack.objects.get_or_create(project=p, stack=sm)
-
-	sc, created = SegmentationConfiguration.objects.get_or_create(project=p)
-	ssr, create = SegmentationStack.objects.get_or_create(
-			configuration=sc, project_stack=psr, type='Raw')
-	ssm, create = SegmentationStack.objects.get_or_create(
-			configuration=sc, project_stack=psm, type='Membrane')
-
-	fo = open(os.path.join(os.path.dirname(djsopnet.__file__), 'fixtures', 'feature_weights.dat'), 'r')
-	featureWeights = map(float, fo.readlines())
-	fi, created = FeatureInfo.objects.get_or_create(segmentation_stack=ssm,
-		defaults={'size':len(featureWeights), 'name_ids':[0], 'weights':featureWeights})
-	if created:
-		unnamedFeature = FeatureName(name='Unnamed Feature')
-		unnamedFeature.save()
-		featureNames = [unnamedFeature.id for i in range(len(featureWeights))]
-		fi.name_ids = featureNames
-		fi.save()
+	sc = SegmentationConfiguration.create(project_id=p.id, raw_stack_id=sr.id, membrane_stack_id=sm.id)
 
 	print("SOPNET_TEST_SEGMENTATION_CONFIGURATION_ID = %s" % sc.id)
 
