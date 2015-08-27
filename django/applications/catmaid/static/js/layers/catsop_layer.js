@@ -4,9 +4,9 @@
 
   "use strict";
 
-  function CatsopResultsLayer (stack, segmentationStack, scale, solutionId) {
+  function CatsopResultsLayer (stack, segmentationStackId, scale, solutionId) {
     this.stack = stack;
-    this.segmentationStack = segmentationStack;
+    this.segmentationStackId = segmentationStackId;
     this.solutionId = solutionId;
     this.scale = scale; // CATSOP scale relative to stack (from BlockInfo)
     this.opacity = 0.5;
@@ -68,8 +68,8 @@
   };
 
 
-  CatsopResultsLayer.Slices = function (stack, segmentationStack, scale, solutionId) {
-    CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
+  CatsopResultsLayer.Slices = function (stack, segmentationStackId, scale, solutionId) {
+    CatsopResultsLayer.call(this, stack, segmentationStackId, scale, solutionId);
 
     this.slices = {};
     this.statusStyles = {
@@ -154,8 +154,8 @@
   CatsopResultsLayer.Overlays = {};
 
 
-  CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStack, scale, solutionId) {
-    CatsopResultsLayer.Slices.call(this, stack, segmentationStack, scale, solutionId);
+  CatsopResultsLayer.Overlays.Assemblies = function (stack, segmentationStackId, scale, solutionId) {
+    CatsopResultsLayer.Slices.call(this, stack, segmentationStackId, scale, solutionId);
     this.statusStyles = {
       'in-solution': {visible: true,  color: null}
     };
@@ -181,7 +181,7 @@
   CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
     var viewBox = this.stack.createStackViewBox();
     var self = this;
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStackId +
             '/slices/by_bounding_box',
         'POST',
         {
@@ -215,8 +215,8 @@
   CatsopResultsLayer.assemblyColors = {};
 
 
-  CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStack, scale, solutionId) {
-    CatsopResultsLayer.call(this, stack, segmentationStack, scale, solutionId);
+  CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStackId, scale, solutionId) {
+    CatsopResultsLayer.call(this, stack, segmentationStackId, scale, solutionId);
 
     this.z_lim = null;
     this.regions = {};
@@ -267,7 +267,7 @@
     this.clear();
     var viewBox = this.stack.createStackViewBox();
     var self = this;
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStackId +
             '/' + this.regionType + '/by_bounding_box',
         'POST',
         {
@@ -334,8 +334,8 @@
   };
 
 
-  CatsopResultsLayer.Overlays.Cores = function (stack, segmentationStack, scale, solutionId) {
-    CatsopResultsLayer.Overlays.Blocks.call(this, stack, segmentationStack, scale, solutionId);
+  CatsopResultsLayer.Overlays.Cores = function (stack, segmentationStackId, scale, solutionId) {
+    CatsopResultsLayer.Overlays.Blocks.call(this, stack, segmentationStackId, scale, solutionId);
 
     this.regionType = 'cores';
     this.flagStyles = {

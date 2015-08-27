@@ -3070,6 +3070,11 @@ var WindowMaker = new function()
     graphValueSelect.id = 'catsop-results' + CW.widgetID + '_graph_value';
     graphValueSelect.onchange = CW.selectGraphValue.bind(CW);
     tabs['Graph'].appendChild(graphValueSelectLabel);
+    var configurationSelectLabel = $('<label>Configuration:</label>').get(0);
+    var configurationSelect = appendSelect(configurationSelectLabel, '', []);
+    configurationSelect.id = 'catsop-results' + CW.widgetID + '_configuration_id';
+    configurationSelect.onchange = CW.activateConfiguration.bind(CW);
+    tabs['Graph'].appendChild(configurationSelectLabel);
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],

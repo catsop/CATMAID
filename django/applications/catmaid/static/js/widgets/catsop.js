@@ -18,8 +18,8 @@
     this.block = {};
     this.blockInfo = {};
     this.configurations = [];
-    this.activeConfiguration = null;
-    this.activeSegmentationStack = null;
+    this.activeConfigurationId = null;
+    this.activeSegmentationStackId = null;
     this.sliceRows = [];
     this.sliceColumns = {
       'Hash': (function (s) {return s.hash;}),
@@ -75,43 +75,65 @@
     this.stack = project.focusedStack;
     this.selectGraphValue();
 
+    // First load configuration info, block info, then open offset stack,
+    // create CATSOP layers and  load a segment graph for segments at this
+    // stack location.
     requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
             '/configurations',
         'GET',
         {},
         CATMAID.jsonResponseHandler((function (json) {
           this.configurations = json;
-          this.activeConfiguration = this.configurations[0].id;
-          this.activeSegmentationStack = this.configurations[0].stacks.filter(function (config) {
-            return config.type === 'Membrane';
-          })[0].id;
-
-          requestQueue.register(
-              django_url + 'sopnet/' + project.id + '/configuration/' + this.activeConfiguration + '/block',
-              'GET',
-              {},
-              CATMAID.jsonResponseHandler((function (json) {
-                this.blockInfo = json;
-                openProjectStack(project.id, this.stack.getId(), this.initLayers.bind(this), OffsetStack(0, 0, 1)); // Duplicate stack
-
-                this.loadSegmentsAtLocation();
-              }).bind(this)));
+          var configurationSelect = $('#catsop-results' + this.widgetID + '_configuration_id');
+          configurationSelect.empty();
+          this.configurations.forEach(function (config) {
+            configurationSelect.append($('<option />', {
+              value: config.id,
+              text: config.id
+            }));
+          });
+          this.activateConfiguration();
         }).bind(this)));
-
-    // First load configuration info, block info, then open offset stack, create CATSOP layers and
-    // load a segment graph for segments at this stack location.
   };
 
-  CatsopWidget.prototype.initLayers = function (offsetStack) {
-    this.offsetStack = offsetStack;
+  CatsopWidget.prototype.activateConfiguration = function () {
+    var selectedConfiguration = $('#catsop-results' + this.widgetID + '_configuration_id option:selected').get(0);
+    this.activeConfigurationId = parseInt(selectedConfiguration.value, 10);
+    var configuration = this.configurations.filter(function (config) {
+      return config.id === this.activeConfigurationId;
+    }, this)[0];
+    this.activeSegmentationStackId = configuration.stacks.filter(function (config) {
+      return config.type === 'Membrane';
+    })[0].id;
 
+    requestQueue.register(
+        django_url + 'sopnet/' + project.id + '/configuration/' + this.activeConfigurationId + '/block',
+        'GET',
+        {},
+        CATMAID.jsonResponseHandler((function (json) {
+          this.blockInfo = json;
+          openProjectStack(
+              project.id,
+              this.stack.getId(),
+              (function (offsetStack) {
+                this.offsetStack = offsetStack;
+                this.initLayers();
+              }).bind(this),
+              OffsetStack(0, 0, 1)); // Duplicate stack
+
+          this.loadSegmentsAtLocation();
+        }).bind(this)));
+  };
+
+  CatsopWidget.prototype.initLayers = function () {
+    this.destroyLayers();
     project.setFocusedStack(this.stack);
     this.stack.getWindow().focus();
 
     var name = 'base';
     this.layers[name] = [];
     [this.stack, this.offsetStack].forEach((function(s) {
-      var layer = new CATMAID.CatsopResultsLayer.Slices(s, this.activeSegmentationStack, this.blockInfo.scale);
+      var layer = new CATMAID.CatsopResultsLayer.Slices(s, this.activeSegmentationStackId, this.blockInfo.scale);
       this.layers[name].push(layer);
       s.addLayer(this.getLayerKey(name), layer);
       s.redraw();
@@ -119,6 +141,10 @@
   };
 
   CatsopWidget.prototype.destroy = function () {
+    this.destroyLayers();
+  };
+
+  CatsopWidget.prototype.destroyLayers = function () {
     [this.stack, this.offsetStack].forEach((function(s) {
       for (var name in this.layers)
         s.removeLayer(this.getLayerKey(name));
@@ -145,7 +171,7 @@
   };
 
   CatsopWidget.prototype.loadBlockAtLocation = function () {
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/block_at_location',
         'GET',
         {x: this.stack.x, y: this.stack.y, z: this.stack.z},
@@ -157,7 +183,7 @@
   };
 
   CatsopWidget.prototype.refreshSlices = function () {
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/slices_by_blocks_and_conflict',
         'POST',
         {block_ids: this.block.id},
@@ -202,7 +228,7 @@
   };
 
   CatsopWidget.prototype.loadSegmentsAtLocation = function () {
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/slices/by_location',
         'POST',
         {x: this.stack.x, y: this.stack.y, z: this.stack.z},
@@ -504,7 +530,7 @@
       layer.addSlice(slice, ['active']);
     });
 
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/conflict_sets_by_slice',
         'POST',
         {hash: slice.hash},
@@ -536,7 +562,7 @@
       this.layers[name] = [];
     } else {
       [this.stack, this.offsetStack].forEach((function(s) {
-        var layer = new CATMAID.CatsopResultsLayer.Overlays[name](s, this.activeSegmentationStack, this.blockInfo.scale, this.activeSolutionId);
+        var layer = new CATMAID.CatsopResultsLayer.Overlays[name](s, this.activeSegmentationStackId, this.blockInfo.scale, this.activeSolutionId);
         this.layers[name].push(layer);
         s.addLayer(this.getLayerKey(name), layer);
         s.redraw();
@@ -555,7 +581,7 @@
     if (hashes == null) return; // jshint ignore:line
 
     this.activeSegmentHash = Array.isArray(hashes) ? hashes[0] : hashes;
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStack +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/segment_and_conflicts',
         'POST',
         {hash: Array.isArray(hashes) ? hashes.join(',') : hashes},
@@ -575,7 +601,7 @@
         .join(',');
 
     requestQueue.register(
-        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'segment', 'create_for_slices'].join('/'),
+        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'segment', 'create_for_slices'].join('/'),
         'POST',
         {hash: hashes},
         CATMAID.jsonResponseHandler(this.refreshSegments.bind(this)));
@@ -583,7 +609,7 @@
 
   CatsopWidget.prototype.constrainSegment = function (hash) {
     requestQueue.register(
-        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'segment', hash, 'constrain'].join('/'),
+        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'segment', hash, 'constrain'].join('/'),
         'POST',
         {},
         CATMAID.jsonResponseHandler((function (json) {
@@ -593,13 +619,13 @@
 
   CatsopWidget.prototype.solveAtLocation = function () {
     requestQueue.register(
-        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'core_at_location'].join('/'),
+        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'core_at_location'].join('/'),
         'GET',
         {x: this.stack.x, y: this.stack.y, z: this.stack.z},
         CATMAID.jsonResponseHandler((function (json) {
           var core = json;
           requestQueue.register(
-              [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack,
+              [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId,
                'core', core.id, 'solve'].join('/'),
               'POST',
               {},
@@ -613,13 +639,13 @@
 
   CatsopWidget.prototype.generateAssembliesAtLocation = function () {
     requestQueue.register(
-        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack, 'core_at_location'].join('/'),
+        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'core_at_location'].join('/'),
         'GET',
         {x: this.stack.x, y: this.stack.y, z: this.stack.z},
         CATMAID.jsonResponseHandler((function (json) {
           var core = json;
           requestQueue.register(
-              [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStack,
+              [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId,
                'core', core.id, 'generate_assemblies'].join('/'),
               'POST',
               {},
