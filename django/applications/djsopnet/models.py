@@ -128,7 +128,7 @@ class SegmentationStack(models.Model):
             cursor.execute('UPDATE segstack_%s.block SET segments_flag = FALSE;' % self.id)
 
         if delete_solutions:
-            cursor.execute('TRUNCATE TABLE segstack_%s.assembly CASCADE;' % self.id)
+            cursor.execute('TRUNCATE TABLE segstack_%s.assembly_equivalence CASCADE;' % self.id)
             cursor.execute('TRUNCATE TABLE segstack_%s.solution CASCADE;' % self.id)
             cursor.execute('UPDATE segstack_%s.core SET solution_set_flag = FALSE;' % self.id)
 
