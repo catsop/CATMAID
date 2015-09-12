@@ -4,15 +4,15 @@
 
   "use strict";
 
-  function CatsopResultsLayer (stack, segmentationStackId, scale, solutionId) {
-    this.stack = stack;
+  function CatsopResultsLayer (stackViewer, segmentationStackId, scale, solutionId) {
+    this.stackViewer = stackViewer;
     this.segmentationStackId = segmentationStackId;
     this.solutionId = solutionId;
     this.scale = scale; // CATSOP scale relative to stack (from BlockInfo)
     this.opacity = 0.5;
     this.radius = 3;
 
-    if (!CATMAID.PixiLayer.contexts.get(this.stack)) {
+    if (!CATMAID.PixiLayer.contexts.get(this.stackViewer)) {
       growlAlert('ERROR', 'CATSOP requires WebGL rendering. Enable WebGL from the settings widget and reload.');
       return;
     }
@@ -37,9 +37,9 @@
 
   CatsopResultsLayer.prototype.redraw = function (completionCallback) {
     if (!this.batchContainer) return; // Layer construction failed, likely due to no WebGL.
-    var mag = Math.pow(2, this.scale - this.stack.s);
-    this.batchContainer.position.x = -this.stack.xc;
-    this.batchContainer.position.y = -this.stack.yc;
+    var mag = Math.pow(2, this.scale - this.stackViewer.s);
+    this.batchContainer.position.x = -this.stackViewer.xc;
+    this.batchContainer.position.y = -this.stackViewer.yc;
     this.batchContainer.scale.x = mag;
     this.batchContainer.scale.y = mag;
 
@@ -96,7 +96,7 @@
         return style;
       }, {visible: false, color: null});
 
-      slice.sprite.visible = style.visible && slice.z === this.stack.z;
+      slice.sprite.visible = style.visible && slice.z === this.stackViewer.z;
       if (style.color !== null) slice.sprite.tint = style.color;
     }
 
@@ -121,7 +121,7 @@
     sprite.y = slice.box[1];
     sprite.width = slice.box[2] - slice.box[0];
     sprite.height = slice.box[3] - slice.box[1];
-    sprite.blendMode = PIXI.blendModes.ADD;
+    sprite.blendMode = PIXI.BLEND_MODES.ADD;
     if (this.batchContainer) this.batchContainer.addChild(sprite);
 
     this.slices[slice.hash] = {
@@ -170,8 +170,8 @@
   };
 
   CatsopResultsLayer.Overlays.Assemblies.prototype.redraw = function (completionCallback) {
-    if (this.stack.z != this.old_z) {
-      this.old_z = this.stack.z;
+    if (this.stackViewer.z != this.old_z) {
+      this.old_z = this.stackViewer.z;
       this.refresh();
     }
 
@@ -179,7 +179,7 @@
   };
 
   CatsopResultsLayer.Overlays.Assemblies.prototype.refresh = function () {
-    var viewBox = this.stack.createStackViewBox();
+    var viewBox = this.stackViewer.createStackViewBox();
     var self = this;
     requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStackId +
             '/slices/by_bounding_box',
@@ -189,7 +189,7 @@
             min_y: viewBox.min.y,
             max_x: viewBox.max.x,
             max_y: viewBox.max.y,
-            z: this.stack.z
+            z: this.stackViewer.z
         },
         CATMAID.jsonResponseHandler((function (json) {
           var czer = new Colorizer();
@@ -234,8 +234,8 @@
   };
 
   CatsopResultsLayer.Overlays.Blocks.prototype.redraw = function (completionCallback) {
-    if (this.z_lim === null || this.z_lim.min > this.stack.z || this.z_lim.max <= this.stack.z) {
-      this.z_lim = {min: this.stack.z, max: this.stack.z + 1};
+    if (this.z_lim === null || this.z_lim.min > this.stackViewer.z || this.z_lim.max <= this.stackViewer.z) {
+      this.z_lim = {min: this.stackViewer.z, max: this.stackViewer.z + 1};
       this.refresh();
     }
 
@@ -250,7 +250,7 @@
       }, {visible: false, color: 0x000000});
 
       region.graphics.visible = region.text.visible =
-          style.visible && region.z <= this.stack.z && region.z + region.depth > this.stack.z;
+          style.visible && region.z <= this.stackViewer.z && region.z + region.depth > this.stackViewer.z;
       region.graphics.tint = style.color;
       var colorStr = style.color.toString(16);
       while (colorStr.length < 6) { colorStr = '0' + colorStr; }
@@ -265,7 +265,7 @@
 
   CatsopResultsLayer.Overlays.Blocks.prototype.refresh = function () {
     this.clear();
-    var viewBox = this.stack.createStackViewBox();
+    var viewBox = this.stackViewer.createStackViewBox();
     var self = this;
     requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.segmentationStackId +
             '/' + this.regionType + '/by_bounding_box',
@@ -273,10 +273,10 @@
         {
             min_x: viewBox.min.x,
             min_y: viewBox.min.y,
-            min_z: this.stack.z,
+            min_z: this.stackViewer.z,
             max_x: viewBox.max.x,
             max_y: viewBox.max.y,
-            max_z: this.stack.z
+            max_z: this.stackViewer.z
         },
         CATMAID.jsonResponseHandler((function (json) {
           if (json[self.regionType].length) {

@@ -62,8 +62,8 @@
     this.activeSliceIndex = null;
     this.activeSegmentHash = null;
     this.activeSolutionId = null;
-    this.stack = null;
-    this.offsetStack = null;
+    this.stackViewer = null;
+    this.offsetStackViewer = null;
     this.graphValue = null;
   };
 
@@ -72,13 +72,13 @@
 
   CatsopWidget.prototype.init = function (container) {
     this.container = container;
-    this.stack = project.focusedStack;
+    this.stackViewer = project.focusedStackViewer;
     this.selectGraphValue();
 
     // First load configuration info, block info, then open offset stack,
     // create CATSOP layers and  load a segment graph for segments at this
     // stack location.
-    requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stack.getId() +
+    requestQueue.register(django_url + 'sopnet/' + project.id + '/stack/' + this.stackViewer.primaryStack.id +
             '/configurations',
         'GET',
         {},
@@ -114,12 +114,12 @@
           this.blockInfo = json;
           openProjectStack(
               project.id,
-              this.stack.getId(),
-              (function (offsetStack) {
-                this.offsetStack = offsetStack;
+              this.stackViewer.primaryStack.id,
+              (function (offsetStackViewer) {
+                offsetStackViewer.setOffset([0, 0, 1]);
+                this.offsetStackViewer = offsetStackViewer;
                 this.initLayers();
-              }).bind(this),
-              OffsetStack(0, 0, 1)); // Duplicate stack
+              }).bind(this)); // Duplicate stack
 
           this.loadSegmentsAtLocation();
         }).bind(this)));
@@ -127,12 +127,12 @@
 
   CatsopWidget.prototype.initLayers = function () {
     this.destroyLayers();
-    project.setFocusedStack(this.stack);
-    this.stack.getWindow().focus();
+    // project.setFocusedStack(this.stackViewer);
+    // this.stackViewer.getWindow().focus();
 
     var name = 'base';
     this.layers[name] = [];
-    [this.stack, this.offsetStack].forEach((function(s) {
+    [this.stackViewer, this.offsetStackViewer].forEach((function(s) {
       var layer = new CATMAID.CatsopResultsLayer.Slices(s, this.activeSegmentationStackId, this.blockInfo.scale);
       this.layers[name].push(layer);
       s.addLayer(this.getLayerKey(name), layer);
@@ -145,7 +145,7 @@
   };
 
   CatsopWidget.prototype.destroyLayers = function () {
-    [this.stack, this.offsetStack].forEach((function(s) {
+    [this.stackViewer, this.offsetStackViewer].forEach((function(s) {
       for (var name in this.layers)
         s.removeLayer(this.getLayerKey(name));
     }).bind(this));
@@ -174,7 +174,7 @@
     requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/block_at_location',
         'GET',
-        {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+        {x: this.stackViewer.x, y: this.stackViewer.y, z: this.stackViewer.z},
         CATMAID.jsonResponseHandler((function (json) {
           this.block = json;
           $('#' + $(this.container).attr('id') + '-block-id').text(json.id);
@@ -231,7 +231,7 @@
     requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
             '/slices/by_location',
         'POST',
-        {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+        {x: this.stackViewer.x, y: this.stackViewer.y, z: this.stackViewer.z},
         CATMAID.jsonResponseHandler((function (json) {
           var segments = json.slices.reduce(function (segments, s) {
             return segments.concat(s.segment_summaries
@@ -290,7 +290,7 @@
     var self = this;
     var activeSegment = this.segmentRows.filter(function (seg) {return seg.hash === self.activeSegmentHash;})[0];
     this.activeSegment = activeSegment;
-    if (activeSegment.section !== this.stack.z + 1) this.moveToObject(activeSegment);
+    if (activeSegment.section !== this.stackViewer.z + 1) this.moveToObject(activeSegment);
 
     this.segmentRows.filter(function (seg) {
       return seg.section === activeSegment.section;
@@ -555,13 +555,13 @@
     this.layers[name] = this.layers[name] || [];
 
     if (this.layers[name].length) {
-      [this.stack, this.offsetStack].forEach((function(s) {
+      [this.stackViewer, this.offsetStackViewer].forEach((function(s) {
         s.removeLayer(this.getLayerKey(name));
       }).bind(this));
 
       this.layers[name] = [];
     } else {
-      [this.stack, this.offsetStack].forEach((function(s) {
+      [this.stackViewer, this.offsetStackViewer].forEach((function(s) {
         var layer = new CATMAID.CatsopResultsLayer.Overlays[name](s, this.activeSegmentationStackId, this.blockInfo.scale, this.activeSolutionId);
         this.layers[name].push(layer);
         s.addLayer(this.getLayerKey(name), layer);
@@ -621,7 +621,7 @@
     requestQueue.register(
         [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'core_at_location'].join('/'),
         'GET',
-        {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+        {x: this.stackViewer.x, y: this.stackViewer.y, z: this.stackViewer.z},
         CATMAID.jsonResponseHandler((function (json) {
           var core = json;
           requestQueue.register(
@@ -641,7 +641,7 @@
     requestQueue.register(
         [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'core_at_location'].join('/'),
         'GET',
-        {x: this.stack.x, y: this.stack.y, z: this.stack.z},
+        {x: this.stackViewer.x, y: this.stackViewer.y, z: this.stackViewer.z},
         CATMAID.jsonResponseHandler((function (json) {
           var core = json;
           requestQueue.register(
@@ -708,9 +708,9 @@
     } else return; // Unknown object.
 
     // Sopnet works in pixels. Convert to project coordinates to account for resolution & transform.
-    z = this.stack.stackToProjectZ(z, y, x);
-    y = this.stack.stackToProjectY(z, y, x);
-    x = this.stack.stackToProjectX(z, y, x);
+    z = this.stackViewer.primaryStack.stackToProjectZ(z, y, x);
+    y = this.stackViewer.primaryStack.stackToProjectY(z, y, x);
+    x = this.stackViewer.primaryStack.stackToProjectX(z, y, x);
     project.moveTo(z, y, x);
   };
 
