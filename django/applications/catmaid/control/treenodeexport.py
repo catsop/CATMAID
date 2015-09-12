@@ -296,6 +296,8 @@ class ConnectorExporter(TreenodeExporter):
                 try:
                     connector_link = TreenodeConnector.objects.filter(
                             project_id=self.job.project_id,
+                            relation_id__in=(self.relation_map['presynaptic_to'],
+                                             self.relation_map['postsynaptic_to']),
                             skeleton_id__in=self.job.skeleton_ids)[0]
                 except IndexError:
                     raise RuntimeError("Could not find any connector to export")
@@ -304,6 +306,8 @@ class ConnectorExporter(TreenodeExporter):
         else:
             connector_links = TreenodeConnector.objects.filter(
                     project_id=self.job.project_id,
+                    relation_id__in=(self.relation_map['presynaptic_to'],
+                                        self.relation_map['postsynaptic_to']),
                     skeleton_id__in=self.job.skeleton_ids).select_related(
                             'connector')
 
@@ -337,7 +341,7 @@ class ConnectorExporter(TreenodeExporter):
             # rounded to full integers.
             x = int(connector.location_x + 0.5)
             y = int(connector.location_y + 0.5)
-            z = int(z_min + i * crop_self.stacks[0].resolution_z  + 0.5)
+            z = int(z_min + i * crop_self.stacks[0].resolution.z  + 0.5)
             image_name = "%s_%s_%s.tiff" % (x, y, z)
             connector_image_path = os.path.join(connector_path, image_name)
             img.write(connector_image_path)

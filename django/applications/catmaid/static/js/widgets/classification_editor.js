@@ -315,10 +315,10 @@ var ClassificationEditor = new function()
         });
 
         // handlers
-        //	"inst" : /* the actual tree instance */,
-        //	"args" : /* arguments passed to the function */,
-        //	"rslt" : /* any data the function passed to the event */,
-        //	"rlbk" : /* an optional rollback object - it is not always present */
+        //  "inst" : /* the actual tree instance */,
+        //  "args" : /* arguments passed to the function */,
+        //  "rslt" : /* any data the function passed to the event */,
+        //  "rlbk" : /* an optional rollback object - it is not always present */
 
         // react to the opening of a node
         tree.bind("open_node.jstree", function (e, data) {
@@ -389,7 +389,7 @@ var ClassificationEditor = new function()
                 return false;
             }
 
-            $.blockUI({ message: '<h2><img src="' + STATIC_URL_JS + 'images/busy.gif" /> Removing classification graph node. Just a moment...</h2>' });
+            $.blockUI({ message: '<img src="' + STATIC_URL_JS + 'images/busy.gif" /><span>Removing classification graph node. Just a moment...</span>' });
             // Remove classes
             $.post(self.get_cls_url(project.id, '/instance-operation'), {
                 "operation": "remove_node",
@@ -409,7 +409,7 @@ var ClassificationEditor = new function()
                 if(r['status']) {
                     $("#annotation_graph_object").jstree("refresh", -1);
                     project.updateTool();
-                    growlAlert('SUCCESS',
+                    CATMAID.msg('SUCCESS',
                         'Classification graph element "' + friendly_name + '" removed.');
                 }
             });
@@ -423,7 +423,7 @@ var ClassificationEditor = new function()
                 $.jstree.rollback(treebefore);
                 return false;
             }
-            $.blockUI({ message: '<h2><img src="' + STATIC_URL_JS + 'images/busy.gif" /> Renaming classification graph node. Just a moment...</h2>' });
+            $.blockUI({ message: '<img src="' + STATIC_URL_JS + 'images/busy.gif" /><span>Renaming classification graph node. Just a moment...</span>' });
             $.post(self.get_cls_url(project.id, '/instance-operation'), {
                  "operation": "rename_node",
                  "id": node.attr("id").replace("node_", ""),
@@ -440,7 +440,7 @@ var ClassificationEditor = new function()
                 if(r['status']) {
                     $("#annotation_graph_object").jstree("refresh", -1);
                     project.updateTool();
-                    growlAlert('SUCCESS', 'Classification graph element renamed.');
+                    CATMAID.msg('SUCCESS', 'Classification graph element renamed.');
                 }
             });
         });
@@ -467,14 +467,14 @@ var ClassificationEditor = new function()
                 x_max: cb.right,
                 y_min: cb.top,
                 y_max: cb.bottom,
-                z: tool.stack.z * tool.stack.resolution.z + tool.stack.translation.z,
-                zoom_level: tool.stack.s,
+                z: tool.stackViewer.z * tool.stackViewer.primaryStack.resolution.z + tool.stackViewer.primaryStack.translation.z,
+                zoom_level: tool.stackViewer.s,
                 rotation_cw: cb.rotation_cw
             };
             // The actual creation and linking of the ROI happens in
             // the back-end. Create URL for initiating this:
             var roi_url = self.get_cls_url(project.id,
-                "/stack/" + tool.stack.getId() + "/linkroi/" + node_id + "/");
+                "/stack/" + tool.stackViewer.primaryStack.id + "/linkroi/" + node_id + "/");
             // Make Ajax call and handle response in callback
             requestQueue.register(roi_url, 'POST', data,
                 CATMAID.jsonResponseHandler(
@@ -508,8 +508,8 @@ var ClassificationEditor = new function()
         cancel_button.appendChild(cancel_link);
 
         // Add cancel button to toolbar
-	    var toolbar = document.getElementById("toolbar_roi");
-	    var toolbar_button = document.getElementById("button_roi_apply").parentNode;
+        var toolbar = document.getElementById("toolbar_roi");
+        var toolbar_button = document.getElementById("button_roi_apply").parentNode;
         toolbar.insertBefore(cancel_button, toolbar_button.nextSibling);
 
         // Make sure the cancel button gets removed
@@ -915,11 +915,11 @@ var ClassificationEditor = new function()
     };
 
     /**
-     * Shows a growl error message in the top right corner.
+     * Shows status information.
      */
     this.show_status = function( title, message, delaytime ) {
         if (!delaytime)
             delaytime = 2500;
-        growlAlert(title, message, {duration: delaytime});
+        CATMAID.msg(title, message, {duration: delaytime});
     };
 }();

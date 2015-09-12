@@ -20,7 +20,7 @@
   SkeletonSource.prototype.loadSource = function() {
     var models = CATMAID.skeletonListSources.getSelectedSkeletonModels(this);
     if (0 === models.length) {
-      growlAlert('Info', 'Selected source is empty.');
+      CATMAID.info('Selected source is empty.');
       return;
     }
     this.append(models);
@@ -71,7 +71,7 @@
   };
 
   SkeletonSource.prototype.annotate_skeleton_list = function() {
-    NeuronAnnotations.prototype.annotate_neurons_of_skeletons(this.getSelectedSkeletons());
+    CATMAID.annotate_neurons_of_skeletons(this.getSelectedSkeletons());
   };
 
   // Make skeleton source available in CATMAID namespace

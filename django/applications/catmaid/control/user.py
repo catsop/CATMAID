@@ -19,7 +19,8 @@ def access_check(user):
 @user_passes_test(access_check)
 def user_list(request):
     result = []
-    for u in User.objects.all().order_by('last_name', 'first_name'):
+    for u in User.objects.all().select_related('userprofile') \
+            .order_by('last_name', 'first_name'):
         up = u.userprofile
         result.append({
             "id": u.id,
@@ -149,10 +150,12 @@ def update_user_profile(request):
         return HttpResponse(json.dumps({'success': "The user profile of the " +
                 "anonymous user won't be updated"}), content_type='text/json')
 
-    for var in [{'name': 'display_stack_reference_lines', 'parse': json.loads},
+    for var in [{'name': 'inverse_mouse_wheel', 'parse': json.loads},
+                {'name': 'display_stack_reference_lines', 'parse': json.loads},
                 {'name': 'tracing_overlay_screen_scaling', 'parse': json.loads},
                 {'name': 'tracing_overlay_scale', 'parse': float},
-                {'name': 'prefer_webgl_layers', 'parse': json.loads}]:
+                {'name': 'prefer_webgl_layers', 'parse': json.loads},
+                {'name': 'use_cursor_following_zoom', 'parse': json.loads}]:
         request_var = request.POST.get(var['name'], None)
         if request_var:
             request_var = var['parse'](request_var)

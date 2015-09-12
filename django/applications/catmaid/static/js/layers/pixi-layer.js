@@ -7,43 +7,320 @@
   PixiLayer.contexts = new Map();
 
   /**
-   * A layer that shares a common Pixi renderer with other layers in this stack.
-   * Creates a renderer and stage context for the stack if none exists.
+   * A WebGL/Pixi context shared by all WebGL layers in the same stack viewer.
    *
-   * Must be used as a mixin for an object with a `stack` property.
+   * @class PixiContext
+   * @constructor
+   * @param {StackViewer} stackViewer The stack viewer to which this context belongs.
+   */
+  function PixiContext(stackViewer) {
+    this.renderer = new PIXI.autoDetectRenderer(
+        stackViewer.getView().clientWidth,
+        stackViewer.getView().clientHeight,
+        {backgroundColor: 0x000000});
+    this.stage = new PIXI.Container();
+    this.layersRegistered = new Set();
+  }
+
+  /**
+   * Release any Pixi resources owned by this context.
+   */
+  PixiContext.prototype.destroy = function () {
+    this.renderer.destroy();
+    this.renderer = null;
+    this.stage = null;
+  };
+
+  /**
+   * Mark all layers using this context as not being ready for rendering.
+   */
+  PixiContext.prototype.resetRenderReadiness = function () {
+    this.layersRegistered.forEach(function (layer) {
+      layer.readyForRender = false;
+    });
+  };
+
+  /**
+   * Render the Pixi context if all layers using it are ready.
+   */
+  PixiContext.prototype.renderIfReady = function () {
+    if (!this.renderer) return;
+
+    var allReady = true;
+    this.layersRegistered.forEach(function (layer) {
+        allReady = allReady && (layer.readyForRender || !layer.visible);
+    });
+
+    if (allReady) this.renderer.render(this.stage);
+  };
+
+
+  /**
+   * Loads textures from URLs, tracks use through reference counting, caches
+   * unused textures, and frees evicted textures.
+   *
+   * @class
+   * @constructor
+   */
+  PixiContext.TextureManager = function () {
+    this._boundResourceLoaded = this._resourceLoaded.bind(this);
+    this._concurrency = 16;
+    this._counts = {};
+    this._loader = new PIXI.loaders.Loader('', this._concurrency);
+    this._loader.load();
+    this._loader._queue.empty = this._loadFromQueue.bind(this);
+    this._loading = {};
+    this._loadingQueue = [];
+    this._loadingRequests = new Set();
+    this._unused = [];
+    this._unusedCapacity = 256;
+    this._unusedOut = 0;
+    this._unusedIn = 0;
+  };
+
+  PixiContext.TextureManager.prototype.constructor = PixiContext.TextureManager;
+
+  /**
+   * Create a load request for a set of texture URLs and callback once they
+   * have all loaded. Requests can be fulfilled from caches and are deduplicated
+   * with other loading requests.
+   *
+   * @param  {string[]} urls     The set of texture URLs to load.
+   * @param  {Function} callback Callback when the request successfully completes.
+   * @return {Object}            A request tracking object that can be used to
+   *                             to cancel this request.
+   */
+  PixiContext.TextureManager.prototype.load = function (urls, callback) {
+    var request = {urls: urls, callback: callback, remaining: 0};
+    // Remove any URLs already cached or being loaded by other requests.
+    var newUrls = urls.filter(function (url) {
+      if (this._counts.hasOwnProperty(url)) return false;
+      request.remaining++;
+      if (this._loading.hasOwnProperty(url)) {
+        this._loading[url].add(request);
+        return false;
+      } else {
+        this._loading[url] = new Set([request]);
+        return true;
+      }
+    }, this);
+
+    if (request.remaining === 0) {
+      callback();
+      return request;
+    }
+    this._loadingRequests.add(request);
+
+    Array.prototype.push.apply(this._loadingQueue, newUrls);
+    this._loadFromQueue();
+
+    return request;
+  };
+
+  /**
+   * Passes URLs from the TextureManager's loading queue to the loader.
+   *
+   * @private
+   */
+  PixiContext.TextureManager.prototype._loadFromQueue = function () {
+    var toDequeue = this._concurrency - this._loader._queue.length();
+    if (toDequeue < 1) return;
+    var remainingQueue = this._loadingQueue.splice(toDequeue);
+    this._loadingQueue.forEach(function (url) {
+      this._loader.add(url, {crossOrigin: true}, this._boundResourceLoaded);
+    }, this);
+    this._loadingQueue = remainingQueue;
+    this._loader.load();
+  };
+
+  /**
+   * Callback when a resources has loaded to remove it from the loading queues,
+   * add it to the cache, and execute any request callbacks.
+   *
+   * @private
+   * @param  {Object} resource PIXI's resource loaded object.
+   */
+  PixiContext.TextureManager.prototype._resourceLoaded = function (resource) {
+    var url = resource.url;
+    delete this._loader.resources[url];
+    var requests = this._loading[url];
+    delete this._loading[url];
+
+    if (!this._counts.hasOwnProperty(url) && PIXI.utils.TextureCache.hasOwnProperty(url)) {
+      this._counts[url] = 0;
+      this._markUnused(url);
+    }
+
+    // Notify any requests for this resource of its completion.
+    if (requests) requests.forEach(function (request) {
+      request.remaining--;
+      // If the request is complete, execute its callback.
+      if (request.remaining === 0) {
+        this._loadingRequests.delete(request);
+        request.callback();
+      }
+    }, this);
+  };
+
+  /**
+   * Cancels a texture loading request, removing any resources from the loading
+   * queue that have not already loaded or are not required by other requests.
+   *
+   * @param  {Object} request A request tracking object returned by `load`.
+   */
+  PixiContext.TextureManager.prototype.cancel = function (request) {
+    if (this._loadingRequests.delete(request)) {
+      request.urls.forEach(function (url) {
+        if (this._loading.hasOwnProperty(url)) {
+          this._loading[url].delete(request);
+          // If this was the last request for this resource, remove it from the
+          // loader's queue.
+          if (this._loading[url].size === 0) {
+            var queuePosition = this._loadingQueue.indexOf(url);
+            if (queuePosition !== -1) {
+              this._loadingQueue.splice(queuePosition, 1);
+              // Only delete this URL from the loading object if it was still
+              // in the queue. Otherwise it has already been picked up by the
+              // loader, so we must let it load normally for consistency.
+              delete this._loading[url];
+            }
+          }
+        }
+      }, this);
+    }
+  };
+
+  /**
+   * Increment the reference counter for a texture.
+   *
+   * @param  {string} key Texture resource key, usually a URL.
+   */
+  PixiContext.TextureManager.prototype.inc = function (key) {
+    var count = this._counts[key];
+
+    if (typeof count !== 'undefined') { // Key is already tracked by cache.
+      this._counts[key] += 1;
+    } else {
+      this._counts[key] = 1;
+    }
+
+    if (count === 0) { // Remove this key from the unused set.
+      this._unused[this._unused.indexOf(key)] = null;
+    }
+  };
+
+  /**
+   * Decrement the reference counter for a texture. If the texture is no longer
+   * used, it will be moved to the unused cache and possibly freed.
+   *
+   * @param  {string} key Texture resource key, usually a URL.
+   */
+  PixiContext.TextureManager.prototype.dec = function (key) {
+    if (typeof key === 'undefined') return;
+    var count = this._counts[key];
+
+    if (typeof count !== 'undefined') { // Key is already tracked by cache.
+      this._counts[key] -= 1;
+    } else {
+      console.warn('Attempt to release reference to untracked key: ' + key);
+      return;
+    }
+
+    if (count === 1) { // Add this key to the unused set.
+      this._markUnused(key);
+    }
+  };
+
+  /**
+   * Mark a texture as being unused, move it to the unused cache, and free other
+   * unused cache textures if necessary.
+   *
+   * @private
+   * @param  {string} key Texture resource key, usually a URL.
+   */
+  PixiContext.TextureManager.prototype._markUnused = function (key) {
+    // Check if the circular array is full.
+    if ((this._unusedIn + 1) % this._unusedCapacity === this._unusedOut) {
+      var outKey = this._unused[this._unusedOut];
+
+      if (outKey !== null) {
+        delete this._counts[outKey];
+        PIXI.utils.TextureCache[outKey].destroy(true);
+        delete PIXI.utils.TextureCache[outKey];
+      }
+
+      this._unusedOut = (this._unusedOut + 1) % this._unusedCapacity;
+    }
+
+    this._unused[this._unusedIn] = key;
+    this._unusedIn = (this._unusedIn + 1) % this._unusedCapacity;
+  };
+
+  PixiContext.GlobalTextureManager = new PixiContext.TextureManager();
+
+  CATMAID.PixiContext = PixiContext;
+
+
+  /**
+   * A layer that shares a common Pixi renderer with other layers in this stack
+   * viewer. Creates a renderer and stage context for the stack viewer if none
+   * exists.
+   *
+   * Must be used as a mixin for an object with a `stackViewer` property.
    *
    * @class PixiLayer
    * @constructor
    */
   function PixiLayer() {
     this.batchContainer = null;
-    var context = PixiLayer.contexts.get(this.stack);
-    if (!context) {
-      if (!PIXI.BaseTextureCacheManager || PIXI.BaseTextureCacheManager.constructor !== PIXI.LRUCacheManager) {
-        PIXI.BaseTextureCacheManager = new PIXI.LRUCacheManager(PIXI.BaseTextureCache, 512);
-      }
-      context = {
-          renderer: new PIXI.autoDetectRenderer(
-              this.stack.getView().clientWidth,
-              this.stack.getView().clientHeight),
-          stage: new PIXI.Stage(0x000000)};
-      PixiLayer.contexts.set(this.stack, context);
+    this._context = PixiLayer.contexts.get(this.stackViewer);
+    if (!this._context) {
+      this._context = new PixiContext(this.stackViewer);
+      PixiLayer.contexts.set(this.stackViewer, this._context);
     }
-    this.renderer = context.renderer;
-    this.stage = context.stage;
+    this._context.layersRegistered.add(this);
+    this.renderer = this._context.renderer;
+    this.stage = this._context.stage;
     this.blendMode = 'normal';
     this.filters = [];
+    this.readyForRender = false;
   }
+
+  /**
+   * Free any pixi display objects associated with this layer.
+   */
+  PixiLayer.prototype.unregister = function () {
+    if (this.batchContainer) {
+      this.batchContainer.removeChildren();
+      this.stage.removeChild(this.batchContainer);
+    }
+
+    this._context.layersRegistered.delete(this);
+
+    // If this was the last layer using this Pixi context, remove it.
+    if (this._context.layersRegistered.size === 0) {
+      this._context.destroy();
+      PixiLayer.contexts.delete(this.stackViewer);
+    }
+  };
 
   /**
    * Initialise the layer's batch container.
    */
   PixiLayer.prototype._initBatchContainer = function () {
     if (!this.batchContainer) {
-      this.batchContainer = new PIXI.DisplayObjectContainer();
+      this.batchContainer = new PIXI.Container();
       this.syncFilters();
       this.stage.addChild(this.batchContainer);
     } else this.batchContainer.removeChildren();
+  };
+
+  /**
+   * Render the Pixi context if all layers using it are ready.
+   */
+  PixiLayer.prototype._renderIfReady = function () {
+    this.readyForRender = true;
+    this._context.renderIfReady();
   };
 
   /**
@@ -61,13 +338,16 @@
 
   /**
    * Notify this layer that it has been reordered to be before another layer.
-   * While the stack orders DOM elements, layers are responsible for any internal
-   * order representation, such as in a scene graph.
+   * While the stack viewer orders DOM elements, layers are responsible for any
+   * internal order representation, such as in a scene graph.
    * @param  {Layer} beforeLayer The layer which this layer was inserted before,
    *                             or null if this layer was moved to the end (top).
    */
   PixiLayer.prototype.notifyReorder = function (beforeLayer) {
-    if (!(beforeLayer === null || beforeLayer instanceof PixiLayer)) return;
+    // PixiLayers can only reorder around other PixiLayers, since their ordering
+    // is independent of the DOM. Use batchContainer to check for PixiLayers,
+    // since instanceof does not work with MI/mixin inheritance.
+    if (!(beforeLayer === null || beforeLayer.batchContainer)) return;
 
     var newIndex = beforeLayer === null ?
         this.stage.children.length - 1 :
@@ -80,9 +360,16 @@
    * @return {string[]} Names of supported blend modes.
    */
   PixiLayer.prototype.getAvailableBlendModes = function () {
-    return Object.keys(PIXI.blendModes).map(function (modeKey) {
-      return modeKey.toLowerCase().replace(/_/, ' ');
-    });
+    var glBlendModes = this._context.renderer.blendModes;
+    var normBlendFuncs = glBlendModes[PIXI.BLEND_MODES.NORMAL];
+    return Object.keys(PIXI.BLEND_MODES)
+        .filter(function (modeKey) { // Filter modes that are not different from normal.
+          var glBlendFuncs = glBlendModes[PIXI.BLEND_MODES[modeKey]];
+          return modeKey == 'NORMAL' ||
+              glBlendFuncs[0] !== normBlendFuncs[0] ||
+              glBlendFuncs[1] !== normBlendFuncs[1]; })
+        .map(function (modeKey) {
+          return modeKey.toLowerCase().replace(/_/, ' '); });
   };
 
   /**
@@ -101,7 +388,7 @@
     this.blendMode = modeKey;
     modeKey = modeKey.replace(/ /, '_').toUpperCase();
     this.batchContainer.children.forEach(function (child) {
-      child.blendMode = PIXI.blendModes[modeKey];
+      child.blendMode = PIXI.BLEND_MODES[modeKey];
     });
   };
 
@@ -114,11 +401,11 @@
     if (this.renderer instanceof PIXI.CanvasRenderer) return {};
 
     return {
-      'Gaussian Blur': PixiLayer.FilterWrapper.bind(null, 'Gaussian Blur', PIXI.BlurFilter, [
+      'Gaussian Blur': PixiLayer.FilterWrapper.bind(null, 'Gaussian Blur', PIXI.filters.BlurFilter, [
         {displayName: 'Width (px)', name: 'blurX', type: 'slider', range: [0, 32]},
         {displayName: 'Height (px)', name: 'blurY', type: 'slider', range: [0, 32]}
       ], this),
-      'Invert': PixiLayer.FilterWrapper.bind(null, 'Invert', PIXI.InvertFilter, [
+      'Invert': PixiLayer.FilterWrapper.bind(null, 'Invert', PIXI.filters.InvertFilter, [
         {displayName: 'Strength', name: 'invert', type: 'slider', range: [0, 1]}
       ], this),
       'Brightness, Contrast & Saturation': PixiLayer.FilterWrapper.bind(null, 'Brightness, Contrast & Saturation', PixiLayer.Filters.BrightnessContrastSaturationFilter, [
@@ -126,8 +413,12 @@
         {displayName: 'Contrast', name: 'contrast', type: 'slider', range: [0, 3]},
         {displayName: 'Saturation', name: 'saturation', type: 'slider', range: [0, 3]}
       ], this),
-      'Color Transform': PixiLayer.FilterWrapper.bind(null, 'Color Transform', PIXI.ColorMatrixFilter, [
-        {displayName: 'RGBA Matrix', name: 'matrix', type: 'matrix', size: [4, 4]}
+      'Color Transform': PixiLayer.FilterWrapper.bind(null, 'Color Transform', PIXI.filters.ColorMatrixFilter, [
+        {displayName: 'RGBA Matrix', name: 'matrix', type: 'matrix', size: [4, 5]}
+      ], this),
+      'Intensity Thresholded Transparency': PixiLayer.FilterWrapper.bind(null, 'Intensity Thresholded Transparency', PixiLayer.Filters.IntensityThresholdTransparencyFilter, [
+        {displayName: 'Intensity Threshold', name: 'intensityThreshold', type: 'slider', range: [0, 1]},
+        {displayName: 'Luminance Coefficients', name: 'luminanceCoeff', type: 'matrix', size: [1, 3]}
       ], this),
     };
   };
@@ -218,13 +509,13 @@
    */
   PixiLayer.FilterWrapper.prototype.redrawControl = function (container, callback) {
     container.append('<h5>' + this.displayName + '</h5>');
-    for (var i = 0; i < this.params.length; i++) {
-      var param = this.params[i];
+    for (var paramIndex = 0; paramIndex < this.params.length; paramIndex++) {
+      var param = this.params[paramIndex];
 
       switch (param.type) {
         case 'slider':
-          var slider = new Slider(
-              SLIDER_HORIZONTAL,
+          var slider = new CATMAID.Slider(
+              CATMAID.Slider.HORIZONTAL,
               true,
               param.range[0],
               param.range[1],
@@ -297,32 +588,31 @@
       saturation: {type: '1f', value: 1}
     };
 
-    this.fragmentSrc = [
-        'precision mediump float;',
-        'uniform float brightness;',
-        'uniform float contrast;',
-        'uniform float saturation;',
+    this.fragmentSrc =
+        'precision mediump float;' +
+        'uniform float brightness;' +
+        'uniform float contrast;' +
+        'uniform float saturation;' +
 
-        'varying vec2 vTextureCoord;',
-        'uniform sampler2D uSampler;',
+        'varying vec2 vTextureCoord;' +
+        'uniform sampler2D uSampler;' +
 
-        'const vec3 luminanceCoeff = vec3(0.2125, 0.7154, 0.0721);',
-        'const vec3 noContrast = vec3(0.5, 0.5, 0.5);',
+        'const vec3 luminanceCoeff = vec3(0.2125, 0.7154, 0.0721);' +
+        'const vec3 noContrast = vec3(0.5, 0.5, 0.5);' +
 
-        'void main(void) {',
-        '  vec4 frag = texture2D(uSampler, vTextureCoord);',
-        '  vec3 color = frag.rgb;',
+        'void main(void) {' +
+          'vec4 frag = texture2D(uSampler, vTextureCoord);' +
+          'vec3 color = frag.rgb;' +
 
-        '  color = color * brightness;',
-        '  float intensityMag = dot(color, luminanceCoeff);',
-        '  vec3 intensity = vec3(intensityMag, intensityMag, intensityMag);',
-        '  color = mix(intensity, color, saturation);',
-        '  color = mix(noContrast, color, contrast);',
+          'color = color * brightness;' +
+          'float intensityMag = dot(color, luminanceCoeff);' +
+          'vec3 intensity = vec3(intensityMag, intensityMag, intensityMag);' +
+          'color = mix(intensity, color, saturation);' +
+          'color = mix(noContrast, color, contrast);' +
 
-        '  frag.rgb = color;',
-        '  gl_FragColor = frag;',
-        '}'
-    ];
+          'frag.rgb = color;' +
+          'gl_FragColor = frag;' +
+        '}';
   };
 
   PixiLayer.Filters.BrightnessContrastSaturationFilter.prototype = Object.create(PIXI.AbstractFilter.prototype);
@@ -339,6 +629,66 @@
     });
   });
 
+  /**
+   * This filter makes pixels transparent according to an intensity threshold.
+   * The luminance projection used to determine intensity is configurable.
+   * @constructor
+   */
+  PixiLayer.Filters.IntensityThresholdTransparencyFilter = function () {
+    PIXI.AbstractFilter.call(this);
+
+    this.passes = [this];
+
+    this.uniforms = {
+      luminanceCoeff: {type: '3fv', value: [0.2125, 0.7154, 0.0721]},
+      intensityThreshold: {type: '1f', value: 0.01}
+    };
+
+    this.fragmentSrc =
+        'precision mediump float;' +
+        'uniform vec3 luminanceCoeff;' +
+        'uniform float intensityThreshold;' +
+
+        'varying vec2 vTextureCoord;' +
+        'uniform sampler2D uSampler;' +
+
+        'void main(void) {' +
+        '  vec4 frag = texture2D(uSampler, vTextureCoord);' +
+        '  vec3 color = frag.rgb;' +
+        '  float intensityMag = dot(color, luminanceCoeff);' +
+
+        '  frag.a = min(step(intensityThreshold, intensityMag), frag.a);' +
+        '  frag.rgb = frag.rgb * frag.a;' + // Use premultiplied RGB
+        '  gl_FragColor = frag;' +
+        '}';
+  };
+
+  PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype = Object.create(PIXI.AbstractFilter.prototype);
+  PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype.constructor = PixiLayer.Filters.IntensityThresholdTransparencyFilter;
+
+  ['luminanceCoeff', 'intensityThreshold'].forEach(function (prop) {
+    Object.defineProperty(PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype, prop, {
+      get: function () {
+        return this.uniforms[prop].value;
+      },
+      set: function (value) {
+        this.uniforms[prop].value = value;
+      }
+    });
+  });
+
   CATMAID.PixiLayer = PixiLayer;
+
+  CATMAID.Init.on(CATMAID.Init.EVENT_PROJECT_CHANGED,
+      function (project) {
+        project.on(Project.EVENT_STACKVIEW_CLOSED,
+            function (stackViewer) {
+              var context = PixiLayer.contexts.get(stackViewer);
+              if (context) {
+                context.renderer.destroy();
+                PixiLayer.contexts.delete(stackViewer);
+              }
+            });
+      });
 
 })(CATMAID);

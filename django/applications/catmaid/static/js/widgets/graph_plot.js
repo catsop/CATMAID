@@ -1,16 +1,12 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
-  ArborParser,
   CircuitGraphAnalysis,
   fetchSkeletons,
-  growlAlert,
   InstanceRegistry,
   NeuronNameService,
-  OptionsDialog,
   project,
   requestQueue,
-  saveDivSVG,
   SynapseClustering
 */
 
@@ -234,7 +230,7 @@ CircuitGraphPlot.prototype.append = function(models) {
 
   if (skids.length < 2) {
     this.clearGUI();
-    growlAlert('Need more than one', 'Need at least two neurons!');
+    CATMAID.msg('Need more than one', 'Need at least two neurons!');
     return;
   }
 
@@ -464,7 +460,7 @@ CircuitGraphPlot.prototype.getVectors = function() {
 
   var f = (function(select) {
     var index = select.selectedIndex;
-    if (index < this.vectors.length) {
+    if (this.vectors && index < this.vectors.length) {
       return this.vectors[index][1];
     } else if ('a' === select.value[0]) {
       if (!this.anatomy) {
@@ -521,7 +517,7 @@ CircuitGraphPlot.prototype.loadAnatomy = function(callback) {
       },
       function(skid) { return {}; },
       function(skid, json) {
-        var ap = new ArborParser().init('compact-arbor', json),
+        var ap = new CATMAID.ArborParser().init('compact-arbor', json),
             arbor = ap.arbor;
 
         // Reroot at soma if possible and necessary
@@ -671,7 +667,7 @@ CircuitGraphPlot.prototype.loadAnatomy = function(callback) {
       },
       function(skid) {
         // Failed to load
-        growlAlert("ERROR", "Skeleton #" + skid + " failed to load.");
+        CATMAID.msg("ERROR", "Skeleton #" + skid + " failed to load.");
         measurements[skid] = null;
       },
       (function() {
@@ -1003,7 +999,8 @@ CircuitGraphPlot.prototype.highlight = function() {
 };
 
 CircuitGraphPlot.prototype.exportSVG = function() {
-  saveDivSVG('circuit_graph_plot_div' + this.widgetID, "circuit_plot.svg");
+  CATMAID.svgutil.saveDivSVG('circuit_graph_plot_div' + this.widgetID,
+      "circuit_plot.svg");
 };
 
 CircuitGraphPlot.prototype.exportCSV = function() {
@@ -1076,7 +1073,7 @@ CircuitGraphPlot.prototype.exportCSVAll = function() {
 };
 
 CircuitGraphPlot.prototype.adjustOptions = function() {
-  var od = new OptionsDialog("Parameters");
+  var od = new CATMAID.OptionsDialog("Parameters");
   od.appendField(
       "Smooth skeletons by Gaussian convolution with sigma (nm): ",
       "CGP-sigma" + this.widgetID,

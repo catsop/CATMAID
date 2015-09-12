@@ -2,15 +2,11 @@
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
   CATMAID,
-  ArborParser,
-  Events,
   InstanceRegistry,
-  OptionsDialog,
   project,
   requestQueue,
   SelectionTable,
-  SkeletonAnnotations,
-  SVGUtil
+  SkeletonAnnotations
 */
 
 "use strict";
@@ -46,6 +42,10 @@ var NeuronDendrogram = function() {
   // changes.
   this.autoUpdate = true;
 
+  // Multipliers for horizontal node spacing and vertical leaf spacing
+  this.hNodeSpaceFactor = 1.0;
+  this.vNodeSpaceFactor = 1.0;
+
   // Listen to change events of the active node and skeletons
   SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
       this.selectActiveNode, this);
@@ -56,7 +56,7 @@ var NeuronDendrogram = function() {
 NeuronDendrogram.prototype = {};
 $.extend(NeuronDendrogram.prototype, new InstanceRegistry());
 $.extend(NeuronDendrogram.prototype, new CATMAID.SkeletonSource());
-$.extend(NeuronDendrogram.prototype, Events.Event);
+$.extend(NeuronDendrogram.prototype, CATMAID.Events.Event);
 
 /* Implement interfaces */
 
@@ -164,6 +164,11 @@ NeuronDendrogram.prototype.selectNode = function(node_id, skeleton_id)
 
     return o;
   }, {});
+
+  // If a virtual node should be selected, use the real parent instead.
+  if (!SkeletonAnnotations.isRealNode(node_id)) {
+    node_id = SkeletonAnnotations.getChildOfVirtualNode(node_id);
+  }
 
   // Make sure the requested node is part of the current skeleton
   if (!(node_id in nodesToChildren)) {
@@ -283,7 +288,7 @@ NeuronDendrogram.prototype.loadSkeleton = function(skid)
           this.currentSkeletonId = skid;
           this.currentSkeletonTree = data[0];
           this.currentSkeletonTags = data[2];
-          var ap  = new ArborParser().init('compact-skeleton', data);
+          var ap  = new CATMAID.ArborParser().init('compact-skeleton', data);
           this.currentArbor = ap.arbor;
           this.update();
           this.updating = false;
@@ -540,14 +545,19 @@ NeuronDendrogram.prototype.renderDendogram = function(tree, tags, referenceTags)
     width = baseWidth * factor;
     height = baseHeight * factor;
   } else {
-    width = Math.max(baseWidth, nodeSize[0] * this.getMaxDepth(tree));
-    height = Math.max(baseHeight, nodeSize[1] * this.getNumLeafs(tree));
+    baseWidth = this.hNodeSpaceFactor * baseWidth;
+    baseHeight = this.vNodeSpaceFactor * baseHeight;
+    width = Math.max(baseWidth, this.hNodeSpaceFactor * nodeSize[0] * this.getMaxDepth(tree));
+    height = Math.max(baseHeight, this.vNodeSpaceFactor * nodeSize[1] * this.getNumLeafs(tree));
   }
 
   // Create clustering where each leaf node has the same distance to its
   // neighbors.
+  var dendrogramSize;
+  if (this.radialDisplay) dendrogramSize = [360 * this.vNodeSpaceFactor, 360 * this.hNodeSpaceFactor];
+  else dendrogramSize = [height, width];
   var dendrogram = d3.layout.cluster()
-    .size([this.radialDisplay ? 360 * factor : height, this.radialDisplay ? 360: width])
+    .size(dendrogramSize)
     .separation(function() { return 1; });
 
   // Find default scale so that everything can be seen, if no scale is cached.
@@ -758,7 +768,7 @@ NeuronDendrogram.prototype.exportSVG = function()
     }
     return o;
   }, "");
-  SVGUtil.addStyles(xml, css);
+  CATMAID.svgutil.addStyles(xml, css);
 
   // Serialize SVG including CSS and export it as blob
   var data = new XMLSerializer().serializeToString(xml);
@@ -778,7 +788,7 @@ NeuronDendrogram.prototype.chooseHighlightTags = function()
   }
 
   // Get all the tags for the current skeleton
-  var dialog = new OptionsDialog("Select tags to highlight");
+  var dialog = new CATMAID.OptionsDialog("Select tags to highlight");
   dialog.appendMessage("The following tags are used in the selected " +
       "skeleton. Every node labeled with at least one of the selected tags, " +
       "will be highlighted and its sub-arbor will be highlighted as well.");
@@ -839,4 +849,14 @@ NeuronDendrogram.prototype.setCollapseNotABranch = function(value)
 NeuronDendrogram.prototype.setWarnCollapsed = function(value)
 {
   this.warnCollapsed = Boolean(value);
+};
+
+NeuronDendrogram.prototype.setHSpaceFactor = function(value)
+{
+  this.hNodeSpaceFactor = value;
+};
+
+NeuronDendrogram.prototype.setVSpaceFactor = function(value)
+{
+  this.vNodeSpaceFactor = value;
 };

@@ -8,6 +8,7 @@ from django.db.models.aggregates import Count
 from django.db import connection
 
 from catmaid.control.authentication import requires_user_role
+from catmaid.control.common import get_relation_to_id_map
 from catmaid.models import ClassInstance, Connector, Treenode, User, UserRole, \
         Review, Relation, TreenodeConnector
 
@@ -187,21 +188,37 @@ def stats_user_history(request, project_id=None):
     # a computed field which is just the day of the last edited date/time.
     treenode_stats = []
     cursor = connection.cursor()
-    cursor.execute('''\
-        SELECT "treenode"."user_id", (date_trunc('day', creation_time)) AS "date", COUNT("treenode"."id") AS "count"
-            FROM "treenode"
-            INNER JOIN (
-            SELECT "treenode"."skeleton_id", COUNT("treenode"."id") as "skeleton_nodes"
-                FROM "treenode"
-                GROUP BY "treenode"."skeleton_id") as tn2
-            ON "treenode"."skeleton_id" = tn2."skeleton_id"
-            WHERE ("treenode"."project_id" = %(project_id)s
-            AND "treenode"."creation_time" BETWEEN %(start_date)s AND %(end_date)s
-            AND tn2."skeleton_nodes" > 1)
-            GROUP BY "treenode"."user_id", "date"
-            ORDER BY "treenode"."user_id" ASC, "date" ASC''', \
-            dict(project_id=project_id, start_date=start_date, end_date=end_date))
+
+    cursor.execute('''
+        SELECT child.uid, child.day, round(sum(edge.length))
+        FROM (
+            SELECT
+                child.user_id AS uid,
+                date_trunc('day', child.creation_time) AS day,
+                child.parent_id,
+                child.location_x,
+                child.location_y,
+                child.location_z
+            FROM treenode child
+            WHERE child.project_id = %(project_id)s
+              AND child.creation_time BETWEEN %(start_date)s AND %(end_date)s
+        ) AS child
+        INNER JOIN LATERAL (
+            SELECT sqrt(pow(child.location_x - parent.location_x, 2)
+                      + pow(child.location_y - parent.location_y, 2)
+                      + pow(child.location_z - parent.location_z, 2)) AS length
+            FROM treenode parent
+            WHERE parent.project_id = %(project_id)s
+              AND parent.id = child.parent_id
+            LIMIT 1
+        ) AS edge ON TRUE
+        GROUP BY child.uid, child.day
+    ''', dict(project_id=project_id, start_date=start_date, end_date=end_date))
+
     treenode_stats = cursor.fetchall()
+
+    relations = get_relation_to_id_map(project_id, cursor=cursor)
+    preId, postId = relations['presynaptic_to'], relations['postsynaptic_to']
 
     # Retrieve a list of how many completed connector relations a user has
     # created in a given time frame. A completed connector relation is either
@@ -216,9 +233,11 @@ def stats_user_history(request, project_id=None):
         WHERE t1.project_id=%s
         AND t1.creation_time BETWEEN %s AND %s
         AND t1.relation_id <> t2.relation_id
+        AND (t1.relation_id = %s OR t1.relation_id = %s)
+        AND (t2.relation_id = %s OR t2.relation_id = %s)
         AND t1.creation_time > t2.creation_time
         GROUP BY t1.user_id, date
-    ''', (project_id, start_date, end_date))
+    ''', (project_id, start_date, end_date, preId, postId, preId, postId))
     connector_stats = cursor.fetchall()
 
     tree_reviewed_nodes = Review.objects \

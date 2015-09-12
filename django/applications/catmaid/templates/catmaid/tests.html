@@ -5,20 +5,24 @@
   <head>
     <meta charset="utf-8">
     <title>CATMAID front-end tests (using QUnit)---to be run with manage.py testerver</title>
-    <link rel="stylesheet" href="//code.jquery.com/qunit/qunit-1.17.1.css">
+    <link rel="stylesheet" href="{{ STATIC_URL }}js/tests/libs/qunit-1.17.1.css">
 
-    {% for f in JS_FILES %}
-      {% compressed_js f %}
+    {% for f in COMPRESSED_FILE_IDS %}
+          {% compressed_js f %}
+    {% endfor %}
+    {% for f in NON_COMPRESSED_FILES %}
+      <script type="application/javascript" src="{{ STATIC_URL }}{{ f }}"></script>
     {% endfor %}
   </head>
   <body>
     <div id="qunit"></div>
     <div id="qunit-fixture"></div>
-    <script src="//code.jquery.com/qunit/qunit-1.17.1.js"></script>
+    <script src="{{ STATIC_URL }}js/tests/libs/qunit-1.17.1.js"></script>
     <script src="{{ STATIC_URL }}js/tests/libs/sinon-1.14.1.js"></script>
     <script src="{{ STATIC_URL }}js/tests/libs/sinon-qunit-1.0.0.js"></script>
     <script src="{{ STATIC_URL }}js/tests/setup.js"></script>
 
+    <script src="{{ STATIC_URL }}js/tests/test_basicskeletonsource.js"></script>
     <script src="{{ STATIC_URL }}js/tests/test_misc.js"></script>
     <script src="{{ STATIC_URL }}js/tests/test_neuronnameservice.js"></script>
     <script src="{{ STATIC_URL }}js/tests/test_arbor.js"></script>
@@ -29,5 +33,7 @@
     <script src="{{ STATIC_URL }}js/tests/test_submitter.js"></script>
     <script src="{{ STATIC_URL }}js/tests/test_svgoverlay.js"></script>
     <script src="{{ STATIC_URL }}js/tests/test_connectivity_matrix.js"></script>
+    <script src="{{ STATIC_URL }}js/tests/test_tilesources.js"></script>
+    <script src="{{ STATIC_URL }}js/tests/test_skeleton_annotations.js"></script>
   </body>
 </html>

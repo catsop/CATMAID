@@ -33,10 +33,18 @@ var LogTable = new function()
                 "iDisplayLength": possibleLengths[0],
                 "sAjaxSource": django_url + project.id + '/logs/list',
                 "fnServerData": function (sSource, aoData, fnCallback) {
-                    aoData.push({
-                        "name": "user_id",
-                        "value" : $('#logtable_username').val()
-                    });
+                    var user_id = $('#logtable_username').val();
+                    if (!isNaN(user_id)) {
+                        aoData.push({
+                            name: "user_id",
+                            value: user_id
+                        });
+                    } else if (user_id === 'Team') {
+                        aoData.push({
+                            name: "whitelist",
+                            value: true
+                        });
+                    }
                     aoData.push({
                         "name" : "pid",
                         "value" : pid
@@ -101,7 +109,7 @@ var LogTable = new function()
                 ]
             });
 
-        $(tableid + " tbody tr").live('dblclick', function () {
+        $(tableid + " tbody").on('dblclick', 'tr', function () {
             var aData = self.logTable.fnGetData(this);
             // retrieve coordinates and moveTo
             var x = parseFloat(aData[3]);

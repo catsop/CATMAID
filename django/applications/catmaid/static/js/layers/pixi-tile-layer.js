@@ -19,15 +19,34 @@
     CATMAID.PixiLayer.call(this);
 
     // Replace tiles container.
-    this.stack.getLayersView().removeChild(this.tilesContainer);
+    this.stackViewer.getLayersView().removeChild(this.tilesContainer);
     this.tilesContainer = this.renderer.view;
     this.tilesContainer.className = 'sliceTiles';
-    this.stack.getLayersView().appendChild(this.tilesContainer);
+    this.stackViewer.getLayersView().appendChild(this.tilesContainer);
+
+    this._oldZoom = 0;
+    this._oldZ = undefined;
+
+    this._tileRequest = {};
   }
 
   PixiTileLayer.prototype = Object.create(CATMAID.TileLayer.prototype);
   $.extend(PixiTileLayer.prototype, CATMAID.PixiLayer.prototype); // Mixin/multiple inherit PixiLayer.
   PixiTileLayer.prototype.constructor = PixiTileLayer;
+
+  /** @inheritdoc */
+  PixiTileLayer.prototype.unregister = function () {
+    for (var i = 0; i < this._tiles.length; ++i) {
+      for (var j = 0; j < this._tiles[0].length; ++j) {
+        var tile = this._tiles[i][j];
+        if (tile.texture && tile.texture.valid) {
+          CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.source.src);
+        }
+      }
+    }
+
+    CATMAID.PixiLayer.prototype.unregister.call(this);
+  };
 
   /**
    * Initialise the tiles array and buffer.
@@ -37,11 +56,13 @@
 
     var graphic = new PIXI.Graphics();
     graphic.beginFill(0xFFFFFF,0);
-    graphic.drawRect(0,0,this.tileWidth,this.tileHeight);
+    graphic.drawRect(0,0,this.tileSource.tileWidth,this.tileSource.tileHeight);
     graphic.endFill();
     var emptyTex = graphic.generateTexture(false);
 
     this._tiles = [];
+    this._tileFirstR = 0;
+    this._tileFirstC = 0;
 
     for (var i = 0; i < rows; ++i) {
       this._tiles[i] = [];
@@ -49,8 +70,8 @@
       for (var j = 0; j < cols; ++j) {
         this._tiles[i][j] = new PIXI.Sprite(emptyTex);
         this.batchContainer.addChild(this._tiles[i][j]);
-        this._tiles[i][j].position.x = j * this.tileWidth;
-        this._tiles[i][j].position.y = i * this.tileHeight;
+        this._tiles[i][j].position.x = j * this.tileSource.tileWidth;
+        this._tiles[i][j].position.y = i * this.tileSource.tileHeight;
 
         this._tilesBuffer[i][j] = false;
       }
@@ -61,42 +82,45 @@
 
   /** @inheritdoc */
   PixiTileLayer.prototype.redraw = function (completionCallback) {
-    var pixelPos = [this.stack.x, this.stack.y, this.stack.z];
-    var tileBaseName = CATMAID.getTileBaseName(pixelPos);
+    var scaledStackPosition = this.stackViewer.scaledPositionInStack(this.stack);
+    var tileInfo = this.tilesForLocation(
+        scaledStackPosition.xc,
+        scaledStackPosition.yc,
+        scaledStackPosition.z,
+        scaledStackPosition.s);
 
-    var tileInfo = this.tilesForLocation(this.stack.xc, this.stack.yc, this.stack.z, this.stack.s);
-
-    var effectiveTileWidth = this.tileWidth * tileInfo.mag;
-    var effectiveTileHeight = this.tileHeight * tileInfo.mag;
+    var effectiveTileWidth = this.tileSource.tileWidth * tileInfo.mag;
+    var effectiveTileHeight = this.tileSource.tileHeight * tileInfo.mag;
 
     var rows = this._tiles.length, cols = this._tiles[0].length;
 
     // If panning only (no scaling, no browsing through z)
-    if (this.stack.z == this.stack.old_z && this.stack.s == this.stack.old_s)
+    if (this.stackViewer.z == this.stackViewer.old_z &&
+        this.stackViewer.s == this.stackViewer.old_s)
     {
-      var old_fr = Math.floor(this.stack.old_yc / effectiveTileHeight);
-      var old_fc = Math.floor(this.stack.old_xc / effectiveTileWidth);
-
       // Compute panning in X and Y
-      var xd = tileInfo.first_col - old_fc;
-      var yd = tileInfo.first_row - old_fr;
+      var xd = tileInfo.firstCol - this._tileFirstC;
+      var yd = tileInfo.firstRow - this._tileFirstR;
 
       // Update the toroidal origin in the tiles array
       this._tileOrigR = this.rowTransform(yd);
       this._tileOrigC = this.colTransform(xd);
     }
 
+    this._tileFirstC = tileInfo.firstCol;
+    this._tileFirstR = tileInfo.firstRow;
+
     var top;
     var left;
 
-    if (this.stack.yc >= 0)
-      top  = -(this.stack.yc % effectiveTileHeight);
+    if (scaledStackPosition.yc >= 0)
+      top  = -(scaledStackPosition.yc % effectiveTileHeight);
     else
-      top  = -((this.stack.yc + 1) % effectiveTileHeight) - effectiveTileHeight + 1;
-    if (this.stack.xc >= 0)
-      left = -(this.stack.xc % effectiveTileWidth);
+      top  = -((scaledStackPosition.yc + 1) % effectiveTileHeight) - effectiveTileHeight + 1;
+    if (scaledStackPosition.xc >= 0)
+      left = -(scaledStackPosition.xc % effectiveTileWidth);
     else
-      left = -((this.stack.xc + 1) % effectiveTileWidth) - effectiveTileWidth + 1;
+      left = -((scaledStackPosition.xc + 1) % effectiveTileWidth) - effectiveTileWidth + 1;
 
     // Set tile grid offset and magnification on the whole container, rather than
     // individual tiles.
@@ -105,56 +129,79 @@
     this.batchContainer.scale.x = tileInfo.mag;
     this.batchContainer.scale.y = tileInfo.mag;
     var toLoad = [];
+    var loading = false;
     var y = 0;
+    var slicePixelPosition = [tileInfo.z];
 
     // Update tiles.
     for (var i = this._tileOrigR, ti = 0; ti < rows; ++ti, i = (i+1) % rows) {
-      var r = tileInfo.first_row + ti;
+      var r = tileInfo.firstRow + ti;
       var x = 0;
 
       for (var j = this._tileOrigC, tj = 0; tj < cols; ++tj, j = (j+1) % cols) {
-        var c = tileInfo.first_col + tj;
+        var c = tileInfo.firstCol + tj;
         var tile = this._tiles[i][j];
         // Set tile positions to handle toroidal wrapping.
         tile.position.x = x;
         tile.position.y = y;
 
-        if (c >= 0 && c <= tileInfo.last_col &&
-            r >= 0 && r <= tileInfo.last_row) {
-          var source = this.tileSource.getTileURL(project, this.stack,
-              tileBaseName, this.tileWidth, this.tileHeight,
+        if (c >= 0 && c <= tileInfo.lastCol &&
+            r >= 0 && r <= tileInfo.lastRow) {
+          var source = this.tileSource.getTileURL(project, this.stack, slicePixelPosition,
               c, r, tileInfo.zoom);
 
-          if (source !== tile.texture.baseTexture.imageUrl) {
-            tile.visible = false;
-            if (source !== this._tilesBuffer[i][j]) {
+          if (source !== tile.texture.baseTexture.source.src) {
+            var texture = PIXI.utils.TextureCache[source];
+            if (texture) {
+              if (texture.valid) {
+                this._tilesBuffer[i][j] = false;
+                CATMAID.PixiContext.GlobalTextureManager.inc(source);
+                CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.source.src);
+                tile.texture = texture;
+                tile.visible = true;
+              } else {
+                loading = true;
+                tile.visible = false;
+              }
+            } else {
+              tile.visible = false;
               toLoad.push(source);
               this._tilesBuffer[i][j] = source;
             }
-          } else tile.visible = true;
+          } else {
+            tile.visible = true;
+            this._tilesBuffer[i][j] = false;
+          }
         } else {
           tile.visible = false;
           this._tilesBuffer[i][j] = false;
         }
-        x += this.tileWidth;
+        x += this.tileSource.tileWidth;
       }
-      y += this.tileHeight;
+      y += this.tileSource.tileHeight;
     }
 
-    if (this.stack.z === this.stack.old_z &&
-        tileInfo.zoom === Math.max(0, Math.ceil(this.stack.old_s)))
-      this.renderer.render(this.stage);
+    if (tileInfo.z    === this._oldZ &&
+        tileInfo.zoom === this._oldZoom) {
+      this._renderIfReady();
+    }
+    this._swapZoom = tileInfo.zoom;
+    this._swapZ = tileInfo.z;
 
     // If any tiles need to be buffered (that are not already being buffered):
     if (toLoad.length > 0) {
-      var loader = new PIXI.AssetLoader(toLoad);
-      loader.once('onComplete', this._swapBuffers.bind(this, false));
       // Set a timeout for slow connections to swap in the buffer whether or
       // not it has loaded. Do this before loading tiles in case they load
       // immediately, so that the buffer will be cleared.
       window.clearTimeout(this._swapBuffersTimeout);
       this._swapBuffersTimeout = window.setTimeout(this._swapBuffers.bind(this, true), 3000);
-      loader.load();
+      var newRequest = CATMAID.PixiContext.GlobalTextureManager.load(toLoad, this._swapBuffers.bind(this, false, this._swapBuffersTimeout));
+      CATMAID.PixiContext.GlobalTextureManager.cancel(this._tileRequest);
+      this._tileRequest = newRequest;
+    } else if (!loading) {
+      this._oldZoom = this._swapZoom;
+      this._oldZ    = this._swapZ;
+      this._renderIfReady();
     }
 
     if (typeof completionCallback !== 'undefined') {
@@ -170,25 +217,31 @@
   };
 
   /** @inheritdoc */
-  PixiTileLayer.prototype._swapBuffers = function (force) {
+  PixiTileLayer.prototype._swapBuffers = function (force, timeout) {
+    if (timeout && timeout !== this._swapBuffersTimeout) return;
     window.clearTimeout(this._swapBuffersTimeout);
 
     for (var i = 0; i < this._tiles.length; ++i) {
       for (var j = 0; j < this._tiles[0].length; ++j) {
         var source = this._tilesBuffer[i][j];
         if (source) {
-          var texture = PIXI.TextureCache[source];
+          var texture = PIXI.utils.TextureCache[source];
+          var tile = this._tiles[i][j];
           // Check whether the tile is loaded.
           if (force || texture && texture.valid) {
             this._tilesBuffer[i][j] = false;
-            this._tiles[i][j].setTexture(texture ? texture : PIXI.Texture.fromImage(source));
-            this._tiles[i][j].visible = true;
+            CATMAID.PixiContext.GlobalTextureManager.inc(source);
+            CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.source.src);
+            tile.texture = texture || PIXI.Texture.fromImage(source);
+            tile.visible = true;
           }
         }
       }
     }
+    this._oldZoom = this._swapZoom;
+    this._oldZ    = this._swapZ;
 
-    this.renderer.render(this.stage);
+    this._renderIfReady();
   };
 
   CATMAID.PixiTileLayer = PixiTileLayer;

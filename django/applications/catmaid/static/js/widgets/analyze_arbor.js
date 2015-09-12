@@ -1,18 +1,13 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
-  ArborParser,
   fetchSkeletons,
-  growlAlert,
   InstanceRegistry,
   NeuronNameService,
   project,
-  OptionsDialog,
   SelectionTable,
   SkeletonAnnotations,
-  SVGUtil,
   SynapseClustering,
-  TracingTool
 */
 
 "use strict";
@@ -56,7 +51,7 @@ AnalyzeArbor.prototype.adjustOptions = function() {
                 "Scatterplot width: ",
                 "Scatterplot height: "];
 
-  var od = new OptionsDialog("Parameters");
+  var od = new CATMAID.OptionsDialog("Parameters");
   params.forEach(function(param, i) {
     od.appendField(titles[i], "AA-" + param + "-" + this.widgetID, this[param]);
   }, this);
@@ -87,7 +82,7 @@ AnalyzeArbor.prototype.adjustOptions = function() {
     params.forEach((function(param, i) { this[param] = values[i]; }), this);
 
     // Refresh or redraw
-    var override = $('#AA-override-' + this.widgetID).is(':checked');
+    var override = $('#AA-override-' + this.widgetID).prop('checked');
     if (override !== this.override_microtubules_end) {
       this.override_microtubules_end = override;
       this.update();
@@ -202,7 +197,7 @@ AnalyzeArbor.prototype.appendOrdered = function(skids, models) {
         function(skid) { return django_url + project.id + '/' + skid + '/1/1/1/compact-arbor-with-minutes'; },
         function(skid) { return {}; },
         this.appendOne.bind(this),
-        function(skid) { growlAlert("ERROR", "Failed to load skeleton #" + skid); },
+        function(skid) { CATMAID.msg("ERROR", "Failed to load skeleton #" + skid); },
         this.updateCharts.bind(this));
   }).bind(this));
 };
@@ -215,7 +210,7 @@ AnalyzeArbor.prototype.appendOne = function(skid, json) {
 
   if (!mitochondrium) mitochondrium = [];
 
-  var ap = new ArborParser(json).init('compact-arbor', json);
+  var ap = new CATMAID.ArborParser(json).init('compact-arbor', json);
   // Collapse "not a branch"
   ap.collapseArtifactualBranches(tags);
   // Cache functions that are called many times
@@ -286,7 +281,7 @@ AnalyzeArbor.prototype.appendOne = function(skid, json) {
         if (nodes.some(function(node) { return seen[node]; })) {
           // Error: subarbor has nodes that have already been seen
           var msg = "Twig rooted at node #" + sub.root + " of skeleton #" + skid + " shares nodes with other subarbors. Check the dendrogram.";
-          growlAlert("WARNING", msg);
+          CATMAID.msg("WARNING", msg);
           console.log("WARNING", msg);
         }
         // Add the subarbor in any case
@@ -503,7 +498,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
       if (sum > 0) entries.push({name: titles[i], value: sum, color: colors[i]});
     });
     if (entries.length > 0) {
-      SVGUtil.insertPieChart(divID, this.pie_radius, entries, title);
+      CATMAID.svgutil.insertPieChart(divID, this.pie_radius, entries, title);
     }
   }).bind(this);
 
@@ -523,7 +518,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
     }).bind(this), 0);
   }, this);
 
-  var pie_n_subarbors = SVGUtil.insertPieChart(
+  var pie_n_subarbors = CATMAID.svgutil.insertPieChart(
       divID,
       this.pie_radius,
       [{name: titles[1] + "(" + n_subs[0] + ")", value: n_subs[0], color: colors[1]}].concat(0 === n_subs[1] ? [] : [{name: titles[2] + "(" + n_subs[1] + ")", value: n_subs[1], color: colors[2]}]), // there could be no axonal terminals
@@ -531,7 +526,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
 
   if (skids.length > 1) {
     var colors = d3.scale.category10();
-    SVGUtil.insertPieChart(
+    CATMAID.svgutil.insertPieChart(
         divID,
         this.pie_radius,
         skids.map(function(skid, i) {
@@ -613,7 +608,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
       // Prettify label
       label = label.replace(/_/g, ' ');
 
-      SVGUtil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label,
+      CATMAID.svgutil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label,
         this.plot_width, this.plot_height,
         label, "counts",
         data,
@@ -638,7 +633,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
         return b;
       });
 
-      SVGUtil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label + ' cummulative',
+      CATMAID.svgutil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label + ' cummulative',
         this.plot_width, this.plot_height,
         label, "cummulative counts (%)",
         cummulative,
@@ -700,7 +695,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
         });
     }, this);
 
-    SVGUtil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-cable_vs_depth',
+    CATMAID.svgutil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-cable_vs_depth',
         this.scatterplot_width, this.scatterplot_height,
         'cable (µm)', 'depth (µm)',
         cable_vs_depth,
@@ -710,7 +705,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
         series,
         false, true);
 
-    SVGUtil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-cable_vs_inputs',
+    CATMAID.svgutil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-cable_vs_inputs',
         this.scatterplot_width, this.scatterplot_height,
         'cable (µm)', 'inputs',
         cable_vs_inputs,
@@ -721,24 +716,24 @@ AnalyzeArbor.prototype.updateCharts = function() {
         false, true);
 
     // Create plot of total cable length vs number of twigs
-    SVGUtil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-cable_length_vs_n_twigs',
+    CATMAID.svgutil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-cable_length_vs_n_twigs',
       this.scatterplot_width, this.scatterplot_height,
       'arbor cable (µm)', '# twigs',
       total_cable_vs_n_twigs,
       function(d) {
-        TracingTool.goToNearestInNeuronOrSkeleton('skeleton', d.skid);
+        CATMAID.TracingTool.goToNearestInNeuronOrSkeleton('skeleton', d.skid);
       },
       rows.map((function(row, i) { return {name: row[0] + ' (' + total_cable_vs_n_twigs[i].y  + ' twigs)', color: this(i)}; }).bind(d3.scale.category10())),
       true, true
     );
 
     // Create plot of total dendritic cable length vs number of dendritic twigs
-    SVGUtil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-dendritic_cable_length_vs_n_dendritic_twigs',
+    CATMAID.svgutil.insertXYScatterPlot(divID, 'AA-' + this.widgetID + '-dendritic_cable_length_vs_n_dendritic_twigs',
       this.scatterplot_width, this.scatterplot_height,
       'dendritic backbone cable (µm)', '# dendritic twigs',
       total_dendritic_backbone_cable_vs_dendritic_twigs,
       function(d) {
-        TracingTool.goToNearestInNeuronOrSkeleton('skeleton', d.skid);
+        CATMAID.TracingTool.goToNearestInNeuronOrSkeleton('skeleton', d.skid);
       },
       rows.map((function(row, i) { return {name: row[0] + ' (' + total_dendritic_backbone_cable_vs_dendritic_twigs[i].y  + ' twigs)', color: this(i)}; }).bind(d3.scale.category10())),
       true, true
@@ -771,7 +766,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
         max = b.max,
         label = "Distance to nearest mitochondrium (µm)";
 
-    SVGUtil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label,
+    CATMAID.svgutil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label,
       this.plot_width, this.plot_height,
       label, "counts",
       data,
@@ -790,7 +785,7 @@ AnalyzeArbor.prototype.updateCharts = function() {
       return b;
     });
 
-    SVGUtil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label + ' cummulative',
+    CATMAID.svgutil.insertMultipleBarChart2(divID, 'AA-' + this.widgetID + '-' + label + ' cummulative',
       this.plot_width, this.plot_height,
       label, "cummulative counts (%)",
       cummulative,

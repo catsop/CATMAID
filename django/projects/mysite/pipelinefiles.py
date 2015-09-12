@@ -18,7 +18,7 @@ from collections import OrderedDict
 PIPELINE_CSS = {
     'libraries': {
         'source_filenames': (
-            'libs/jquery/themes/smoothness/jquery-ui-1.10.1.custom.css',
+            'libs/jquery/themes/smoothness/jquery-ui.css',
             'libs/jquery/datatable/css/demo_table.css',
             'libs/jquery/datatable/extras/ColReorder/css/dataTables.colReorder.css',
             'libs/jquery/jquery.growl.css',
@@ -43,8 +43,10 @@ PIPELINE_CSS = {
 
 libraries_js = {
     'modernizr': ['*.js'],
-    'jquery': ['jquery.js', 'jquery-ui-1.10.1.custom.min.js',
-               'jquery.dataTables.min.js', '*.js'],
+    'jquery': ['jquery-2.1.3.min.js', 'jquery-migrate-1.2.1.js',
+               'jquery-ui.min.js', 'jquery-ui.*.js',
+               'jquery.dataTables.min.js', 'jquery.*.js',
+               'dataTables.colReorder.js'],
     'fabric.js': ['all.modified.js'],
     'raphael': ['raphael.js', 'g.raphael.js', 'g.pie-min.js', 'g.line.altered.js',
                 'raphael-custom.js', 'colorwheel.js', 'raphael.export.js'],
@@ -73,14 +75,33 @@ for k,v in libraries_js.iteritems():
         'output_filename': 'js/libs/%s-lib.js' % k,
     }
 
-PIPELINE_JS['arbor'] = {
-    'source_filenames': ('libs/cytoscapejs/arbor.js',),
-    'output_filename': 'js/arbor.js'
+
+# Some libraries expect their own JavaScript files to be available under a
+# particular name. Therefore, we can't use pipeline with them and include them
+# separately.
+non_pipeline_js = {
+    'arbor': 'libs/cytoscapejs/arbor.js',
+    'dagre': 'libs/cytoscapejs/dagre.js',
+    'cola': 'libs/cytoscapejs/cola.js',
+    'springy': 'libs/cytoscapejs/springy.js',
+    'foograph': 'libs/cytoscapejs/foograph.js',
+    'rhill-voronoi-core': 'libs/cytoscapejs/rhill-voronoi-core.js'
 }
 
+# Even non-pipeline files have to be made known to pipeline, because it takes
+# care of collecting them into the STATIC_ROOT directory.
+for k,v in non_pipeline_js.iteritems():
+    PIPELINE_JS[k] = {
+        'source_filenames': (v,),
+        'output_filename': v
+    }
+
+
+# Regular CATMAID front-end files
 PIPELINE_JS['catmaid'] = {
     'source_filenames': (
         'js/CATMAID.js',
+        'js/extensions.js',
         'js/action.js',
         'js/init.js',
         'js/navigator.js',
@@ -90,6 +111,7 @@ PIPELINE_JS['catmaid'] = {
         'js/segmentationtool.js',
         'js/selector.js',
         'js/stack.js',
+        'js/stack-viewer.js',
         'js/tilelayercontrol.js',
         'js/tilelayer.js',
         'js/tilesource.js',
@@ -97,7 +119,6 @@ PIPELINE_JS['catmaid'] = {
         'js/treelines.js',
         'js/ui.js',
         'js/user.js',
-        'js/webglapp.js',
         'js/WindowMaker.js',
         'js/tools/boxselectiontool.js',
         'js/tools/roitool.js',
@@ -109,3 +130,8 @@ PIPELINE_JS['catmaid'] = {
     'output_filename': 'js/catmaid.js',
 }
 
+# Make a list of files that should be included directly (bypassing pipeline)
+# and a list of pipeline identifiers for all others.
+NON_COMPRESSED_FILES = non_pipeline_js.values()
+NON_COMPRESSED_FILE_IDS = non_pipeline_js.keys()
+COMPRESSED_FILE_IDS = filter(lambda f: f not in NON_COMPRESSED_FILE_IDS, PIPELINE_JS.keys())

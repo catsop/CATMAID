@@ -2,9 +2,7 @@
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
   InstanceRegistry,
-  OptionsDialog,
-  parseColorWheel,
-  saveDivSVG,
+  parseColorWheel
 */
 
 "use strict";
@@ -68,7 +66,7 @@ VennDiagram.prototype.append = function(models) {
     if (0 === Object.keys(visible).length) return;
 
     // Add new group
-    var options = new OptionsDialog("Group properties");
+    var options = new CATMAID.OptionsDialog("Group properties");
     options.appendField("Name:", "vd-name", "", null);
     var display = document.createElement('input');
     display.setAttribute('type', 'button');
@@ -267,7 +265,8 @@ VennDiagram.prototype.draw = function() {
 
 VennDiagram.prototype.exportSVG = function() {
   if (0 === this.groups.length || !this.sets || !this.overlaps) return;
-  saveDivSVG('venn_diagram_div' + this.widgetID, "venn_diagram.svg");
+  CATMAID.svgutil.saveDivSVG('venn_diagram_div' + this.widgetID,
+      "venn_diagram.svg");
 };
 
 VennDiagram.prototype.resize = function() {

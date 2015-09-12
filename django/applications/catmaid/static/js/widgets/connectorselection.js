@@ -1,14 +1,20 @@
-/** Represents a table listing the synapses between the active or the selected skeletons vs a specific partner skeleton. */
-var ConnectorSelection = new function()
-{
-  var self = this;
+/* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
+/* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
+
+(function(CATMAID) {
+
+  "use strict";
+
   var table = null;
 
-  this.show_shared_connectors = function(skid, skids, relation) {
-    requestQueue.register(django_url + project.id + '/connector/list/one_to_many', 'POST',
-        {skid: skid,
-         skids: skids,
-         relation: relation}, 
+  /** Represents a table listing the synapses between the active or the selected skeletons vs a specific partner skeleton. */
+  var ConnectorSelection = function() {};
+
+  ConnectorSelection.prototype.show_shared_connectors = function(skids1, skids2, relation) {
+    requestQueue.register(django_url + project.id + '/connector/list/many_to_many', 'POST',
+        {skids1: skids1,
+        skids2: skids2,
+        relation: relation},
         function(status, text) {
           if (200 !== status) return;
           var json = $.parseJSON(text);
@@ -16,23 +22,24 @@ var ConnectorSelection = new function()
             alert(json.error);
             return;
           }
-          var text = 'Synapses ' + ('presynaptic_to' === relation ? 'post' : 'pre') + 'synaptic to skeleton #' + skid;
+          var text = 'Synapses ' + ('presynaptic_to' === relation ? 'post' : 'pre') +
+              'synaptic to neuron' + (skids1.length > 1 ? 's' : '') + ' ' + skids1.map(NeuronNameService.getInstance().getName).join(', ');
           show_table(text, json);
         });
   };
 
   /**
-   * Display a list of already aquired connector links. A list of lists
-   * (connectors) is expected, each connector has entries that correspond to the
-   * displayed table: connector id, connector X, Y, Z, node 1, skeleton 1,
-   * confidence 1, creator 1, node 1 X, Y, Y, node 2, skeleton 2, confidence 2,
-   * creator 2, node 2 X, Y, Z.
-   */
-  this.show_connectors = function(connectors) {
+  * Display a list of already aquired connector links. A list of lists
+  * (connectors) is expected, each connector has entries that correspond to the
+  * displayed table: connector id, connector X, Y, Z, node 1, skeleton 1,
+  * confidence 1, creator 1, node 1 X, Y, Y, node 2, skeleton 2, confidence 2,
+  * creator 2, node 2 X, Y, Z.
+  */
+  ConnectorSelection.prototype.show_connectors = function(connectors) {
     show_table("", connectors);
   };
 
-  this.init = function() {
+  ConnectorSelection.prototype.init = function() {
     if (table) {
       table.remove();
     }
@@ -104,8 +111,8 @@ var ConnectorSelection = new function()
 
     connectors.forEach(function(row) {
       rows.push([row[0],
-                 row[2], row[3], row[4], User.safe_get(row[5]).login,
-                 row[7], row[8], row[9], User.safe_get(row[10]).login]);
+                row[2], NeuronNameService.getInstance().getName(row[3]), row[4], User.safe_get(row[5]).login,
+                row[7], NeuronNameService.getInstance().getName(row[8]), row[9], User.safe_get(row[10]).login]);
       // Store all locations (overwriting can be ignored, it is the same data)
       locations[row[0]] = row[1];
       locations[row[2]] = row[6];
@@ -135,4 +142,8 @@ var ConnectorSelection = new function()
         });
     });
   };
-}();
+
+  // Make widget available in CATMAID namespace
+  CATMAID.ConnectorSelection = new ConnectorSelection();
+
+})(CATMAID);

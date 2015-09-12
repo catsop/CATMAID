@@ -1,8 +1,6 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
-  ConnectorSelection,
-  growlAlert,
   project,
   requestQueue,
   SelectionTable,
@@ -182,7 +180,7 @@ var ProjectStatistics = new function()
                 // Open a new selection table with the returned set of
                 // skeleton IDs, if any.
                 if (0 === skeleton_ids.length) {
-                  growlAlert('Information', 'No skeletons found for your selection');
+                  CATMAID.info('No skeletons found for your selection');
                   return;
                 }
                 var ST = new SelectionTable();
@@ -205,11 +203,11 @@ var ProjectStatistics = new function()
                 to: to,
               }, CATMAID.jsonResponseHandler(function(connectors) {
                 if (0 === connectors.length) {
-                  growlAlert('Information', 'No connectors found for your selection');
+                  CATMAID.info('No connectors found for your selection');
                   return;
                 }
 
-                ConnectorSelection.show_connectors(connectors);
+                CATMAID.ConnectorSelection.show_connectors(connectors);
               }));
           break;
         default:

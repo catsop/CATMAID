@@ -30,6 +30,9 @@ def graphedge_list(request, project_id=None):
         skeleton__in=skeletonlist ).select_related('relation__relation_name', 'connector__user', 'connector')
 
     for q in qs_tc:
+        # Only look at synapse connectors
+        if q.relation.relation_name not in ('presynaptic_to', 'postsynaptic_to'):
+            continue
         if not q.connector_id in edge:
             # has to be a list, not a set, because we need matching treenode id
             edge[ q.connector_id ] = {'pre': [], 'post': [], 'pretreenode': [], 'posttreenode': []}
@@ -68,11 +71,39 @@ def one_to_many_synapses(request, project_id=None):
         raise ValueError("No skeleton IDs for 'many' provided")
 
     relation_name = request.POST.get('relation') # expecting presynaptic_to or postsynaptic_to
-    if 'postsynaptic_to' == relation_name or 'presynaptic_to' == relation_name:
-        pass
-    else:
+
+    rows = _many_to_many_synapses([skid], skids, relation_name)
+    return HttpResponse(json.dumps(rows))
+
+
+@requires_user_role(UserRole.Browse)
+def many_to_many_synapses(request, project_id=None):
+    """
+    Return the list of synapses of a specific kind between one list of
+    skeletons and a list of other skeletons.
+    """
+    skids1 = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('skids1['))
+    if not skids1:
+        raise ValueError("No skeleton IDs for first list of 'many' provided")
+    skids2 = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('skids2['))
+    if not skids2:
+        raise ValueError("No skeleton IDs for second list 'many' provided")
+
+    relation_name = request.POST.get('relation') # expecting presynaptic_to or postsynaptic_to
+
+    rows = _many_to_many_synapses(skids1, skids2, relation_name)
+    return HttpResponse(json.dumps(rows))
+
+
+def _many_to_many_synapses(skids1, skids2, relation_name):
+    """
+    Return all rows that connect skeletons of one set with another set with a
+    specific relation.
+    """
+    if relation_name not in ('postsynaptic_to', 'presynaptic_to'):
         raise Exception("Cannot accept a relation named '%s'" % relation_name)
-    cursor = connection.cursor();
+
+    cursor = connection.cursor()
     cursor.execute('''
     SELECT tc1.connector_id, c.location_x, c.location_y, c.location_z,
            tc1.treenode_id, tc1.skeleton_id, tc1.confidence, tc1.user_id,
@@ -85,7 +116,7 @@ def one_to_many_synapses(request, project_id=None):
          treenode t2,
          relation r1,
          connector c
-    WHERE tc1.skeleton_id = %s
+    WHERE tc1.skeleton_id IN (%s)
       AND tc1.connector_id = c.id
       AND tc2.skeleton_id IN (%s)
       AND tc1.connector_id = tc2.connector_id
@@ -94,15 +125,15 @@ def one_to_many_synapses(request, project_id=None):
       AND tc1.relation_id != tc2.relation_id
       AND tc1.treenode_id = t1.id
       AND tc2.treenode_id = t2.id
-    ''' % (skid, ','.join(map(str, skids)), relation_name))
+    ''' % (','.join(map(str, skids1)),
+           ','.join(map(str, skids2)),
+           relation_name))
 
-    rows = tuple((row[0], (row[1], row[2], row[3]),
+    return tuple((row[0], (row[1], row[2], row[3]),
                   row[4], row[5], row[6], row[7],
                   (row[8], row[9], row[10]),
                   row[11], row[12], row[13], row[14],
                   (row[15], row[16], row[17])) for row in cursor.fetchall())
-
-    return HttpResponse(json.dumps(rows))
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -129,8 +160,9 @@ def list_connector(request, project_id=None):
 
     response_on_error = ''
     try:
+        cursor = connection.cursor()
         response_on_error = 'Could not fetch relations.'
-        relation_map = get_relation_to_id_map(project_id)
+        relation_map = get_relation_to_id_map(project_id, cursor=cursor)
         for rel in ['presynaptic_to', 'postsynaptic_to', 'element_of', 'labeled_as']:
             if rel not in relation_map:
                 raise Exception('Failed to find the required relation %s' % rel)
@@ -143,7 +175,6 @@ def list_connector(request, project_id=None):
             inverse_relation_type_id = relation_map['presynaptic_to']
 
         response_on_error = 'Failed to select connectors.'
-        cursor = connection.cursor()
         cursor.execute(
             '''
             SELECT
@@ -347,14 +378,7 @@ def _connector_skeletons(connector_ids, project_id):
     and 'postsynaptic_to' with a list of skeleton IDs (maybe empty). """
     cursor = connection.cursor()
 
-    cursor.execute('''
-    SELECT relation_name, id
-    FROM relation
-    WHERE project_id = %s
-      AND (relation_name = 'presynaptic_to' OR relation_name = 'postsynaptic_to')
-    ''' % int(project_id))
-
-    relations = dict(cursor.fetchall())
+    relations = get_relation_to_id_map(project_id, ('presynaptic_to', 'postsynaptic_to'), cursor)
     PRE = relations['presynaptic_to']
     POST = relations['postsynaptic_to']
 
@@ -362,14 +386,15 @@ def _connector_skeletons(connector_ids, project_id):
     SELECT connector_id, relation_id, skeleton_id, treenode_id
     FROM treenode_connector
     WHERE connector_id IN (%s)
-    ''' % ",".join(map(str, connector_ids)))
+      AND (relation_id = %s OR relation_id = %s)
+    ''' % (",".join(map(str, connector_ids)), PRE, POST))
 
     cs = {}
     for row in cursor.fetchall():
         c = cs.get(row[0])
         if not c:
             # Ensure each connector has the two entries at their minimum
-            c = {'presynaptic_to': None, 'postsynaptic_to': [], 
+            c = {'presynaptic_to': None, 'postsynaptic_to': [],
                  'presynaptic_to_node': None, 'postsynaptic_to_node': []}
             cs[row[0]] = c
         if POST == row[1]:
@@ -396,14 +421,7 @@ def _connector_associated_edgetimes(connector_ids, project_id):
     the timestamp of the edge. """
     cursor = connection.cursor()
 
-    cursor.execute('''
-    SELECT relation_name, id
-    FROM relation
-    WHERE project_id = %s
-      AND (relation_name = 'presynaptic_to' OR relation_name = 'postsynaptic_to')
-    ''' % int(project_id))
-
-    relations = dict(cursor.fetchall())
+    relations = get_relation_to_id_map(project_id, ('presynaptic_to', 'postsynaptic_to'), cursor)
     PRE = relations['presynaptic_to']
     POST = relations['postsynaptic_to']
 
@@ -411,7 +429,8 @@ def _connector_associated_edgetimes(connector_ids, project_id):
     SELECT connector_id, relation_id, skeleton_id, treenode_id, creation_time
     FROM treenode_connector
     WHERE connector_id IN (%s)
-    ''' % ",".join(map(str, connector_ids)))
+      AND (relation_id = %s OR relation_id = %s)
+    ''' % (",".join(map(str, connector_ids), PRE, POST)))
 
     cs = {}
     for row in cursor.fetchall():
@@ -505,7 +524,13 @@ def _list_completed(project_id, completed_by=None, from_date=None, to_date=None)
     links are by default only constrained by both sides having different
     relations and the first link was created before the second one.
     """
-    params = [project_id]
+    cursor = connection.cursor()
+
+    relations = get_relation_to_id_map(project_id, ('presynaptic_to', 'postsynaptic_to'), cursor)
+    pre = relations['presynaptic_to']
+    post = relations['postsynaptic_to']
+
+    params = [project_id, pre, post, pre, post]
     query = '''
         SELECT tc2.connector_id, c.location_x, c.location_y, c.location_z,
             tc2.treenode_id, tc2.skeleton_id, tc2.confidence, tc2.user_id,
@@ -519,7 +544,9 @@ def _list_completed(project_id, completed_by=None, from_date=None, to_date=None)
         JOIN treenode t2 ON t2.id = tc2.treenode_id
         WHERE t1.project_id=%s
         AND tc1.relation_id <> tc2.relation_id
-        AND tc1.creation_time > tc2.creation_time'''
+        AND tc1.creation_time > tc2.creation_time
+        AND (tc1.relation_id = %s OR tc1.relation_id = %s)
+        AND (tc2.relation_id = %s OR tc2.relation_id = %s)'''
 
     if completed_by:
         params.append(completed_by)
@@ -532,7 +559,6 @@ def _list_completed(project_id, completed_by=None, from_date=None, to_date=None)
         params.append(to_date.isoformat())
         query += " AND tc1.creation_time < %s"
 
-    cursor = connection.cursor()
     cursor.execute(query, params)
 
     return tuple((row[0], (row[1], row[2], row[3]),
@@ -556,9 +582,7 @@ def connectors_info(request, project_id):
 
     cursor = connection.cursor()
 
-    cursor.execute("SELECT relation_name, id FROM relation WHERE project_id=%s" % project_id)
-    relations = dict(cursor.fetchall())
-
+    relations = get_relation_to_id_map(project_id, ('presynaptic_to', 'postsynaptic_to'), cursor)
     pre = relations['presynaptic_to']
     post = relations['postsynaptic_to']
 
@@ -599,3 +623,39 @@ def connectors_info(request, project_id):
 
     return HttpResponse(json.dumps(rows))
 
+@requires_user_role([UserRole.Browse])
+def connector_user_info(request, project_id):
+    """ Return information on a treenode connector edge.
+
+    This function is called often (every connector mouseover) and should
+    therefore be as fast as possible. Analogous to user_info for treenodes and
+    connectors.
+    """
+    treenode_id = int(request.GET.get('treenode_id'))
+    connector_id = int(request.GET.get('connector_id'))
+    cursor = connection.cursor()
+    relation_names = ('presynaptic_to', 'postsynaptic_to', 'abutting')
+    relations = get_relation_to_id_map(project_id, relation_names, cursor)
+    relation_id = relations[request.GET.get('relation_name')]
+    cursor.execute('''
+        SELECT tc.id, tc.user_id, tc.creation_time, tc.edition_time
+        FROM treenode_connector tc
+        WHERE tc.treenode_id = %s
+          AND tc.connector_id = %s
+          AND tc.relation_id = %s
+                   ''', (treenode_id, connector_id, relation_id))
+
+    # We expect at least one result node.
+    if not cursor.rowcount:
+        return HttpResponse(json.dumps({
+            'error': 'No treenode connector exists for treenode %s, connector %s, relation %s' %
+            (treenode_id, connector_id, relation_id)}))
+
+    # Build result. Because there is no uniqueness restriction on treenode
+    # connector edges, even with the same relation, the response must handle
+    # multiple rows.
+    return HttpResponse(json.dumps([{
+        'user': info[1],
+        'creation_time': str(info[2].isoformat()),
+        'edition_time': str(info[3].isoformat()),
+    } for info in cursor.fetchall()]))

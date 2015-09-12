@@ -18,7 +18,8 @@ from catmaid.models import Treenode, Connector, TreenodeConnector, User, Review,
 from catmaid.models import Textlabel, TreenodeClassInstance, ClassInstanceClassInstance
 from catmaid.fields import Double3D, Integer3D
 from catmaid.control.common import get_relation_to_id_map, get_class_to_id_map
-from catmaid.control.neuron_annotations import _annotate_entities, create_annotation_query
+from catmaid.control.neuron_annotations import _annotate_entities, create_annotation_query, \
+    delete_annotation_if_unused
 
 
 class TransactionTests(TransactionTestCase):
@@ -510,6 +511,14 @@ class ViewPageTests(TestCase):
         response = self.client.get('/user-list')
         expected_result = [
             {
+                u'first_name': u'Admin',
+                u'last_name': u'Superuser',
+                u'color': [0.0, 1.0, 1.0],
+                u'full_name': u'Admin Superuser',
+                u'login': u'admin',
+                u'id': 4
+            },
+            {
                 u'first_name': u'Anonymous',
                 u'last_name': u'User',
                 u'color': [1.0, 0.0, 0.0],
@@ -591,327 +600,57 @@ class ViewPageTests(TestCase):
         # response = self.client.get('/%d/multiple-presynaptic-terminals' % (self.test_project_id,))
         # self.assertEqual(response.status_code, 200)
 
-    def test_update_treenode_table_nonexisting_property(self):
-        self.fake_authentication()
-        property_value = 4
-        property_name = 'And though sickly with disease we trod the world asunder.'
-        treenode_id = 239
-        response = self.client.post(
-                '/%d/treenode/table/update' % (self.test_project_id), {
-                'value': property_value,
-                'id': treenode_id,
-                'type': property_name})
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        expected_result = 'Can only modify confidence and radius.'
-        self.assertIn('error', parsed_response)
-        self.assertEqual(expected_result, parsed_response['error'])
-
-    def test_update_treenode_table_confidence(self):
-        self.fake_authentication()
-        property_value = 4
-        property_name = 'confidence'
-        treenode_id = 239
-        response = self.client.post(
-                '/%d/treenode/table/update' % (self.test_project_id), {
-                'value': property_value,
-                'id': treenode_id,
-                'type': property_name})
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        expected_result = property_value
-        self.assertEqual(expected_result, parsed_response)
-        self.assertEqual(property_value, get_object_or_404(Treenode, id=treenode_id).confidence)
-
-    def test_update_treenode_table_radius(self):
-        self.fake_authentication()
-        property_value = 4
-        property_name = 'radius'
-        treenode_id = 239
-        response = self.client.post(
-                '/%d/treenode/table/update' % (self.test_project_id), {
-                'value': property_value,
-                'id': treenode_id,
-                'type': property_name})
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        expected_result = property_value
-        self.assertEqual(expected_result, parsed_response)
-        self.assertEqual(property_value, get_object_or_404(Treenode, id=treenode_id).radius)
-
-    def test_list_treenode_table_filtering(self):
-        self.fake_authentication()
-        response = self.client.post(
-                '/%d/treenode/table/list' % (self.test_project_id), {
-                    'iDisplayStart': 0,
-                    'iDisplayLength': -1,
-                    'iSortingCols': 1,
-                    'iSortCol_0': 0,
-                    'sSortDir_0': 'asc',
-                    'skeleton_0': 235,
-                    'skeleton_nr': 1,
-                    'sSearch_1': 'LR',
-                    'sSearch_2': 'todo',
-                    'pid': 3,
-                    'stack_id': 3})
-        self.assertEqual(response.status_code, 200)
-        expected_result = {
-                "iTotalRecords": 28,
-                "iTotalDisplayRecords": 28,
-                "aaData": [
-                    ["261", "L", "TODO", "5", "2820.00", "1345.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"]]}
-        parsed_response = json.loads(response.content)
-        self.assertEqual(expected_result['iTotalRecords'], parsed_response['iTotalRecords'])
-        self.assertEqual(expected_result['iTotalDisplayRecords'], parsed_response['iTotalDisplayRecords'])
-        # Check each aaData row instead of everything at once for more granular
-        # error reporting.
-        for (expected, parsed) in zip(expected_result['aaData'], parsed_response['aaData']):
-            self.assertEqual(expected, parsed)
-
-    def test_list_treenode_table_sorting_and_tag(self):
-        self.fake_authentication()
-        response = self.client.post(
-                '/%d/treenode/table/list' % (self.test_project_id), {
-                    'iDisplayStart': 0,
-                    'iDisplayLength': -1,
-                    'iSortingCols': 1,
-                    'iSortCol_0': 4,
-                    'sSortDir_0': 'asc',
-                    'skeleton_0': 373,
-                    'skeleton_nr': 1,
-                    'pid': 3,
-                    'stack_id': 3})
-        self.assertEqual(response.status_code, 200)
-        expected_result = {
-                "iTotalRecords": 5,
-                "iTotalDisplayRecords": 5,
-                "aaData": [
-                    ["409", "L", "", "5", "6630.00", "4330.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-                    ["407", "S", "", "5", "7080.00", "3960.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-                    ["405", "S", "", "5", "7390.00", "3510.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-                    ["377", "R", "", "5", "7620.00", "2890.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-                    ["403", "L", "uncertain end", "5", "7840.00", "2380.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"]]}
-        parsed_response = json.loads(response.content)
-        self.assertEqual(expected_result['iTotalRecords'], parsed_response['iTotalRecords'])
-        self.assertEqual(expected_result['iTotalDisplayRecords'], parsed_response['iTotalDisplayRecords'])
-        # Check each aaData row instead of everything at once for more granular
-        # error reporting.
-        for (expected, parsed) in zip(expected_result['aaData'], parsed_response['aaData']):
-            self.assertEqual(expected, parsed)
-
     def test_list_treenode_table_simple(self):
         self.fake_authentication()
         response = self.client.post(
-                '/%d/treenode/table/list' % (self.test_project_id), {
-                    'iDisplayStart': 0,
-                    'iDisplayLength': -1,
-                    'iSortingCols': 1,
-                    'iSortCol_0': 0,
-                    'sSortDir_0': 'asc',
-                    'skeleton_0': 235,
-                    'skeleton_nr': 1,
-                    'pid': 3,
-                    'stack_id': 3})
+                '/%d/treenode/table/%d/content' % (self.test_project_id, 235))
         self.assertEqual(response.status_code, 200)
-        expected_result = {"iTotalRecords": 28, "iTotalDisplayRecords": 28, "aaData": [
-            ["237", "R", "", "5", "1065.00", "3035.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["239", "S", "", "5", "1135.00", "2800.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["241", "S", "", "5", "1340.00", "2660.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["243", "S", "", "5", "1780.00", "2570.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["245", "S", "", "5", "1970.00", "2595.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["247", "S", "", "5", "2610.00", "2700.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["249", "S", "", "5", "2815.00", "2590.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["251", "S", "", "5", "3380.00", "2330.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["253", "B", "", "5", "3685.00", "2160.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["255", "S", "", "5", "3850.00", "1790.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["257", "S", "", "5", "3825.00", "1480.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["259", "S", "", "5", "3445.00", "1385.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["261", "L", "TODO", "5", "2820.00", "1345.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["263", "S", "", "5", "3915.00", "2105.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["265", "B", "", "5", "4570.00", "2125.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["267", "S", "", "5", "5400.00", "2200.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["269", "S", "", "5", "4820.00", "1900.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["271", "S", "", "5", "5090.00", "1675.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["273", "S", "", "5", "5265.00", "1610.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["275", "S", "", "5", "5800.00", "1560.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["277", "L", "", "5", "6090.00", "1550.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["279", "S", "", "5", "5530.00", "2465.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["281", "S", "", "5", "5675.00", "2635.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["283", "S", "", "5", "5985.00", "2745.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["285", "S", "", "5", "6100.00", "2980.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["289", "S", "", "5", "6210.00", "3480.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["415", "S", "", "5", "5810.00", "3950.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"],
-            ["417", "L", "", "5", "4990.00", "4200.00", "0.00", 0, "-1.0", "test2", "05-12-2011 13:51", "None"]]}
+        expected_result = [[
+                [417, 415, 5, 4990.0, 4200.0, 0.0, -1.0, 3, 1323111096.0],
+                [415, 289, 5, 5810.0, 3950.0, 0.0, -1.0, 3, 1323111096.0],
+                [289, 285, 5, 6210.0, 3480.0, 0.0, -1.0, 3, 1323111096.0],
+                [285, 283, 5, 6100.0, 2980.0, 0.0, -1.0, 3, 1323111096.0],
+                [283, 281, 5, 5985.0, 2745.0, 0.0, -1.0, 3, 1323111096.0],
+                [281, 279, 5, 5675.0, 2635.0, 0.0, -1.0, 3, 1323111096.0],
+                [279, 267, 5, 5530.0, 2465.0, 0.0, -1.0, 3, 1323111096.0],
+                [277, 275, 5, 6090.0, 1550.0, 0.0, -1.0, 3, 1323111096.0],
+                [275, 273, 5, 5800.0, 1560.0, 0.0, -1.0, 3, 1323111096.0],
+                [273, 271, 5, 5265.0, 1610.0, 0.0, -1.0, 3, 1323111096.0],
+                [271, 269, 5, 5090.0, 1675.0, 0.0, -1.0, 3, 1323111096.0],
+                [269, 265, 5, 4820.0, 1900.0, 0.0, -1.0, 3, 1323111096.0],
+                [267, 265, 5, 5400.0, 2200.0, 0.0, -1.0, 3, 1323111096.0],
+                [265, 263, 5, 4570.0, 2125.0, 0.0, -1.0, 3, 1323111096.0],
+                [263, 253, 5, 3915.0, 2105.0, 0.0, -1.0, 3, 1323111096.0],
+                [261, 259, 5, 2820.0, 1345.0, 0.0, -1.0, 3, 1323111096.0],
+                [259, 257, 5, 3445.0, 1385.0, 0.0, -1.0, 3, 1323111096.0],
+                [257, 255, 5, 3825.0, 1480.0, 0.0, -1.0, 3, 1323111096.0],
+                [255, 253, 5, 3850.0, 1790.0, 0.0, -1.0, 3, 1323111096.0],
+                [253, 251, 5, 3685.0, 2160.0, 0.0, -1.0, 3, 1323111096.0],
+                [251, 249, 5, 3380.0, 2330.0, 0.0, -1.0, 3, 1323111096.0],
+                [249, 247, 5, 2815.0, 2590.0, 0.0, -1.0, 3, 1323111096.0],
+                [247, 245, 5, 2610.0, 2700.0, 0.0, -1.0, 3, 1323111096.0],
+                [245, 243, 5, 1970.0, 2595.0, 0.0, -1.0, 3, 1323111096.0],
+                [243, 241, 5, 1780.0, 2570.0, 0.0, -1.0, 3, 1323111096.0],
+                [241, 239, 5, 1340.0, 2660.0, 0.0, -1.0, 3, 1323111096.0],
+                [239, 237, 5, 1135.0, 2800.0, 0.0, -1.0, 3, 1323111096.0],
+                [237, None, 5, 1065.0, 3035.0, 0.0, -1.0, 3, 1323111096.0]],
+            [], [[261, 'TODO']]]
         parsed_response = json.loads(response.content)
-        self.assertEqual(expected_result['iTotalRecords'], parsed_response['iTotalRecords'])
-        self.assertEqual(expected_result['iTotalDisplayRecords'], parsed_response['iTotalDisplayRecords'])
+        self.assertItemsEqual(expected_result, parsed_response)
+
         # Check each aaData row instead of everything at once for more granular
-        # error reporting.
-        for (expected, parsed) in zip(expected_result['aaData'], parsed_response['aaData']):
+        # error reporting. Don't expext the same ordering.
+        for (expected, parsed) in zip(sorted(expected_result[0]), sorted(parsed_response[0])):
             self.assertEqual(expected, parsed)
 
     def test_list_treenode_table_empty(self):
         self.fake_authentication()
-        response = self.client.post(
-                '/%d/treenode/table/list' % (self.test_project_id), {
-                    'iDisplayStart': 0,
-                    'iDisplayLength': -1,
-                    'iSortingCols': 1,
-                    'iSortCol_0': 0,
-                    'sSortDir_0': 'asc',
-                    'skeleton_0': None,
-                    'skeleton_nr': 1,
-                    'stack_id': 3}
-                )
+        response = self.client.post('/%d/treenode/table/%d/content' % \
+                                    (self.test_project_id, 0))
         self.assertEqual(response.status_code, 200)
-        expected_result = {"iTotalRecords": 0, "iTotalDisplayRecords": 0, "aaData": []}
+        expected_result = [[], [], []]
         parsed_response = json.loads(response.content)
         self.assertEqual(expected_result, parsed_response)
-
-    def test_treenode_create_interpolated_fail_no_parent(self):
-        self.fake_authentication()
-        x = 585
-        y = 4245
-        z = 0
-        radius = -1
-        confidence = 5
-        parent_id = 55555555
-        response = self.client.post(
-                '/%d/treenode/create/interpolated' % self.test_project_id, {
-                    'parent_id': parent_id,
-                    'x': x,
-                    'y': y,
-                    'z': z,
-                    'radius': radius,
-                    'confidence': confidence,
-                    'atnx': 6210,
-                    'atny': 3480,
-                    'atnz': 0,
-                    'resx': 5,
-                    'resy': 5,
-                    'resz': 9})
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        expected_result = 'Could not create interpolated treenode:No skeleton ' \
-            'and neuron for treenode %s' % parent_id
-        self.assertTrue('error' in parsed_response)
-        self.assertEqual(expected_result, parsed_response['error'])
-
-    def test_treenode_create_interpolated_single_new_node(self):
-        x = 585
-        y = 4245
-        z = 0
-        radius = -1
-        confidence = 5
-        parent_id = 289
-
-        def call_backend():
-            return self.client.post(
-                    '/%d/treenode/create/interpolated' % self.test_project_id, {
-                        'parent_id': parent_id,
-                        'x': x,
-                        'y': y,
-                        'z': z,
-                        'radius': radius,
-                        'confidence': confidence,
-                        'atnx': 6210,
-                        'atny': 3480,
-                        'atnz': 0,
-                        'resx': 5,
-                        'resy': 5,
-                        'resz': 9})
-
-        # Lock this neuron to user three
-        _annotate_entities(self.test_project_id, [233],
-                {'locked': self.test_user_id})
-
-        # Expect a permission error, because we
-        self.fake_authentication(username='test0', password='test',
-                add_default_permissions=True)
-        response = call_backend()
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        self.assertTrue('error' in parsed_response)
-        self.assertEqual(parsed_response['error'], "Could not create "
-                "interpolated treenode:User test0 with id #1 cannot "
-                "edit neuron #233")
-        self.client.logout()
-
-        # Login with correct user
-        self.fake_authentication()
-        response = call_backend()
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        treenode = get_object_or_404(Treenode, id=parsed_response['treenode_id'])
-        self.assertEqual(confidence, treenode.confidence)
-        self.assertEqual(radius, treenode.radius)
-        self.assertEqual(x, treenode.location_x)
-        self.assertEqual(y, treenode.location_y)
-        self.assertEqual(z, treenode.location_z)
-        self.assertEqual(parsed_response['skeleton_id'], treenode.skeleton_id)
-        self.assertEqual(get_object_or_404(Treenode, id=parent_id).skeleton_id, treenode.skeleton_id)
-
-    def test_treenode_create_interpolated_many_new_nodes(self):
-        x = 9135
-        y = 1215
-        z = 36
-        radius = -1
-        confidence = 5
-        parent_id = 2368
-
-        count_treenodes = lambda: Treenode.objects.all().count()
-
-        treenode_count = count_treenodes()
-
-        def call_backend():
-            return self.client.post(
-                '/%d/treenode/create/interpolated' % self.test_project_id, {
-                    'parent_id': parent_id,
-                    'x': x,
-                    'y': y,
-                    'z': z,
-                    'radius': radius,
-                    'confidence': confidence,
-                    'atnx': 1820,
-                    'atny': 5390,
-                    'atnz': 0,
-                    'resx': 5,
-                    'resy': 5,
-                    'resz': 9})
-
-        # Lock this neuron to user three
-        _annotate_entities(self.test_project_id, [2365],
-                {'locked': self.test_user_id})
-
-        # Expect a permission error, because we are not logged in as a user
-        # with permissions on the neuron---at least if we lock the neuron.
-        self.fake_authentication(username='test0', password='test',
-                add_default_permissions=True)
-        response = call_backend()
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        self.assertTrue('error' in parsed_response)
-        self.assertEqual(parsed_response['error'], "Could not create "
-                "interpolated treenode:User test0 with id #1 cannot "
-                "edit neuron #2365")
-        self.client.logout()
-
-        self.fake_authentication()
-        response = call_backend()
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        treenode = get_object_or_404(Treenode, id=parsed_response['treenode_id'])
-        self.assertEqual(confidence, treenode.confidence)
-        self.assertEqual(radius, treenode.radius)
-        self.assertEqual(x, treenode.location_x)
-        self.assertEqual(y, treenode.location_y)
-        self.assertEqual(z, treenode.location_z)
-        self.assertEqual(parsed_response['skeleton_id'], treenode.skeleton_id)
-        self.assertEqual(get_object_or_404(Treenode, id=parent_id).skeleton_id, treenode.skeleton_id)
-        # Ensure nodes in-between have been created
-        self.assertEqual(4 + treenode_count, count_treenodes())
-        # Ensure the returned treenode has the latest edition time
-        self.assertEqual(treenode, Treenode.objects.latest('edition_time'))
 
     def test_fail_update_confidence(self):
         treenode_id = Treenode.objects.order_by("-id")[0].id + 1  # Inexistant
@@ -1156,6 +895,66 @@ class ViewPageTests(TestCase):
                      u"test2", 285, u'27-10-2011 10:45'],
                     [421, 235, 5810.00, 3950.00, 0.0, 0, 5, u"", 28,
                      u"test2", 415, u'07-10-2011 07:02']]}
+        self.assertEqual(expected_result, parsed_response)
+
+    def test_one_to_many_skeletons_connector_list(self):
+        self.fake_authentication()
+        response = self.client.post(
+                '/%d/connector/list/one_to_many' % self.test_project_id, {
+                    'skid': 373,
+                    'skids[0]': 235,
+                    'relation': 'presynaptic_to'
+                })
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = []
+
+        self.assertEqual(expected_result, parsed_response)
+
+        response = self.client.post(
+                '/%d/connector/list/one_to_many' % self.test_project_id, {
+                    'skid': 373,
+                    'skids[0]': 235,
+                    'relation': 'postsynaptic_to'
+                })
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = [[356, [6730.0, 2700.0, 0.0],
+                            377, 373, 5, 3, [7620.0, 2890.0, 0.0],
+                            285, 235, 5, 3, [6100.0, 2980.0, 0.0]],
+                           [421, [6260.0, 3990.0, 0.0],
+                            409, 373, 5, 3, [6630.0, 4330.0, 0.0],
+                            415, 235, 5, 3, [5810.0, 3950.0, 0.0]]]
+        self.assertEqual(expected_result, parsed_response)
+
+    def test_many_to_many_skeletons_connector_list(self):
+        self.fake_authentication()
+        response = self.client.post(
+                '/%d/connector/list/many_to_many' % self.test_project_id, {
+                    'skids1[0]': 373,
+                    'skids2[0]': 235,
+                    'relation': 'presynaptic_to'
+                })
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = []
+
+        self.assertEqual(expected_result, parsed_response)
+
+        response = self.client.post(
+                '/%d/connector/list/many_to_many' % self.test_project_id, {
+                    'skids1[0]': 373,
+                    'skids2[0]': 235,
+                    'relation': 'postsynaptic_to'
+                })
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = [[356, [6730.0, 2700.0, 0.0],
+                            377, 373, 5, 3, [7620.0, 2890.0, 0.0],
+                            285, 235, 5, 3, [6100.0, 2980.0, 0.0]],
+                           [421, [6260.0, 3990.0, 0.0],
+                            409, 373, 5, 3, [6630.0, 4330.0, 0.0],
+                            415, 235, 5, 3, [5810.0, 3950.0, 0.0]]]
         self.assertEqual(expected_result, parsed_response)
 
     def test_create_connector(self):
@@ -1534,7 +1333,7 @@ class ViewPageTests(TestCase):
                 operation_type='create_neuron')
 
         # FIXME: discussed in
-        # https://github.com/acardona/CATMAID/issues/754
+        # https://github.com/catmaid/CATMAID/issues/754
         #self.assertEqual(1, treenode_skeleton_relation.count())
         self.assertEqual(1, neuron_skeleton_relation.count())
         # FIXME: This test doesn't work like expected
@@ -1631,7 +1430,6 @@ class ViewPageTests(TestCase):
 
         self.assertTrue('treenode_id' in parsed_response)
         self.assertTrue('skeleton_id' in parsed_response)
-        self.assertEqual(neuron_id, int(parsed_response['neuron_id']))
 
         self.assertEqual(treenode_count + 1, count_treenodes())
         self.assertEqual(skeleton_count + 1, count_skeletons())
@@ -1649,7 +1447,7 @@ class ViewPageTests(TestCase):
 
         # FIXME: treenode_skeleton_relation.count() should be 1, but we
         # currently don't store these relations.
-        # See: https://github.com/acardona/CATMAID/issues/754
+        # See: https://github.com/catmaid/CATMAID/issues/754
         self.assertEqual(0, treenode_skeleton_relation.count())
         self.assertEqual(1, neuron_skeleton_relation.count())
 
@@ -1689,6 +1487,205 @@ class ViewPageTests(TestCase):
         self.assertEqual(1, Treenode.objects.filter(id=treenode_id).count())
         self.assertEqual(tn_count, Treenode.objects.all().count())
         self.assertEqual(child_count, Treenode.objects.filter(parent=treenode_id).count())
+
+    def test_insert_treenoded_on_edge(self):
+        self.fake_authentication()
+        class_map = get_class_to_id_map(self.test_project_id)
+        count_treenodes = lambda: Treenode.objects.all().count()
+        count_skeletons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['skeleton']).count()
+        count_neurons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['neuron']).count()
+
+        treenode_count = count_treenodes()
+        skeleton_count = count_skeletons()
+        neuron_count = count_neurons()
+
+        # Get two nodes and calculate point between them
+        child_id = 2374
+        parent_id = 2372
+        child = Treenode.objects.get(pk=child_id)
+        parent = Treenode.objects.get(pk=parent_id)
+
+        new_node_x = 0.5 * (child.location_x + parent.location_x)
+        new_node_y = 0.5 * (child.location_y + parent.location_y)
+        new_node_z = 0.5 * (child.location_z + parent.location_z)
+
+        response = self.client.post('/%d/treenode/insert' % self.test_project_id, {
+            'x': new_node_x,
+            'y': new_node_y,
+            'z': new_node_z,
+            'child_id': child_id,
+            'parent_id': parent_id})
+
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+
+        self.assertTrue('treenode_id' in parsed_response)
+        self.assertTrue('skeleton_id' in parsed_response)
+
+        self.assertEqual(treenode_count + 1, count_treenodes())
+        self.assertEqual(skeleton_count, count_skeletons())
+        self.assertEqual(neuron_count, count_neurons())
+
+        new_node_id = parsed_response['treenode_id']
+        new_node = Treenode.objects.get(pk=new_node_id)
+        child = Treenode.objects.get(pk=child_id)
+        self.assertEqual(new_node.parent_id, parent_id)
+        self.assertEqual(child.parent_id, new_node_id)
+        self.assertEqual(new_node.user, child.user)
+        self.assertEqual(new_node.creation_time, child.creation_time)
+        self.assertEqual(new_node.skeleton_id, child.skeleton_id)
+        self.assertEqual(new_node.location_x, new_node_x)
+        self.assertEqual(new_node.location_y, new_node_y)
+        self.assertEqual(new_node.location_z, new_node_z)
+
+    def test_insert_treenoded_not_on_edge_with_permission(self):
+        self.fake_authentication()
+        class_map = get_class_to_id_map(self.test_project_id)
+        count_treenodes = lambda: Treenode.objects.all().count()
+        count_skeletons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['skeleton']).count()
+        count_neurons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['neuron']).count()
+
+        treenode_count = count_treenodes()
+        skeleton_count = count_skeletons()
+        neuron_count = count_neurons()
+
+        # Get two nodes and calculate point between them
+        child_id = 2374
+        parent_id = 2372
+        child = Treenode.objects.get(pk=child_id)
+        parent = Treenode.objects.get(pk=parent_id)
+
+        new_node_x = 0.5 * (child.location_x + parent.location_x)
+        new_node_y = 0.5 * (child.location_y + parent.location_y) + 10
+        new_node_z = 0.5 * (child.location_z + parent.location_z)
+
+        # Try to insert with a slight distorition in Y. This is allowed if the
+        # user has permission to edit the neuron.
+        response = self.client.post('/%d/treenode/insert' % self.test_project_id, {
+            'x': new_node_x,
+            'y': new_node_y,
+            'z': new_node_z,
+            'child_id': child_id,
+            'parent_id': parent_id})
+
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+
+        self.assertTrue('treenode_id' in parsed_response)
+        self.assertTrue('skeleton_id' in parsed_response)
+
+        self.assertEqual(treenode_count + 1, count_treenodes())
+        self.assertEqual(skeleton_count, count_skeletons())
+        self.assertEqual(neuron_count, count_neurons())
+
+        new_node_id = parsed_response['treenode_id']
+        new_node = Treenode.objects.get(pk=new_node_id)
+        child = Treenode.objects.get(pk=child_id)
+        self.assertEqual(new_node.parent_id, parent_id)
+        self.assertEqual(child.parent_id, new_node_id)
+        self.assertEqual(new_node.user, child.user)
+        self.assertEqual(new_node.creation_time, child.creation_time)
+        self.assertEqual(new_node.skeleton_id, child.skeleton_id)
+        self.assertEqual(new_node.location_x, new_node_x)
+        self.assertEqual(new_node.location_y, new_node_y)
+        self.assertEqual(new_node.location_z, new_node_z)
+
+    def test_insert_treenoded_not_on_edge_without_permission(self):
+        self.fake_authentication(username='test0')
+        class_map = get_class_to_id_map(self.test_project_id)
+        count_treenodes = lambda: Treenode.objects.all().count()
+        count_skeletons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['skeleton']).count()
+        count_neurons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['neuron']).count()
+
+        treenode_count = count_treenodes()
+        skeleton_count = count_skeletons()
+        neuron_count = count_neurons()
+
+        # Get two nodes and calculate point between them
+        child_id = 2374
+        parent_id = 2372
+        child = Treenode.objects.get(pk=child_id)
+        parent = Treenode.objects.get(pk=parent_id)
+
+        # Set chld and parent to different creators and lock it
+        owner = User.objects.get(username='admin')
+        for n in (child, parent):
+            n.creator = owner
+            n.save()
+
+        new_node_x = 0.5 * (child.location_x + parent.location_x)
+        new_node_y = 0.5 * (child.location_y + parent.location_y) + 10
+        new_node_z = 0.5 * (child.location_z + parent.location_z)
+
+        # Try to insert with a slight distorition in Y. This should fail since
+        # the new node would introduce a structural change to the skeleton.
+        response = self.client.post('/%d/treenode/insert' % self.test_project_id, {
+            'x': new_node_x,
+            'y': new_node_y,
+            'z': new_node_z,
+            'child_id': child_id,
+            'parent_id': parent_id})
+
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertTrue('error' in parsed_response)
+
+        self.assertEqual(treenode_count, count_treenodes())
+        self.assertEqual(skeleton_count, count_skeletons())
+        self.assertEqual(neuron_count, count_neurons())
+
+    def test_insert_treenoded_no_child_parent(self):
+        self.fake_authentication()
+        class_map = get_class_to_id_map(self.test_project_id)
+        count_treenodes = lambda: Treenode.objects.all().count()
+        count_skeletons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['skeleton']).count()
+        count_neurons = lambda: ClassInstance.objects.filter(
+                project=self.test_project_id,
+                class_column=class_map['neuron']).count()
+
+        treenode_count = count_treenodes()
+        skeleton_count = count_skeletons()
+        neuron_count = count_neurons()
+
+        # Get two nodes and calculate point between them
+        child_id = 2376
+        parent_id = 2372
+        child = Treenode.objects.get(pk=child_id)
+        parent = Treenode.objects.get(pk=parent_id)
+
+        new_node_x = 0.5 * (child.location_x + parent.location_x)
+        new_node_y = 0.5 * (child.location_y + parent.location_y)
+        new_node_z = 0.5 * (child.location_z + parent.location_z)
+
+        # Try to insert with a slight distorition in Y
+        response = self.client.post('/%d/treenode/insert' % self.test_project_id, {
+            'x': new_node_x,
+            'y': new_node_y,
+            'z': new_node_z,
+            'child_id': child_id,
+            'parent_id': parent_id})
+
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertTrue('error' in parsed_response)
+
+        self.assertEqual(treenode_count, count_treenodes())
+        self.assertEqual(skeleton_count, count_skeletons())
+        self.assertEqual(neuron_count, count_neurons())
 
     def test_delete_non_root_non_parent_treenode(self):
         self.fake_authentication()
@@ -1934,6 +1931,11 @@ class ViewPageTests(TestCase):
         assertHasParent(377, 405)
         assertHasParent(407, None)
 
+    def assertTreenodeHasProperties(self, treenode_id, parent_id, skeleton_id):
+        treenode = get_object_or_404(Treenode, id=treenode_id)
+        self.assertEqual(parent_id, treenode.parent_id)
+        self.assertEqual(skeleton_id, treenode.skeleton_id)
+
     def test_reroot_and_join_skeletons(self):
         self.fake_authentication()
 
@@ -1968,19 +1970,117 @@ class ViewPageTests(TestCase):
 
         self.assertEqual(2 + log_count, count_logs())
 
-        def assertTreenodeHasProperties(treenode_id, parent_id, skeleton_id):
-            treenode = get_object_or_404(Treenode, id=treenode_id)
-            self.assertEqual(parent_id, treenode.parent_id)
-            self.assertEqual(skeleton_id, treenode.skeleton_id)
-
-        assertTreenodeHasProperties(2396, 2394, new_skeleton_id)
-        assertTreenodeHasProperties(2392, 2394, new_skeleton_id)
-        assertTreenodeHasProperties(2394, 2415, new_skeleton_id)
+        self.assertTreenodeHasProperties(2396, 2394, new_skeleton_id)
+        self.assertTreenodeHasProperties(2392, 2394, new_skeleton_id)
+        self.assertTreenodeHasProperties(2394, 2415, new_skeleton_id)
 
         self.assertEqual(0, ClassInstance.objects.filter(id=2388).count())
         self.assertEqual(0, ClassInstanceClassInstance.objects.filter(id=2390).count())
 
         self.assertEqual(new_skeleton_id, get_object_or_404(TreenodeConnector, id=2405).skeleton_id)
+
+    def test_split_skeleton(self):
+        self.fake_authentication()
+
+        # Test simple split of 3-node skeleton at middle node.
+        old_skeleton_id = 2388
+        response = self.client.post(
+            '/%d/skeleton/split' % (self.test_project_id,),
+            {'treenode_id': 2394, 'upstream_annotation_map': '{}', 'downstream_annotation_map': '{}'})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        new_skeleton_id = parsed_response['skeleton_id']
+
+        self.assertTreenodeHasProperties(2392, None, old_skeleton_id)
+        self.assertTreenodeHasProperties(2394, None, new_skeleton_id)
+        self.assertTreenodeHasProperties(2396, 2394, new_skeleton_id)
+
+        # Test error is returned when trying to split root node.
+        response = self.client.post(
+            '/%d/skeleton/split' % (self.test_project_id,),
+            {'treenode_id': 237, 'upstream_annotation_map': '{}', 'downstream_annotation_map': '{}'})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = {
+                "error": "Can't split at the root node: it doesn't have a parent."}
+        self.assertEqual(expected_result, parsed_response)
+
+    def test_split_skeleton_annotations(self):
+        self.fake_authentication()
+
+        # Annotate skeleton with three test annotations.
+        old_skeleton_id = 2388
+        response = self.client.post(
+            '/%d/annotations/add' % (self.test_project_id,),
+            {'annotations[0]': 'A',
+             'annotations[1]': 'B',
+             'annotations[2]': 'C',
+             'skeleton_ids[0]': old_skeleton_id})
+        self.assertEqual(response.status_code, 200)
+
+        # Expect an error if some annotations are not assigned.
+        response = self.client.post(
+            '/%d/skeleton/split' % (self.test_project_id,),
+            {'treenode_id': 2394,
+             'upstream_annotation_map':   json.dumps({'A': self.test_user_id}),
+             'downstream_annotation_map': json.dumps({'C': self.test_user_id})})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = "Annotation distribution is not valid for splitting. " \
+                          "One part has to keep the whole set of annotations!"
+        self.assertEqual(expected_result, parsed_response['error'])
+
+        # Expect an error if all annotations are assigned, but neither part has
+        # all.
+        response = self.client.post(
+            '/%d/skeleton/split' % (self.test_project_id,),
+            {'treenode_id': 2394,
+             'upstream_annotation_map':   json.dumps({'A': self.test_user_id, 'B': self.test_user_id}),
+             'downstream_annotation_map': json.dumps({'C': self.test_user_id, 'B': self.test_user_id})})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = "Annotation distribution is not valid for splitting. " \
+                          "One part has to keep the whole set of annotations!"
+        self.assertEqual(expected_result, parsed_response['error'])
+
+        # Test correct assignment of annotations in normal case, including
+        # removal of annotation from skeleton retaining original ID.
+        response = self.client.post(
+            '/%d/skeleton/split' % (self.test_project_id,),
+            {'treenode_id': 2394,
+             'upstream_annotation_map':   json.dumps({'A': self.test_user_id, 'B': self.test_user_id}),
+             'downstream_annotation_map': json.dumps({'A': self.test_user_id, 'B': self.test_user_id, 'C': self.test_user_id})})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        new_skeleton_id = parsed_response['skeleton_id']
+
+        response = self.client.post(
+            '/%d/skeleton/annotationlist' % (self.test_project_id,),
+            {'skeleton_ids[0]': old_skeleton_id,
+             'skeleton_ids[1]': new_skeleton_id})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        old_skeleton_annotations = set([parsed_response['annotations'][str(aid['id'])] for aid in parsed_response['skeletons'][str(old_skeleton_id)]['annotations']])
+        new_skeleton_annotations = set([parsed_response['annotations'][str(aid['id'])] for aid in parsed_response['skeletons'][str(new_skeleton_id)]['annotations']])
+        self.assertEqual(old_skeleton_annotations, set(['A', 'B']))
+        self.assertEqual(new_skeleton_annotations, set(['A', 'B', 'C']))
+
+    def test_skeleton_connectivity(self):
+        self.fake_authentication()
+
+        # Test a simple request like that from the connectivity widget.
+        response = self.client.post(
+            '/%d/skeleton/connectivity' % (self.test_project_id,),
+            {'source[0]': 235, 'source[1]': 373, 'boolean_op': 'logic-OR'})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = {
+            "outgoing_reviewers": [],
+            "outgoing": {"361": {"skids": {"235": [0, 0, 0, 0, 1]}, "num_nodes": 9},
+                         "373": {"skids": {"235": [0, 0, 0, 0, 2]}, "num_nodes": 5}},
+            "incoming": {"235": {"skids": {"373": [0, 0, 0, 0, 2]}, "num_nodes": 28}},
+            "incoming_reviewers": []}
+        self.assertEqual(expected_result, parsed_response)
 
     def test_treenode_info_nonexisting_treenode_failure(self):
         self.fake_authentication()
@@ -2156,6 +2256,45 @@ class ViewPageTests(TestCase):
         for x in expected:
             self.assertTreenodeHasRadius(*x)
 
+    def test_remove_annotations(self):
+        self.fake_authentication()
+        skeleton_id = 2364
+        neuron_id = 2365
+
+        # Annotate skeleton with three test annotations.
+        response = self.client.post(
+            '/%d/annotations/add' % (self.test_project_id,),
+            {'annotations[0]': 'A',
+             'annotations[1]': 'B',
+             'annotations[2]': 'C',
+             'skeleton_ids[0]': skeleton_id})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        annotations = {a['name']:a['id'] for a in parsed_response['annotations']}
+        for a in ('A', 'B', 'C'):
+            self.assertTrue(a in annotations)
+
+        # Remove annotations A and C and expect B to still be there
+        response = self.client.post(
+            '/%d/annotations/remove' % (self.test_project_id,),
+            {'entity_ids[0]': neuron_id,
+             'annotation_ids[0]': annotations['A'],
+             'annotation_ids[1]': annotations['C']})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+
+        response = self.client.post(
+            '/%d/annotations/skeletons/list' % (self.test_project_id,),
+            {'skids[0]': skeleton_id})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+
+        linked_annotations = parsed_response['skeletons'][str(skeleton_id)]
+        linked_annotation_ids = [a['id'] for a in linked_annotations]
+        self.assertFalse(annotations['A'] in linked_annotation_ids)
+        self.assertFalse(annotations['C'] in linked_annotation_ids)
+
+
     def test_read_message_error(self):
         self.fake_authentication()
         message_id = 5050
@@ -2286,32 +2425,6 @@ class ViewPageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         parsed_response = json.loads(response.content)
         parsed_response.sort(key=distsort)
-        self.assertEqual(parsed_response, expected_result)
-
-        # Regression test for acardona/CATMAID#946
-        # Test that an untagged root with multiple children is considered open
-        skeleton_id = 361
-        url = '/%d/skeleton/%d/openleaf' % (self.test_project_id, skeleton_id,)
-        response = self.client.post(url, {'tnid': 367})
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        parsed_response.sort(key=distsort)
-        expected_result = \
-                [[367, [7030.0, 1980.0, 0.0], 1, u'2011-09-27T07:57:17.808'],
-                 [387, [9030.0, 1480.0, 0.0], 4, u'2011-09-27T07:57:26.310'],
-                 [399, [5670.0,  640.0, 0.0], 6, u'2011-09-27T07:57:37.518']]
-        self.assertEqual(parsed_response, expected_result)
-
-        # Tag soma and try again
-        response = self.client.post(
-                '/%d/label/treenode/%d/update' % (self.test_project_id, 367),
-                {'tags': 'soma', 'delete_existing': 'false'})
-        self.assertEqual(response.status_code, 200)
-        response = self.client.post(url, {'tnid': 367})
-        self.assertEqual(response.status_code, 200)
-        parsed_response = json.loads(response.content)
-        parsed_response.sort(key=distsort)
-        expected_result.pop(0)
         self.assertEqual(parsed_response, expected_result)
 
     def test_skeleton_ancestry(self):
@@ -2589,7 +2702,7 @@ class ViewPageTests(TestCase):
                            'unique objects from table treenode'}
         self.assertEqual(expected_result['error'], parsed_response['error'])
 
-    def test_node_list_without_active_skeleton(self):
+    def test_node_list_without_active_node(self):
         self.fake_authentication()
         expected_t_result = [
                 [2372, 2370, 2760, 4600, 0, 5, -1, 2364, False],
@@ -2605,17 +2718,16 @@ class ViewPageTests(TestCase):
                 [2423, 2415, 4140, 6460, 0, 5, -1, 2411, True],
         ]
         expected_c_result = [
-                [2400, 3400, 5620, 0, 5, [[2394, 5], [2415, 5]], [[2374, 5]], True],
+                [2400, 3400, 5620, 0, 5, [[2394, 5], [2415, 5]], [[2374, 5]], [], True],
         ]
         response = self.client.post('/%d/node/list' % (self.test_project_id,), {
-            'sid': 3,
-            'z': 0,
+            'z1': 0,
             'top': 4625,
             'left': 2860,
-            'width': 8000,
-            'height': 3450,
-            'zres': 9,
-            'as': 0,
+            'right': 12625,
+            'bottom': 8075,
+            'z2': 9,
+            'atnid': -1,
             'labels': False,
         })
         self.assertEqual(response.status_code, 200)
@@ -2627,7 +2739,7 @@ class ViewPageTests(TestCase):
         for row in expected_c_result:
             self.assertTrue(row in parsed_response[1])
 
-    def test_node_list_with_active_skeleton(self):
+    def test_node_list_with_active_node(self):
         self.fake_authentication()
         expected_t_result = [
                 [267, 265, 5400, 2200, 0, 5, -1, 235, True],
@@ -2645,22 +2757,22 @@ class ViewPageTests(TestCase):
                 [415, 289, 5810, 3950, 0, 5, -1, 235, True],
                 [417, 415, 4990, 4200, 0, 5, -1, 235, True],
                 [2419, 2417, 5040, 5650, 0, 5, -1, 2411, True],
-                [2417, 2415, 4400, 5730, 0, 5, -1, 2411, True]
+                [2417, 2415, 4400, 5730, 0, 5, -1, 2411, True],
+                [2423, 2415, 4140, 6460, 0, 5, -1, 2411, 3]
         ]
         expected_c_result = [
-                [356, 6730.0, 2700.0, 0.0, 5, [[285, 5]], [[377, 5], [367, 5]], True],
-                [421, 6260.0, 3990.0, 0.0, 5, [[415, 5]], [[409, 5]], True]
+                [356, 6730.0, 2700.0, 0.0, 5, [[285, 5]], [[377, 5], [367, 5]], [], True],
+                [421, 6260.0, 3990.0, 0.0, 5, [[415, 5]], [[409, 5]], [], True]
         ]
 
         response = self.client.post('/%d/node/list' % (self.test_project_id,), {
-                'sid': 3,
-                'z': 0,
+                'z1': 0,
                 'top': 2280,
                 'left': 4430,
-                'width': 8000,
-                'height': 3450,
-                'zres': 9,
-                'as': 373,
+                'right': 12430,
+                'bottom': 5730,
+                'z2': 9,
+                'atnid': 2423,
                 'labels': False,})
         self.assertEqual(response.status_code, 200)
         parsed_response = json.loads(response.content)
@@ -2802,7 +2914,7 @@ class ViewPageTests(TestCase):
         url = '/%d/skeleton/review-status' % (self.test_project_id)
         response = self.client.post(url, {'skeleton_ids[0]': skeleton_id})
         self.assertEqual(response.status_code, 200)
-        expected_result = {'2388': 0}
+        expected_result = {'2388': [3, 0]}
         self.assertJSONEqual(response.content, expected_result)
 
         # Add reviews
@@ -2815,14 +2927,14 @@ class ViewPageTests(TestCase):
             review_time=review_time, skeleton_id=skeleton_id, treenode_id=2394)
         response = self.client.post(url, {'skeleton_ids[0]': skeleton_id})
         self.assertEqual(response.status_code, 200)
-        expected_result = {'2388': 66}
+        expected_result = {'2388': [3, 2]}
         self.assertJSONEqual(response.content, expected_result)
 
         # Use empty whitelist
         response = self.client.post(url,
                 {'skeleton_ids[0]': skeleton_id, 'whitelist': 'true'})
         self.assertEqual(response.status_code, 200)
-        expected_result = {'2388': 0}
+        expected_result = {'2388': [3, 0]}
         self.assertJSONEqual(response.content, expected_result)
 
         # Add a user to whitelist
@@ -2831,7 +2943,7 @@ class ViewPageTests(TestCase):
         response = self.client.post(url,
                 {'skeleton_ids[0]': skeleton_id, 'whitelist': 'true'})
         self.assertEqual(response.status_code, 200)
-        expected_result = {'2388': 33}
+        expected_result = {'2388': [3, 1]}
         self.assertJSONEqual(response.content, expected_result)
 
     def test_export_review_skeleton(self):

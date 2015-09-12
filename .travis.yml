@@ -3,10 +3,15 @@ notifications:
 language: python
 python:
   - "2.7"
+env:
+  - SLIMERJSLAUNCHER=$(which firefox) DISPLAY=:99.0 PATH=$TRAVIS_BUILD_DIR/slimerjs:$PATH TMPDIR=$TRAVIS_BUILD_DIR/tmp
 addons:
+  firefox: "38.0"
   postgresql: 9.3
 before_install:
+  - mkdir tmp
   - travis_retry sudo apt-get update -y -qq
+  - sh -e /etc/init.d/xvfb start
   # Install python-sopnet
   - git clone https://github.com/catsop/python-sopnet.git
   - cd python-sopnet
@@ -24,9 +29,10 @@ install:
   - travis_retry travis_wait 60 pip install -q -r django/pip-frozen
   # Install additional dependencies for Travis
   - pip install coveralls
-  - npm install jshint phantomjs qunit-phantomjs-runner
+  - npm install jshint qunit-phantomjs-runner
 before_script:
   - psql -c 'CREATE DATABASE catmaid;' -U postgres
+  - psql -c 'CREATE EXTENSION postgis;' -U postgres catmaid
   - cd django
   - cp configuration.py.example configuration.py
   - sed -i -e "s?^\(abs_catmaid_path = \).*?\1'$(pwd)'?g" configuration.py
@@ -44,14 +50,17 @@ script:
   - jshint --config=.travis.jshintrc --exclude-path=.travis.jshintignore django/applications
   - cd django/projects/mysite
   - python manage.py syncdb --migrate --noinput
+  - python manage.py collectstatic --link --noinput
   - coverage run --source=catmaid --omit='*management*,*migrations*,*tests*' manage.py test catmaid.tests djsopnet.tests
   # Remove login requirement from QUnit test page
   - sed -i 's/login_required(\([^)]*\))/\1/g' ../../applications/catmaid/urls.py
-  - python manage.py collectstatic --link --noinput
   - python manage.py runserver &
   - sleep 5
   - cd ../../..
-  - phantomjs --version
-  - phantomjs node_modules/qunit-phantomjs-runner/runner.js "http://localhost:8000/tests"
+  # Run QUnit tests through SlimerJS with Firefox
+  - wget http://download.slimerjs.org/releases/0.9.6/slimerjs-0.9.6.zip
+  - unzip slimerjs-0.9.6.zip
+  - mv slimerjs-0.9.6 ./slimerjs
+  - ./.travis-run-slimerjs.sh http://localhost:8000/tests
 after_success:
   - cd django/projects/mysite && coveralls

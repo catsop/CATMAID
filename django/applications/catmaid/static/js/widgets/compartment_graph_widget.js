@@ -1,15 +1,11 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
-  ArborParser,
   CircuitGraphPlot,
-  ConnectorSelection,
   cytoscape,
   fetchSkeletons,
-  growlAlert,
   InstanceRegistry,
   NeuronNameService,
-  OptionsDialog,
   parseColorWheel,
   project,
   requestQueue,
@@ -17,8 +13,6 @@
   session,
   SVGCanvas,
   SynapseClustering,
-  TracingTool,
-  WebGLApplication,
   WindowMaker
 */
 
@@ -68,6 +62,210 @@ var GroupGraph = function() {
   // * SUBGRAPH_AXON_BACKBONE_TERMINALS
   // * a number larger than zero (bandwidth value for synapse clustering)
   this.subgraphs = {};
+
+  // Remember "Split at tag" dialog choices
+  this.tag_text = '';
+  this.tag_title_root = '';
+  this.tag_title_others = '';
+
+  this.layout_fit = true;
+
+  this.layout_options = {
+    preset: {
+      name: 'preset',
+      // whether to fit to viewport
+      fit: true,
+      // padding on fit
+      padding: 30
+    },
+    grid: {
+      name: 'grid',
+      fit: true, // whether to fit the viewport to the graph
+      rows: undefined, // force num of rows in the grid
+      columns: undefined, // force num of cols in the grid
+    },
+    random: {
+      name: 'random',
+      fit: true // whether to fit to viewport
+    },
+    arbor: {
+      name: 'arbor',
+      liveUpdate: true, // whether to show the layout as it's running
+      maxSimulationTime: 2000, // max length in ms to run the layout
+      fit: true, // fit to viewport
+      padding: [ 50, 50, 50, 50 ], // top, right, bottom, left
+      ungrabifyWhileSimulating: true, // so you can't drag nodes during layout
+
+      // forces used by arbor (use arbor default on undefined)
+      repulsion: undefined,
+      stiffness: undefined,
+      friction: undefined,
+      gravity: true,
+      fps: undefined,
+      precision: undefined,
+
+      // static numbers or functions that dynamically return what these
+      // values should be for each element
+      nodeMass: undefined,
+      edgeLength: undefined,
+
+      stepSize: 1, // size of timestep in simulation
+
+      // function that returns true if the system is stable to indicate
+      // that the layout can be stopped
+      stableEnergy: function( energy ){
+          var e = energy;
+          return (e.max <= 0.5) || (e.mean <= 0.3);
+      }
+    },
+    circle: {
+      name: 'circle',
+      fit: true, // whether to fit the viewport to the graph
+      rStepSize: 10, // the step size for increasing the radius if the nodes don't fit on screen
+      padding: 30, // the padding on fit
+      startAngle: 3/2 * Math.PI, // the position of the first node
+      counterclockwise: false // whether the layout should go counterclockwise (true) or clockwise (false)
+    },
+    breadthfirst: {
+      name: 'breadthfirst', // Hierarchical
+      fit: true, // whether to fit the viewport to the graph
+      directed: false, // whether the tree is directed downwards (or edges can point in any direction if false)
+      padding: 30, // padding on fit
+      circle: false, // put depths in concentric circles if true, put depths top down if false
+      roots: undefined // the roots of the trees
+    },
+    cose: {
+      name: 'cose',
+      // Number of iterations between consecutive screen positions update (0 -> only updated on the end)
+      refresh: 0,
+      // Whether to fit the network view after when done
+      fit: true,
+      // Whether to randomize node positions on the beginning
+      randomize: true,
+      // Whether to use the JS console to print debug messages
+      debug: false,
+
+      // Node repulsion (non overlapping) multiplier
+      nodeRepulsion: 10000,
+      // Node repulsion (overlapping) multiplier
+      nodeOverlap: 10,
+      // Ideal edge (non nested) length
+      idealEdgeLength: 50,
+      // Divisor to compute edge forces
+      edgeElasticity: 100,
+      // Nesting factor (multiplier) to compute ideal edge length for nested edges
+      nestingFactor: 5,
+      // Gravity force (constant) for each group of nested nodes
+      gravity: 250,
+
+      // Maximum number of iterations to perform
+      numIter: 100,
+      // Initial temperature (maximum node displacement)
+      initialTemp: 200,
+      // Cooling factor (how the temperature is reduced between consecutive iterations)
+      coolingFactor: 0.95,
+      // Lower temperature threshold (below this point the layout will end)
+      minTemp: 1
+    },
+    concentric: {
+      name: 'concentric',
+      fit: true, // whether to fit the viewport to the graph
+      ready: undefined, // callback on layoutready
+      stop: undefined, // callback on layoutstop
+      padding: 30, // the padding on fit
+      startAngle: 3/2 * Math.PI, // the position of the first node
+      counterclockwise: false, // whether the layout should go counterclockwise (true) or clockwise (false)
+      minNodeSpacing: 80, // min spacing between outside of nodes (used for radius adjustment)
+      height: undefined, // height of layout area (overrides container height)
+      width: undefined, // width of layout area (overrides container width)
+      levelWidth: function(nodes) { // the variation of concentric values in each level
+        return nodes.maxDegree() / 4;
+      }
+    },
+    dagre: {
+      name: 'dagre',
+      // dagre algo options, uses default value on undefined
+      nodeSep: undefined, // the separation between adjacent nodes in the same rank
+      edgeSep: undefined, // the separation between adjacent edges in the same rank
+      rankSep: undefined, // the separation between adjacent nodes in the same rank
+      rankDir: undefined, // 'TB' for top to bottom flow, 'LR' for left to right
+      minLen: function( edge ){ return 1; }, // number of ranks to keep between the source and target of the edge
+      edgeWeight: function( edge ){ return 1; }, // higher weight edges are generally made shorter and straighter than lower weight edges
+      // general layout options
+      fit: true, // whether to fit to viewport
+      padding: 30, // fit padding
+      animate: false, // whether to transition the node positions
+      animationDuration: 500, // duration of animation in ms if enabled
+      boundingBox: undefined, // constrain layout bounds; { x1, y1, x2, y2 } or { x1, y1, w, h }
+      ready: function(){}, // on layoutready
+      stop: function(){} // on layoutstop
+    },
+    cola: {
+      name: 'cola',
+      animate: true, // whether to show the layout as it's running
+      refresh: 1, // number of ticks per frame; higher is faster but more jerky
+      maxSimulationTime: 4000, // max length in ms to run the layout
+      ungrabifyWhileSimulating: false, // so you can't drag nodes during layout
+      fit: true, // on every layout reposition of nodes, fit the viewport
+      padding: 30, // padding around the simulation
+      boundingBox: undefined, // constrain layout bounds; { x1, y1, x2, y2 } or { x1, y1, w, h }
+      // layout event callbacks
+      ready: function(){}, // on layoutready
+      stop: function(){}, // on layoutstop
+      // positioning options
+      randomize: false, // use random node positions at beginning of layout
+      avoidOverlap: true, // if true, prevents overlap of node bounding boxes
+      handleDisconnected: true, // if true, avoids disconnected components from overlapping
+      nodeSpacing: function( node ){ return 10; }, // extra spacing around nodes
+      flow: undefined, // use DAG/tree flow layout if specified, e.g. { axis: 'y', minSeparation: 30 }
+      alignment: undefined, // relative alignment constraints on nodes, e.g. function( node ){ return { x: 0, y: 1 } }
+      // different methods of specifying edge length
+      // each can be a constant numerical value or a function like `function( edge ){ return 2; }`
+      edgeLength: undefined, // sets edge length directly in simulation
+      edgeSymDiffLength: undefined, // symmetric diff edge length in simulation
+      edgeJaccardLength: undefined, // jaccard edge length in simulation
+      // iterations of cola algorithm; uses default values on undefined
+      unconstrIter: undefined, // unconstrained initial layout iterations
+      userConstIter: undefined, // initial layout iterations with user-specified constraints
+      allConstIter: undefined, // initial layout iterations with all constraints including non-overlap
+      // infinite layout options
+      infinite: false // overrides all other options for a forces-all-the-time mode
+    },
+    spread: {
+      name: 'spread',
+      animate: true, // whether to show the layout as it's running
+      ready: undefined, // Callback on layoutready
+      stop: undefined, // Callback on layoutstop
+      fit: true, // Reset viewport to fit default simulationBounds
+      minDist: 20, // Minimum distance between nodes
+      padding: 20, // Padding
+      expandingFactor: -1.0, // If the network does not satisfy the minDist
+      // criterium then it expands the network of this amount
+      // If it is set to -1.0 the amount of expansion is automatically
+      // calculated based on the minDist, the aspect ratio and the
+      // number of nodes
+      maxFruchtermanReingoldIterations: 50, // Maximum number of initial force-directed iterations
+      maxExpandIterations: 4, // Maximum number of expanding iterations
+      boundingBox: undefined // Constrain layout bounds; { x1, y1, x2, y2 } or { x1, y1, w, h }
+    },
+    springy: {
+      name: 'springy',
+      animate: true, // whether to show the layout as it's running
+      maxSimulationTime: 2000, // max length in ms to run the layout
+      ungrabifyWhileSimulating: false, // so you can't drag nodes during layout
+      fit: true, // whether to fit the viewport to the graph
+      padding: 30, // padding on fit
+      boundingBox: undefined, // constrain layout bounds; { x1, y1, x2, y2 } or { x1, y1, w, h }
+      random: false, // whether to use random initial positions
+      infinite: false, // overrides all other options for a forces-all-the-time mode
+      ready: undefined, // callback on layoutready
+      stop: undefined, // callback on layoutstop
+      // springy forces
+      stiffness: 400,
+      repulsion: 400,
+      damping: 0.5
+    }
+  };
 };
 
 GroupGraph.prototype = {};
@@ -76,6 +274,7 @@ $.extend(GroupGraph.prototype, new CATMAID.SkeletonSource());
 
 GroupGraph.prototype.SUBGRAPH_AXON_DENDRITE =  -1;
 GroupGraph.prototype.SUBGRAPH_AXON_BACKBONE_TERMINALS = -2;
+GroupGraph.prototype.SUBGRAPH_SPLIT_AT_TAG = -3;
 
 GroupGraph.prototype.getName = function() {
   return "Graph " + this.widgetID;
@@ -202,7 +401,7 @@ GroupGraph.prototype.toggle_show_node_labels = function() {
 
 GroupGraph.prototype.graph_properties = function() {
   
-  var dialog = new OptionsDialog("Graph properties");
+  var dialog = new CATMAID.OptionsDialog("Graph properties");
   var vpos = ["top", "center", "bottom"];
   var label_vpos = dialog.appendChoice("Node label vertical position", "valign", vpos, vpos, this.label_valign);
   var hpos = ["left", "center", "right"];
@@ -239,12 +438,12 @@ GroupGraph.prototype.graph_properties = function() {
       try {
         var v = parseInt(new_value);
         if (v < 0) {
-          growlAlert("Warning", "Value for " + name + " must be positive!");
+          CATMAID.warn("Value for " + name + " must be positive!");
           return old_value;
         }
         return new_value;
       } catch (e) {
-        growlAlert("Warning", "Bad value: " + new_value);
+        CATMAID.warn("Bad value: " + new_value);
         return old_value;
       }
     };
@@ -340,6 +539,7 @@ GroupGraph.prototype.init = function() {
             "width": 15,
             "height": 15
           }),
+      boxSelectionEnabled: true,
   };
   var sel = $("#cyelement" + this.widgetID);
   sel.cytoscape(options).css('background', 'white');
@@ -358,7 +558,7 @@ GroupGraph.prototype.init = function() {
     if (evt.originalEvent.altKey) {
       // Select in the overlay
       var models = node.data('skeletons');
-      if (1 === models.length) TracingTool.goToNearestInNeuronOrSkeleton("skeleton", models[0].id);
+      if (1 === models.length) CATMAID.TracingTool.goToNearestInNeuronOrSkeleton("skeleton", models[0].id);
     } else if (evt.originalEvent.shiftKey && (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey)) {
       // Remove node
       delete this.groups[node.id()]; // if present
@@ -383,7 +583,7 @@ GroupGraph.prototype.init = function() {
           };
       // If both source and target are not split and are not groups:
       if (isSingle(source) && isSingle(target)) {
-        ConnectorSelection.show_shared_connectors( source, [target], "presynaptic_to" );
+        CATMAID.ConnectorSelection.show_shared_connectors( [source], [target], "presynaptic_to" );
       } else {
         var source_skids,
             target_skids,
@@ -412,7 +612,7 @@ GroupGraph.prototype.init = function() {
           var json = $.parseJSON(text);
           if (json.error) return new CATMAID.ErrorDialog(
               "Cound not fetch edge data.", json.error);
-          ConnectorSelection.show_connectors(json);
+          CATMAID.ConnectorSelection.show_connectors(json);
         });
     }
   });
@@ -439,141 +639,52 @@ GroupGraph.prototype.init = function() {
   }).bind(this));
 };
 
+// The index is relied upon by the updateLayout function
+GroupGraph.prototype.layoutStrings = ["Spread (force-directed)", "Hierarchical", "Grid", "Circle",
+         "Concentric (degree)", "Concentric (out degree)", "Concentric (in degree)",
+         "Random", "Compound Spring Embedder", "Manual", "Dagre (DAG-based)", "Cola (force-directed)",
+         "Arbor (force-directed)", "Springy (force-directed)"];
+
 /** Unlocks locked nodes, if any, when done. */
 GroupGraph.prototype.updateLayout = function(layout) {
   var index = layout ? layout.selectedIndex : 0;
-  var name = ['arbor', 'breadthfirst', 'grid', 'circle', 'concentric', 'concentric out', 'concentric in', 'random', 'cose', 'preset'][index];
+  var name = ['spread', 'breadthfirst', 'grid', 'circle', 'concentric', 'concentric out', 'concentric in', 'random', 'cose', 'preset', 'dagre', 'cola', 'arbor', 'springy'][index];
   var options = this.createLayoutOptions(name);
   options.stop = (function() { this.cy.nodes().unlock(); }).bind(this);
   this.cy.layout( options );
 };
 
+GroupGraph.prototype.applyToNodes = function(fn, selected) {
+  this.cy.nodes().each(function(i, node) {
+    if (selected && !node.selected()) return;
+    node[fn]();
+  });
+};
+
+GroupGraph.prototype.toggleLayoutFit = function() {
+  this.layout_fit = !this.layout_fit;
+};
+
 GroupGraph.prototype.createLayoutOptions = function(name) {
-  var options;
-  if ('grid' === name) {
-    options = {
-      name: 'grid',
-      fit: true, // whether to fit the viewport to the graph
-      rows: undefined, // force num of rows in the grid
-      columns: undefined, // force num of cols in the grid
-    };
-  } else if ('arbor' === name) {
-    options = {
-        name: 'arbor',
-        liveUpdate: true, // whether to show the layout as it's running
-        maxSimulationTime: 2000, // max length in ms to run the layout
-        fit: true, // fit to viewport
-        padding: [ 50, 50, 50, 50 ], // top, right, bottom, left
-        ungrabifyWhileSimulating: true, // so you can't drag nodes during layout
+  var original;
 
-        // forces used by arbor (use arbor default on undefined)
-        repulsion: undefined,
-        stiffness: undefined,
-        friction: undefined,
-        gravity: true,
-        fps: undefined,
-        precision: undefined,
+  if (0 === name.indexOf('concentric')) {
+    original = name;
+    name = 'concentric';
+  }
 
-        // static numbers or functions that dynamically return what these
-        // values should be for each element
-        nodeMass: undefined,
-        edgeLength: undefined,
+  var options = this.layout_options[name];
+  if (!options) return alert("Invalid layout: " + name);
 
-        stepSize: 1, // size of timestep in simulation
+  // clone, to avoid modifying the original
+  options = $.extend({}, options);
+  options.fit = this.layout_fit;
 
-        // function that returns true if the system is stable to indicate
-        // that the layout can be stopped
-        stableEnergy: function( energy ){
-            var e = energy;
-            return (e.max <= 0.5) || (e.mean <= 0.3);
-        }
-    };
-  } else if ('circle' === name) {
-      options = {
-          name: 'circle',
-          fit: true, // whether to fit the viewport to the graph
-          rStepSize: 10, // the step size for increasing the radius if the nodes don't fit on screen
-          padding: 30, // the padding on fit
-          startAngle: 3/2 * Math.PI, // the position of the first node
-          counterclockwise: false // whether the layout should go counterclockwise (true) or clockwise (false)
-      };
-  } else if ('breadthfirst' === name) {
-    options = {
-        name: 'breadthfirst', // Hierarchical
-        fit: true, // whether to fit the viewport to the graph
-        directed: false, // whether the tree is directed downwards (or edges can point in any direction if false)
-        padding: 30, // padding on fit
-        circle: false, // put depths in concentric circles if true, put depths top down if false
-        roots: undefined // the roots of the trees
-    };
-  } else if ('random' === name) {
-    options = {
-        name: 'random',
-        fit: true // whether to fit to viewport
-    };
-  } else if ('cose' === name) {
-    options = {
-      name: 'cose',
-      // Number of iterations between consecutive screen positions update (0 -> only updated on the end)
-      refresh: 0,
-      // Whether to fit the network view after when done
-      fit: true,
-      // Whether to randomize node positions on the beginning
-      randomize: true,
-      // Whether to use the JS console to print debug messages
-      debug: false,
-
-      // Node repulsion (non overlapping) multiplier
-      nodeRepulsion: 10000,
-      // Node repulsion (overlapping) multiplier
-      nodeOverlap: 10,
-      // Ideal edge (non nested) length
-      idealEdgeLength: 10,
-      // Divisor to compute edge forces
-      edgeElasticity: 100,
-      // Nesting factor (multiplier) to compute ideal edge length for nested edges
-      nestingFactor: 5,
-      // Gravity force (constant)
-      gravity: 250,
-
-      // Maximum number of iterations to perform
-      numIter: 100,
-      // Initial temperature (maximum node displacement)
-      initialTemp: 200,
-      // Cooling factor (how the temperature is reduced between consecutive iterations)
-      coolingFactor: 0.95,
-      // Lower temperature threshold (below this point the layout will end)
-      minTemp: 1
-    };
-  } else if ('preset' === name) {
-    options = {
-      name: 'preset',
-      // whether to fit to viewport
-      fit: true,
-      // padding on fit
-      padding: 30
-    };
-  } else if (0 === name.indexOf('concentric')) {
-    options = {
-      name: 'concentric',
-      fit: true, // whether to fit the viewport to the graph
-      ready: undefined, // callback on layoutready
-      stop: undefined, // callback on layoutstop
-      padding: 30, // the padding on fit
-      startAngle: 3/2 * Math.PI, // the position of the first node
-      counterclockwise: false, // whether the layout should go counterclockwise (true) or clockwise (false)
-      minNodeSpacing: 80, // min spacing between outside of nodes (used for radius adjustment)
-      height: undefined, // height of layout area (overrides container height)
-      width: undefined, // width of layout area (overrides container width)
-      levelWidth: function(nodes) { // the variation of concentric values in each level
-        return nodes.maxDegree() / 4;
-      }
-    };
-
+  if (original) {
     // Define the concentric value function: returns numeric value for each node, placing higher nodes in levels towards the centre
-    if      ('concentric'     === name) options.concentric = function() { return this.degree(); };
-    else if ('concentric in ' === name) options.concentric = function() { return this.indegree(); };
-    else if ('concentric out' === name) options.concentric = function() { return this.outdegree(); };
+    if      ('concentric'     === original) options.concentric = function() { return this.degree(); };
+    else if ('concentric in ' === original) options.concentric = function() { return this.indegree(); };
+    else if ('concentric out' === original) options.concentric = function() { return this.outdegree(); };
   }
 
   return options;
@@ -606,7 +717,8 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
     fetchSkeletons(
         subgraph_skids,
         (function(skid) {
-          var with_tags = (this.subgraphs[skid] === this.SUBGRAPH_AXON_BACKBONE_TERMINALS ? 1 : 0);
+          var mode = this.subgraphs[skid],
+              with_tags = (mode === this.SUBGRAPH_AXON_BACKBONE_TERMINALS || mode === this.SUBGRAPH_SPLIT_AT_TAG ? 1 : 0);
           return django_url + project.id + '/' + skid + '/1/1/' + with_tags + '/compact-arbor';
         }).bind(this),
         function(skid) { return {}; },
@@ -640,6 +752,7 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
                       skeletons: [model.clone()],
                       label: NeuronNameService.getInstance().getName(model.id),
                       node_count: 0,
+                      shape: "ellipse",
                       color: '#' + model.color.getHexString()}};
   };
 
@@ -663,12 +776,14 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
   // Store positions of current nodes and their selected state
   var positions = {},
       selected = {},
-      hidden = {};
+      hidden = {},
+      locked = {};
   this.cy.nodes().each(function(i, node) {
     var id = node.id();
     positions[id] = node.position();
     if (node.selected()) selected[id] = true;
     if (node.hidden()) hidden[id] = true;
+    if (node.locked()) locked[id] = true;
   });
 
   // Store visibility and selection state of edges as well
@@ -684,11 +799,12 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
                      //                       post: {graph node ID: count}}}
   subgraph_skids.forEach((function(skid) {
     var m = morphology[skid],
-        ap = new ArborParser().init('compact-arbor', m),
+        ap = new CATMAID.ArborParser().init('compact-arbor', m),
         mode = this.subgraphs[skid],
         parts = {},
         name = NeuronNameService.getInstance().getName(skid),
         common = {skeletons: [models[skid]],
+                  shape: "ellipse",
                   node_count: 0,
                   color: '#' + models[skid].color.getHexString()},
         createNode = function(id, label, is_branch) {
@@ -769,6 +885,55 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
                                     source: graph[i-1].data.id,
                                     target: graph[i].data.id,
                                     weight: 10}});
+      }
+    } else if (mode === this.SUBGRAPH_SPLIT_AT_TAG) {
+      var cuts = m[2][this.tag_text];
+      if (cuts && cuts.length > 0) {
+        var arbors = ap.arbor.split(cuts.reduce(function(o, node) { o[node] = true; return o; }, {})),
+            keepers = {};
+        // Find the arbor containing the root node
+        var first;
+        for (var i=0; i<arbors.length; ++i) {
+          if (arbors[i].contains(ap.arbor.root)) {
+            first = arbors[i];
+            break;
+          }
+        }
+        // Create node for part of the arbor containing the root node
+        var first_node = createNode(skid + '_first', name + ' [' + this.tag_title_root + ']');
+        keepers[first.root] = first_node.data.id;
+        parts[first_node.data.id] = function(treenodeID) { return first.contains(treenodeID); };
+        subnodes[first_node.data.id] = first_node;
+        // Create a node for the rest of parts
+        var two = 2 === arbors.length;
+        for (var i=0, k=1; i<arbors.length; ++i, ++k) {
+          if (first === arbors[i]) continue;
+          var next = createNode(skid + '_other' + (two ? '' : k),
+                                name + ' [' + this.tag_title_others + (two ? '' : ' ' + k) + ']');
+          parts[next.data.id] = (function(treenodeID) { return this.contains(treenodeID); }).bind(arbors[i]);
+          subnodes[next.data.id] = next;
+          keepers[arbors[i].root] = next.data.id;
+        }
+
+        // Add undirected edges
+        var simple = ap.arbor.simplify(keepers);
+
+        simple.nodesArray().forEach(function(node) {
+          var paren = simple.edges[node];
+          if (!paren) return; // root
+          var source_id = keepers[paren],
+              target_id = keepers[node];
+          elements.edges.push({data: {directed: false,
+                                      arrow: 'none',
+                                      id: source_id + '_' + target_id,
+                                      color: common.color,
+                                      source: source_id,
+                                      target: target_id,
+                                      weight: 10}});
+        });
+
+      } else {
+        CATMAID.info("No subgraph possible for '" + name + "' and tag '" + this.tag.regex + "'");
       }
     } else if (mode > 0) {
       // Synapse clustering: mode is the bandwidth
@@ -981,6 +1146,8 @@ GroupGraph.prototype.updateGraph = function(json, models, morphology) {
     if (id in selected) node.select();
     // Restore visibility state
     if (id in hidden) node.hide();
+    // Restore locked state
+    if (id in locked) node.lock();
     // Make branch nodes, if any, be smaller
     if (node.data('branch')) {
       node.css('height', 15);
@@ -1049,6 +1216,7 @@ GroupGraph.prototype.toggleTrimmedNodeLabels = function() {
 GroupGraph.prototype.clear = function() {
   this.groups = {};
   this.subgraphs = {};
+  this.resetPathOrigins();
   if (this.cy) this.cy.elements("node").remove();
 };
 
@@ -1185,7 +1353,7 @@ GroupGraph.prototype.append = function(models) {
 GroupGraph.prototype.appendAsGroup = function() {
   var models = CATMAID.skeletonListSources.getSelectedSkeletonModels(this);
   if (0 === models.length) {
-    growlAlert('Info', 'Selected source is empty.');
+    CATMAID.info('Selected source is empty.');
     return;
   } else if (1 === models.length) {
     this.append(models);
@@ -1200,22 +1368,27 @@ GroupGraph.prototype.appendGroup = function(models) {
     var json = $.parseJSON(text);
     if (json.error) return alert(json.error);
 
+    function hasAnnotation(aid, annotation) {
+      return annotation.id == aid;
+    }
+
     // Find common annotations, if any
-    var skids = Object.keys(json);
-    var common = skids.length > 0 ? json[skids[0]] : [];
+    var skids = Object.keys(json.skeletons);
+    var common = skids.length > 0 ? json.skeletons[skids[0]] : [];
     common = common.filter(function(annotation) {
+      var match = hasAnnotation.bind(window, annotation);
       return skids.reduce(function(all, skid) {
-        return all && -1 !== json[skid].indexOf(annotation);
+        return all && -1 !== json.skeletons[skid].some(match);
       }, true);
-    }).sort();
+    }).map(function(a) { return json.annotations[a.id]; }).sort();
 
     // Find set of all annotations
     var all = Object.keys(skids.reduce(function(o, skid) {
-      return json[skid].reduce(function(o, annotation) {
-        o[annotation] = true;
+      return json.skeletons[skid].reduce(function(o, annotation) {
+        o[annotation.id] = true;
         return o;
       }, o);
-    }, {})).sort();
+    }, {})).map(function(aid) { return json.annotations[aid]; }).sort();
 
     // All neuron names
     var names = Object.keys(models).map(function(skid) {
@@ -1228,7 +1401,7 @@ GroupGraph.prototype.appendGroup = function(models) {
     all.unshift("--");
     names.unshift("--");
 
-    var options = new OptionsDialog("Group properties");
+    var options = new CATMAID.OptionsDialog("Group properties");
     options.appendMessage("Creating new group with " + (names.length - 1) + " neurons.");
     options.appendMessage("Choose a group name from:");
     options.appendMessage("(Will pick first non-empty match.)");
@@ -1265,10 +1438,10 @@ GroupGraph.prototype.appendGroup = function(models) {
 
       if (!label) return alert("You must choose a name!");
 
-      if ($('#gg-number').is(':checked')) label += ' [#' + (names.length -1) + ']';
+      if ($('#gg-number').prop('checked')) label += ' [#' + (names.length -1) + ']';
 
       var gid = self.nextGroupID();
-      self.groups[gid] = new GroupGraph.prototype.Group(gid, models, label, parseColorWheel(cw.color()), $('#gg-edges').is(':checked'));
+      self.groups[gid] = new GroupGraph.prototype.Group(gid, models, label, parseColorWheel(cw.color()), $('#gg-edges').prop('checked'));
       self.append(models); // will remove/add/group nodes as appropriate
     };
 
@@ -1295,7 +1468,7 @@ GroupGraph.prototype.load = function(models) {
 /** Fetch data from the database and remake the graph. */
 GroupGraph.prototype._load = function(models) {
   var skeleton_ids = Object.keys(models);
-  if (0 === skeleton_ids.length) return growlAlert("Info", "Nothing to load!");
+  if (0 === skeleton_ids.length) return CATMAID.info("Nothing to load!");
 
   requestQueue.replace(django_url + project.id + "/skeletongroup/skeletonlist_confidence_compartment_subgraph",
       "POST",
@@ -1417,13 +1590,15 @@ GroupGraph.prototype.exportGML = function() {
   saveAs(blob, "graph.gml");
 };
 
+GroupGraph.prototype._getGrowParameters = function() {
+  return {n_circles: Number($('#gg_n_circles_of_hell' + this.widgetID).val()),
+          min_downstream: Number($('#gg_n_min_downstream' + this.widgetID).val()),
+          min_upstream: Number($('#gg_n_min_upstream' + this.widgetID).val())};
+};
+
 // Find skeletons to grow from groups or single skeleton nodes
 // and skeletons to append from subnodes
-GroupGraph.prototype._findSkeletonsToGrow = function() {
-  var n_circles = Number($('#n_circles_of_hell' + this.widgetID).val()),
-      min_downstream = Number($('#n_circles_min_downstream' + this.widgetID).val()),
-      min_upstream = Number($('#n_circles_min_upstream' + this.widgetID).val());
-
+GroupGraph.prototype._findSkeletonsToGrow = function(nodes, min_downstream, min_upstream) {
   var skids = {},
       split_partners = {},
       splits = [],
@@ -1441,7 +1616,7 @@ GroupGraph.prototype._findSkeletonsToGrow = function() {
           splits.push([node.id(), partners, node.data('skeletons')[0].id]);
         }
       };
-  this.cy.nodes((function(i, node) {
+  nodes.each((function(i, node) {
     if (node.selected() && node.visible()) {
 			node.data("skeletons").forEach(function(skeleton) {
         if (this.subgraphs[skeleton.id]) {
@@ -1456,23 +1631,21 @@ GroupGraph.prototype._findSkeletonsToGrow = function() {
 
   return {skids: skids,
           split_partners: split_partners,
-          splits: splits,
-          n_circles: n_circles,
-          min_downstream: min_downstream,
-          min_upstream: min_upstream};
+          splits: splits};
 };
 
 GroupGraph.prototype.growGraph = function() {
-  var s = this._findSkeletonsToGrow(),
-      accum = $.extend({}, s.split_partners);
+  var p = this._getGrowParameters(),
+      s = this._findSkeletonsToGrow(this.cy.nodes(), p.min_downstream, p.min_upstream),
+      accum = $.extend({}, s.split_partners); // TODO unused?
 
   var grow = function(skids, n_circles, callback) {
         requestQueue.register(django_url + project.id + "/graph/circlesofhell",
             "POST",
             {skeleton_ids: skids,
              n_circles: n_circles,
-             min_pre: s.min_upstream,
-             min_post: s.min_downstream},
+             min_pre: p.min_upstream,
+             min_post: p.min_downstream},
             function(status, text) {
               if (200 !== status) return;
               var json = $.parseJSON(text);
@@ -1491,7 +1664,7 @@ GroupGraph.prototype.growGraph = function() {
         this.append(models);
       }).bind(this),
       rest = function(skids, n_circles) {
-        if (0 === s.n_circles -1) append(Object.keys(skids));
+        if (0 === p.n_circles -1) append(Object.keys(skids));
         else grow(Object.keys(skids), n_circles, append);
       },
       skids = Object.keys(s.skids);
@@ -1501,109 +1674,165 @@ GroupGraph.prototype.growGraph = function() {
     grow(skids, 1, function(ids) {
       var unique = $.extend({}, s.split_partners);
       ids.forEach(function(id) { unique[id] = true; });
-      rest(unique, s.n_circles -1);
+      rest(unique, p.n_circles -1);
     });
   } else if (s.splits.length > 0) {
     // Otherwise directly just grow the partners of the split nodes by n_circles -1
-    rest(s.split_partners, s.n_circles -1);
+    rest(s.split_partners, p.n_circles -1);
   } else {
-    growlAlert("Information", "No partners found.");
+    CATMAID.info("No partners found.");
   }
 };
 
+/** Populates variables this.path_source and this.path_target. */
+GroupGraph.prototype.pickPathOrigins = function(type) {
+  if (type !== 'source' && type !== 'target') return; // sanitize
+  var origin = 'path_' + type;
+  if (!this[origin]) this[origin] = {};
+  var count = Object.keys(this[origin]).length;
+  this.cy.nodes().each((function(i, node) {
+    if (node.visible() && node.selected()) {
+      this[origin][node.id()] = true;
+    }
+  }).bind(this));
+  if (count === Object.keys(this[origin]).length) {
+    return CATMAID.info("Select one or more nodes first!");
+  }
+  $('#gg_path_' + type + this.widgetID).val('pick ' + type + 's (' + Object.keys(this[origin]).length + ')');
+};
+
+GroupGraph.prototype.clearPathOrigins = function(type) {
+  if (type !== 'source' && type !== 'target') return; // sanitize
+  var origin = 'path_' + type;
+  delete this[origin];
+  $('#gg_path_' + type + this.widgetID).val('pick ' + type + 's');
+};
+
+GroupGraph.prototype.resetPathOrigins = function() {
+  delete this['path_source'];
+  delete this['path_target'];
+};
+
+GroupGraph.prototype.removeFromPathOrigins = function(nodeID) {
+  ['path_source', 'path_target'].forEach(function(type) {
+    if (!this[type]) return;
+    delete this[type][nodeID];
+    var count = Object.keys(this[type]).length;
+    $('#gg_' + type + this.widgetID).val('pick ' + type.substring(5) + 's' + (count > 0 ? ' (' + count + ')' : ''));
+  }, this);
+};
+
+GroupGraph.prototype.nodesWillChangeFor = function(skid) {
+  this.getNodes(skid).each((function(i, node) {
+    this.removeFromPathOrigins(node.id());
+  }).bind(this));
+};
+
 GroupGraph.prototype.growPaths = function() {
-  var s = this._findSkeletonsToGrow();
+  var types = ['source', 'target'];
+  for (var i=0; i<types; ++i) {
+    var type = 'path_' + types[i];
+    if (!this[type] || 0 === Object.keys(this[type]).length)  {
+      return CATMAID.msg('Select ' + type + ' nodes first!');
+    }
+  }
+
+  var collect = function(nodes, set, subgraphs, direction, min_synapses) {
+    var skids = {},
+        split_skids = {};
+    nodes.each(function(i, node) {
+      if (set[node.id()] && node.visible()) {
+        node.data('skeletons').forEach(function(skeleton) {
+          if (subgraphs[skeleton.id]) {
+            var map = node.data(direction); // upstream_skids or downstream_skids
+            if (map) {
+              Object.keys(map).forEach(function(skid) {
+                if (map[skid].length >= min_synapses) split_skids[skid] = true;
+              });
+            }
+          } else skids[skeleton.id] = true;
+        });
+      }
+    });
+    return {skids: skids,
+            split_skids: split_skids};
+  };
+
+  var n_hops = Number($('#gg_n_hops' + this.widgetID).val()),
+      min_synapses = Number($('#gg_n_min_path_synapses' + this.widgetID).val()),
+      sources = collect(this.cy.nodes(), this['path_source'], this.subgraphs, 'downstream_skids', min_synapses),
+      targets = collect(this.cy.nodes(), this['path_target'], this.subgraphs, 'upstream_skids', min_synapses);
 
   // Paths:
   // 1. skids to skids
-  // 2. skids to split_partners with hops -1
-  // 3. split_partners to split_partners with hops -2
+  // 2. skids to split_skid partners with hops -1
+  // 3. split_skid partners to skids with hops -1
+  // 4. split_partners to split_partners with hops -2
 
-  var new_skids = {},
-      errors = [],
-      min = Math.max(s.min_upstream, s.min_downstream);
+  var new_skids = {};
 
-
-  // Will grow in both directions, therefore use the max as the min synapse count
-  var findPaths = function(skids, n_hops, process, continuation) {
+  var findPaths = function(source_skids, target_skids, n_hops, process, continuation) {
     requestQueue.register(django_url + project.id + "/graph/directedpaths", "POST",
-        {skeleton_ids: skids,
-         n_circles: n_hops,
-         min_pre: min,
-         min_post: min},
+        {sources: source_skids,
+         targets: target_skids,
+         path_length: n_hops + 1,
+         min_synapses: min_synapses},
          function(status, text) {
            if (200 !== status) return;
            var json = $.parseJSON(text);
-           if (json.error) errors.push(json.error);
+           if (json.error) return alert(json.error);
            else process(json);
            continuation();
          });
   };
 
+  var addSkids = function(json) {
+    for (var i=0; i<json.length; ++i) {
+      var path = json[i];
+      for (var j=0; j<path.length; ++j) {
+        new_skids[path[j]] = true;
+      }
+    }
+  };
+
   var end = (function() {
-    var skids = Object.keys(new_skids);
-    if (0 === skids.length) return growlAlert("Information", "No paths found.");
-    skids = skids.filter(function(skid) { return !this.hasSkeleton(skid); }, this);
-    if (0 === skids.length) return growlAlert("Information", "No other paths found.");
+    var all = {};
+    this.cy.nodes().each(function(i, node) {
+      // If any of the new skeletons is present but hidden, make it visible
+      node.data('skeletons').forEach(function(skeleton) {
+        if (new_skids[skeleton.id]) node.show();
+        all[skeleton.id] = true;
+      });
+    });
+    // Skip skeletons that are already loaded
+    var skids = Object.keys(new_skids).filter(function(skid) { return !all[skid]; });
+    if (0 === skids.length) return CATMAID.info("No new paths found.");
+    // Append all new
     this.append(skids.reduce(function(o, skid) {
       o[skid] = new SelectionTable.prototype.SkeletonModel(skid, "", new THREE.Color().setHex(0xffae56));
       return o;
     }, {}));
   }).bind(this);
 
-  var step3 = function() {
-    // 3. split_partners to split_partners with hops -2
-    if (s.n_circles -2 < 1) return end();
-    var skids = Object.keys(s.split_partners);
-    if (skids.length < 2) return end();
-    findPaths(skids, s.n_circles -2,
-        function(json) {
-          var origins = s.splits.reduce(function(o, e) {
-            Object.keys(e[1]).forEach(function(skid) { o[skid] = e[0]; });
-            return o;
-          }, {});
-          for (var i=0; i<json.length; ++i) {
-            var path = json[i],
-                first = path[0],
-                last = path[path.length -1];
-            if (origins[first] == origins[last]) continue;
-            for (var j=0; j<path.length; ++j) new_skids[path[j]] = true;
-          }
-        },
-        end);
+  var stepper = function(s, t, n_hops, next) {
+    return function() {
+      if (n_hops < 1) return next();
+
+      var src = Object.keys(s),
+          tgt = Object.keys(t);
+
+      if (0 === src.length || 0 === tgt.length) return next();
+
+      findPaths(src, tgt, n_hops, addSkids, next);
+    };
   };
 
-  var step2 = function() {
-    // 2. skids to split partners with hops -1
-    if (s.n_circles -1 < 1) return step3();
-    var skids = Object.keys(s.skids),
-        split_skids = Object.keys(s.split_partners);
-    if (skids.length < 1 || split_skids.length < 1) return step3();
-    findPaths(skids.concat(split_skids), s.n_circles -1,
-        function(json) {
-          for (var i=0; i<json.length; ++i) {
-            var path = json[i],
-                first = path[0],
-                last = path[path.length -1];
-            if (  (s.skids[first] && s.split_partners[last])
-               || (s.skids[last] && s.split_partners[first])) {
-              for (var j=0; j<path.length; ++j) new_skids[path[j]] = true;
-            }
-          }
-        },
-        step3);
-  };
+  var f4 = stepper(sources.split_skids, targets.split_skids, n_hops -2, end);
+  var f3 = stepper(sources.skids,       targets.split_skids, n_hops -1, f4);
+  var f2 = stepper(sources.split_skids, targets.skids,       n_hops -1, f3);
+  var f1 = stepper(sources.skids,       targets.skids,       n_hops,    f2);
 
-  // 1. skids to skids
-  var skids = Object.keys(s.skids);
-  if (skids.length < 2) step2();
-  else findPaths(skids, s.n_circles,
-      function(json) {
-        for (var i=0; i<json.length; ++i) {
-          for (var j=0, p=json[i]; j<p.length; ++j) new_skids[p[j]] = true;
-        }
-      },
-      step2);
+  f1();
 };
 
 GroupGraph.prototype.hideSelected = function() {
@@ -1749,7 +1978,8 @@ GroupGraph.prototype.colorBy = function(mode, select) {
             var skeletons = node.data("skeletons");
             // Compute average
             var percent_reviewed = skeletons.reduce(function(sum, model) {
-              return sum + json[model.id];
+              var counts = json[model.id];
+              return sum + Math.floor(100 * counts[1] / counts[0]);
             }, 0) / skeletons.length;
             node.data('color', CATMAID.ReviewSystem.getBackgroundColor(percent_reviewed));
           });
@@ -1784,7 +2014,7 @@ GroupGraph.prototype.colorBy = function(mode, select) {
       graph.add_edge(d.source, d.target, {weight: d.weight});
     });
 
-    if (graph.number_of_nodes() > 10) $.blockUI({message: '<img src="' + STATIC_URL_JS + 'images/busy.gif" /> <h2>Computing betweenness centrality for ' + graph.number_of_nodes() + ' nodes and ' + graph.number_of_edges() + ' edges.</div></h2>'});
+    if (graph.number_of_nodes() > 10) $.blockUI({message: '<img src="' + STATIC_URL_JS + 'images/busy.gif" /> <span>Computing betweenness centrality for ' + graph.number_of_nodes() + ' nodes and ' + graph.number_of_edges() + ' edges.</span>'});
 
     try {
       var bc = jsnx.betweenness_centrality(graph, {weight: 'weight'});
@@ -1808,7 +2038,7 @@ GroupGraph.prototype.colorBy = function(mode, select) {
       });
     } catch (e) {
       console.log(e, e.stack);
-      growlAlert('ERROR', 'Problem computing betweenness centrality');
+      CATMAID.msg('ERROR', 'Problem computing betweenness centrality');
     }
     $.unblockUI();
 
@@ -1825,7 +2055,7 @@ GroupGraph.prototype.colorCirclesOfHell = function(upstream) {
   // Make all nodes white when deselecting
   var selected = this.cy.nodes().toArray().filter(function(node) { return node.selected(); });
   if (1 !== selected.length) {
-    if (0 !== selected.length) growlAlert("Info", "Need 1 (and only 1) selected node!");
+    if (0 !== selected.length) CATMAID.info("Need 1 (and only 1) selected node!");
     this.cy.nodes().data('color', '#fff');
     return;
   }
@@ -2006,6 +2236,11 @@ GroupGraph.prototype.loadSVGLibraries = function(callback) {
           // and explains perhaps the issues with the position of the M point in paths below,
           // which is fixable.
         };
+        // Monkey path SVGCanvas so that beginPath() does not perform a moveTo()
+        SVGCanvas.prototype.beginPath = function() {
+          // This is all the original function does, besides moveTo()
+          this._subpaths = [""];
+        };
       },
       chainLoad = function(libs, i) {
     try {
@@ -2111,7 +2346,7 @@ GroupGraph.prototype._exportSVG = function() {
   // Fix edge arrowheads if necessary
   for (var k=0; k<edges.length; ++k) {
     var edge = edges[k];
-    if (1 === edge.length) continue; // undirected edge
+    if (edge.length < 3) continue; // undirected edge or edge without duplicates
     // Fix the style
     var path = edge[2],
         attr = path.attributes;
@@ -2334,7 +2569,7 @@ GroupGraph.prototype.group = function() {
     }, o);
   }).bind(this), {});
   if (Object.keys(models).length > 1) this.appendGroup(models);
-  else growlAlert("Information", "Select at least 2 nodes!");
+  else CATMAID.info("Select at least 2 nodes!");
 };
 
 /** Split nodes representing groups into their constituent nodes, one per skeleton. */
@@ -2348,7 +2583,7 @@ GroupGraph.prototype.ungroup = function() {
     }
   });
   if (count > 0) this.update();
-  else growlAlert("Information", "Nothing to ungroup!");
+  else CATMAID.info("Nothing to ungroup!");
 };
 
 /** Iterate over all visible directed edges
@@ -2396,7 +2631,7 @@ GroupGraph.prototype.annotateEdgeRisk = function() {
   var targets = Object.keys(edges);
 
   if (0 === targets.length) {
-    if (!autapses) growlAlert("Information", "Select at least 2 connected nodes, that are not groups!");
+    if (!autapses) CATMAID.info("Select at least 2 connected nodes, that are not groups!");
     return;
   }
 
@@ -2463,15 +2698,15 @@ GroupGraph.prototype.computeRisk = function(edges, inputs, callback) {
 
         if (0 === connectors.length) {
           // edge(s) disappeared from database
-          growlAlert('Information', 'Could not find edges for skeleton #' + target);
+          CATMAID.info('Could not find edges for skeleton #' + target);
           return;
         }
 
-        var ap = new ArborParser().init('compact-arbor', json);
+        var ap = new CATMAID.ArborParser().init('compact-arbor', json);
 
         if (0 === ap.n_inputs) {
           // Database changed
-          growlAlert('Information', 'Skeleton #' + target + ' no longer has any input synapses');
+          CATMAID.info('Skeleton #' + target + ' no longer has any input synapses');
           return;
         }
 
@@ -2515,7 +2750,7 @@ GroupGraph.prototype.computeRisk = function(edges, inputs, callback) {
 
           if (0 === Object.keys(edge_synapses)) {
             // Database changed
-            growlAlert('Information', 'Skeleton #' + target + ' no longer receives inputs from skeleton #' + source);
+            CATMAID.info('Skeleton #' + target + ' no longer receives inputs from skeleton #' + source);
             return;
           }
 
@@ -2617,10 +2852,13 @@ GroupGraph.prototype.quantificationDialog = function() {
 
 GroupGraph.prototype.split = function(mode) {
   var sel = this.getSelectedSkeletons();
-  if (0 === sel.length) return growlAlert("Information", "Select one or more nodes first!");
+  if (0 === sel.length) return CATMAID.info("Select one or more nodes first!");
   sel.forEach(function(skid) {
     if (undefined === mode) delete this.subgraphs[skid];
-    else this.subgraphs[skid] = mode;
+    else {
+      this.subgraphs[skid] = mode;
+      this.nodesWillChangeFor(skid);
+    }
   }, this);
   this.update();
 };
@@ -2654,6 +2892,21 @@ GroupGraph.prototype.splitBySynapseClustering = function() {
       console.log(e);
     }
   }
+};
+
+GroupGraph.prototype.splitByTag = function() {
+  if (0 === this.getSelectedSkeletons().length) return this.split(); // will show message
+  var dialog = new CATMAID.OptionsDialog("Split at tag"),
+      input = dialog.appendField("Tag (exact match): ", "tag_text", this.tag_text),
+      first = dialog.appendField("Part with root node: ", "root_text", this.tag_title_root),
+      rest = dialog.appendField("Other(s): ", "other_text", this.tag_title_others);
+  dialog.onOK = (function() {
+    this.tag_text = input.value;
+    this.tag_title_root = first.value;
+    this.tag_title_others = rest.value;
+    this.split(this.SUBGRAPH_SPLIT_AT_TAG);
+  }).bind(this);
+  dialog.show(300, 300, true);
 };
 
 GroupGraph.prototype.unsplit = function() {
@@ -2763,7 +3016,7 @@ GroupGraph.prototype.loadFromJSON = function(files) {
               });
               if (missing.length > 0) {
                 this.removeSkeletons(missing);
-                growlAlert("WARNING", "Did NOT load " + missing.length + " missing skeleton" + (1 === missing.length ? "" : "s"));
+                CATMAID.warn("Did NOT load " + missing.length + " missing skeleton" + (1 === missing.length ? "" : "s"));
               }
               this.update(); // removes missing ones (but doesn't) and regenerate the data for subgraph nodes
             }).bind(this));
@@ -2779,7 +3032,7 @@ GroupGraph.prototype.loadFromJSON = function(files) {
 
 GroupGraph.prototype.hideEdges = function(v) {
   // TODO refactor _validate into a Util or CATMAID namespace
-  v = WebGLApplication.prototype._validate(v, 'Invalid synaptic count', 1);
+  v = CATMAID.WebGLApplication.prototype._validate(v, 'Invalid synaptic count', 1);
   if (!v) return;
   v = v | 0; // cast to int
   this.edge_threshold = v;

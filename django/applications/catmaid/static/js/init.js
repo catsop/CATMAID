@@ -1,6 +1,12 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 
+/** @type {Object} Global access to window and project control events and variables. */
+CATMAID.Init = {};
+CATMAID.Events.extend(CATMAID.Init);
+CATMAID.Init.EVENT_PROJECT_CHANGED = "init_project_changed";
+CATMAID.Init.EVENT_USER_CHANGED = "init_user_changed";
+
 var global_bottom = 29;
 
 var requestQueue;
@@ -20,8 +26,8 @@ var user_menu;
 var session;
 var msg_timeout;
 var MSG_TIMEOUT_INTERVAL = 60000; //!< length of the message lookup interval in milliseconds
-var messageWindow = null;
-var latest_message_date = null;
+/** Frequency (in milliseconds) to check client CATMAID version against server version. */
+CATMAID.Init.CHECK_VERSION_TIMEOUT_INTERVAL = 15*60*1000;
 
 var rootWindow;
 
@@ -216,14 +222,12 @@ function handle_profile_update(e) {
   }
 
   // update the edit tool actions and its div container
-  createEditToolActions();
-  var new_edit_actions = createButtonsFromActions(editToolActions,
+  var new_edit_actions = createButtonsFromActions(CATMAID.EditTool.actions,
     'toolbox_edit', '');
   $('#toolbox_edit').replaceWith(new_edit_actions);
   $('#toolbox_edit').hide();
 
-  // TODO: There should be a user change event for this to subscribe
-  CATMAID.ReviewSystem.Whitelist.refresh();
+  CATMAID.Init.trigger(CATMAID.Init.EVENT_USER_CHANGED);
 }
 
 /**
@@ -443,7 +447,7 @@ function updateProjectListFromCache() {
  * freeze the window to wait for an answer. The successFn callback is called
  * only if the loading was successful.
  */
-function openProjectStack( pid, sid, successFn, stackConstructor )
+function openProjectStack( pid, sid, successFn, useExistingViewer )
 {
 	if ( project && project.id != pid )
 	{
@@ -457,10 +461,12 @@ function openProjectStack( pid, sid, successFn, stackConstructor )
 		{ },
 		CATMAID.jsonResponseHandler(
 			function(json) {
-				var stack = handle_openProjectStack(json, stackConstructor);
-				// Call success function, if any, if a stack was added
-				if (stack) {
-					CATMAID.tools.callIfFn(successFn, stack);
+				var stackViewer = handle_openProjectStack(
+            json,
+            useExistingViewer ? project.focusedStackViewer : undefined);
+				// Call success function, if any, if a stack viewer was added
+				if (stackViewer) {
+					CATMAID.tools.callIfFn(successFn, stackViewer);
 				}
 			}, function(e) {
 				// Handle login errors
@@ -478,16 +484,18 @@ function openProjectStack( pid, sid, successFn, stackConstructor )
  *
  * free the window
  */
-function handle_openProjectStack( e, stackConstructor )
+function handle_openProjectStack( e, stackViewer )
 {
-  var stack = null;
+  var useExistingViewer = false;
+
   //! look if the project is already opened, otherwise open a new one
   if ( !( project && project.id == e.pid ) )
   {
     project = new Project( e.pid );
     project.register();
-    // TODO: There should be a project change event for this to subscribe
-    CATMAID.ReviewSystem.Whitelist.refresh();
+    CATMAID.Init.trigger(CATMAID.Init.EVENT_PROJECT_CHANGED, project);
+  } else {
+    useExistingViewer = typeof stackViewer !== 'undefined';
   }
 
   var labelupload = '';
@@ -496,9 +504,7 @@ function handle_openProjectStack( e, stackConstructor )
     labelupload = e.labelupload_url;
   }
 
-  if (typeof stackConstructor === 'undefined') stackConstructor = Stack;
-  stack = new stackConstructor(
-      project,
+  var stack = new CATMAID.Stack(
       e.sid,
       e.stitle,
       e.dimension,
@@ -508,106 +514,150 @@ function handle_openProjectStack( e, stackConstructor )
       e.trakem2_project,
       e.num_zoom_levels,
       -2,
-      e.tile_source_type,
       labelupload, // TODO: if there is any
       e.metadata,
-      userprofile.inverse_mouse_wheel,
       e.orientation );
+
+  if (!useExistingViewer) {
+    stackViewer = new CATMAID.StackViewer(project, stack);
+  }
 
   document.getElementById( "toolbox_project" ).style.display = "block";
 
-  var tilesource = getTileSource( e.tile_source_type, e.image_base,
-      e.file_extension );
+  var tilesource = CATMAID.getTileSource(e.tile_source_type,
+      e.image_base, e.file_extension, e.tile_width, e.tile_height);
   var tilelayerConstructor = userprofile.prefer_webgl_layers ? CATMAID.PixiTileLayer : CATMAID.TileLayer;
   var tilelayer = new tilelayerConstructor(
-      "Image data",
+      stackViewer,
+      "Image data (" + stack.title + ")",
       stack,
-      e.tile_width,
-      e.tile_height,
       tilesource,
       true,
       1,
-      true);
+      !useExistingViewer);
 
-  stack.addLayer( "TileLayer", tilelayer );
+  if (!useExistingViewer) {
+    stackViewer.addLayer( "TileLayer", tilelayer );
 
-  $.each(e.overlay, function(key, value) {
-    var tilesource = getTileSource( value.tile_source_type,
-      value.image_base, value.file_extension );
-    var layer_visibility = false;
-    if( parseInt(value.default_opacity) > 0)
-      layer_visibility = true;
-    var tilelayer2 = new tilelayerConstructor(
-            value.title,
-            stack,
-            value.tile_width,
-            value.tile_height,
-            tilesource,
-            layer_visibility,
-            value.default_opacity / 100,
-            false);
-    stack.addLayer( value.title, tilelayer2 );
-  });
+    $.each(e.overlay, function(key, value) {
+      var tilesource = CATMAID.getTileSource( value.tile_source_type,
+          value.image_base, value.file_extension, value.tile_width, value.tile_height );
+      var layer_visibility = parseInt(value.default_opacity) > 0;
+      var tilelayer2 = new tilelayerConstructor(
+              stackViewer,
+              value.title,
+              stack,
+              tilesource,
+              layer_visibility,
+              value.default_opacity / 100,
+              false);
+      stackViewer.addLayer( value.title, tilelayer2 );
+    });
 
-  // If the requested stack is already loaded, the existing
-  // stack is returned. Continue work with the existing stack.
-  stack = project.addStack( stack );
+    project.addStackViewer( stackViewer );
 
-  // refresh the overview handler to also register the mouse events on the buttons
-  stack.tilelayercontrol.refresh();
+    // refresh the overview handler to also register the mouse events on the buttons
+    stackViewer.tilelayercontrol.refresh();
+  } else {
+    stackViewer.addStackLayer(stack, tilelayer);
+  }
 
   /* Update the projects stack menu. If there is more
   than one stack linked to the current project, a submenu for easy
   access is generated. */
   stack_menu.update();
   getStackMenuInfo(project.id, function(stacks) {
+    /* jshint scripturl:true */
     if (stacks.length > 1)
     {
       var stack_menu_content = [];
       $.each(stacks, function(i, s) {
-        stack_menu_content.push(
-          {
+        stack_menu_content.push({
             id : s.id,
             title : s.title,
             note : s.note,
-            action : s.action
+            action : [{
+                title: 'Open in new viewer',
+                note: '',
+                action: ('javascript:openProjectStack(' + s.pid + ',' + s.id + ')')
+              },{
+                title: 'Add to focused viewer',
+                note: '',
+                action: ('javascript:openProjectStack(' + s.pid + ',' + s.id + ', undefined, true)')
+              }
+            ]
           }
         );
       });
 
       stack_menu.update( stack_menu_content );
-      document.getElementById( "stackmenu_box" ).style.display = "block";
+      var stackMenuBox = document.getElementById( "stackmenu_box" );
+      stackMenuBox.firstElementChild.lastElementChild.style.display = "none";
+      stackMenuBox.style.display = "block";
     }
   });
 
   CATMAID.ui.releaseEvents();
-  return stack;
+  return stackViewer;
 }
+
+/**
+ * Check if the client CATMAID version matches the server version. If it does
+ * not, disruptively prompt the user to refresh.
+ */
+CATMAID.Init.checkVersion = function () {
+    requestQueue.register(django_url + 'version', 'GET', undefined,
+        CATMAID.jsonResponseHandler(function(data) {
+          if (CATMAID.CLIENT_VERSION !== data.SERVER_VERSION) {
+            new CATMAID.ErrorDialog("Your version of CATMAID is different " +
+                "from the server's version. Please refresh your browser " +
+                "immediately to update to the server's version. Continuing to " +
+                "use a different version than the server can cause " +
+                "unintended behavior and data loss.",
+                'Client version: ' + CATMAID.CLIENT_VERSION + '; ' +
+                'Server version: ' + data.SERVER_VERSION).show();
+          }
+
+          window.setTimeout(CATMAID.Init.checkVersion, CATMAID.Init.CHECK_VERSION_TIMEOUT_INTERVAL);
+        }, function () {
+          window.setTimeout(CATMAID.Init.checkVersion, CATMAID.Init.CHECK_VERSION_TIMEOUT_INTERVAL);
+          CATMAID.statusBar.replaceLast('Unable to check version (network may be disconnected).');
+          return true;
+        }));
+};
+window.setTimeout(CATMAID.Init.checkVersion, CATMAID.Init.CHECK_VERSION_TIMEOUT_INTERVAL);
 
 /**
  * Check, if there are new messages for the current user.
  */
+var check_messages = (function() {
 
-function check_messages() {
-  requestQueue.register(django_url + 'messages/latestunreaddate', 'GET',
-      undefined, CATMAID.jsonResponseHandler(function(data) {
-        // If there is a newer latest message than we know of, get all
-        // messages to display them in the message menu and widget.
-        if (data.latest_unread_date) {
-          if (!latest_message_date || latest_message_date < data.latest_unread_date) {
-            // Save the date and get all messages
-            latest_message_date = data.latest_unread_date;
-            get_messages();
-          } else {
-            // Check again later
-            msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
+  // The date of the last unread message
+  var latest_message_date = null;
+
+  return function() {
+    requestQueue.register(django_url + 'messages/latestunreaddate', 'GET',
+        undefined, CATMAID.jsonResponseHandler(function(data) {
+          // If there is a newer latest message than we know of, get all
+          // messages to display them in the message menu and widget.
+          if (data.latest_unread_date) {
+            if (!latest_message_date || latest_message_date < data.latest_unread_date) {
+              // Save the date and get all messages
+              latest_message_date = data.latest_unread_date;
+              get_messages();
+              return;
+            }
           }
-        } else {
+
           // Check again later
-          msg_timeout = window.setTimeout( check_messages, MSG_TIMEOUT_INTERVAL );
-        }
-      }));
-}
+          msg_timeout = window.setTimeout(check_messages, MSG_TIMEOUT_INTERVAL);
+        }, function () {
+          msg_timeout = window.setTimeout(check_messages, MSG_TIMEOUT_INTERVAL);
+          CATMAID.statusBar.replaceLast('Unable to check for messages (network may be disconnected).');
+          return true;
+        }));
+  };
+})();
 
 /**
  * look for user messages
@@ -649,9 +699,9 @@ function handle_message( status, text, xml )
 						var notifications_button_img = $('#data_button_notifications_img');
 						if (notifications_button_img !== undefined) {
 							if (notifications_count > 0)
-								notifications_button_img.attr('src', STATIC_URL_JS + 'images/table_notifications_open.png');
+								notifications_button_img.attr('src', STATIC_URL_JS + 'images/table_notifications_open.svg');
 							else
-								notifications_button_img.attr('src', STATIC_URL_JS + 'images/table_notifications.png');
+								notifications_button_img.attr('src', STATIC_URL_JS + 'images/table_notifications.svg');
 						}
 
 						delete e [ i ];
@@ -997,13 +1047,13 @@ var realInit = function()
 
 	// Create the toolboxes
 	$('#toolbox_project').replaceWith(createButtonsFromActions(
-		toolActions, 'toolbox_project', ''));
+		CATMAID.toolActions, 'toolbox_project', ''));
 	$('#toolbox_edit').replaceWith(createButtonsFromActions(
-		editToolActions, 'toolbox_edit', ''));
+		CATMAID.EditTool.actions, 'toolbox_edit', ''));
   $('#toolbox_segmentation').replaceWith(createButtonsFromActions(
-    segmentationWindowActions, 'toolbox_segmentation', ''));
+    CATMAID.SegmentationTool.actions, 'toolbox_segmentation', ''));
 	$('#toolbox_data').replaceWith(createButtonsFromActions(
-		tracingWindowActions, 'toolbox_data', ''));
+		CATMAID.TracingTool.actions, 'toolbox_data', ''));
 
 	// Add the toolbar buttons:
 	document.getElementById( "toolbar_nav" ).style.display = "none";
@@ -1040,8 +1090,8 @@ var realInit = function()
 	login(undefined, undefined, function() {
 		var tools = {
 			navigator: Navigator,
-			tracingtool: TracingTool,
-			segmentationtool: SegmentationTool,
+			tracingtool: CATMAID.TracingTool,
+			segmentationtool: CATMAID.SegmentationTool,
 			classification_editor: null
 		};
 
@@ -1129,53 +1179,59 @@ var resize = function( e )
 	return true;
 };
 
-function showMessages()
+var showMessages = (function()
 {
-	if ( !messageWindow )
-	{
-		messageWindow = new CMWWindow( "Messages" );
-		var messageContent = messageWindow.getFrame();
-		messageContent.style.backgroundColor = "#ffffff";
-		var messageContext = document.getElementById( "message_context" );
-		if ( messageContext.parentNode )
-			messageContext.parentNode.removeChild( messageContext );
-		messageContent.appendChild( messageContext );
+  // A reference to the currently displayed message window (if any)
+  var messageWindow = null;
 
-		messageWindow.addListener(
-			function( callingWindow, signal )
-			{
-				switch ( signal )
-				{
-				case CMWWindow.CLOSE:
-					if ( messageContext.parentNode )
-						messageContext.parentNode.removeChild( messageContext );
-					document.getElementById( "dump" ).appendChild( messageContext );
-					if ( typeof project === "undefined" || project === null )
-					{
-						rootWindow.close();
-						document.getElementById( "content" ).style.display = "block";
-					}
-					messageWindow = null;
-					break;
-				case CMWWindow.RESIZE:
-					messageContext.style.height = messageWindow.getContentHeight() + "px";
-					break;
-				}
-				return true;
-			} );
+  return function() {
+    if ( !messageWindow )
+    {
+      messageWindow = new CMWWindow( "Messages" );
+      var messageContent = messageWindow.getFrame();
+      messageContent.style.backgroundColor = "#ffffff";
+      var messageContext = document.getElementById( "message_context" );
+      if ( messageContext.parentNode )
+        messageContext.parentNode.removeChild( messageContext );
+      messageContent.appendChild( messageContext );
 
-		/* be the first window */
-		if ( rootWindow.getFrame().parentNode != document.body )
-		{
-			document.body.appendChild( rootWindow.getFrame() );
-			document.getElementById( "content" ).style.display = "none";
-		}
+      messageWindow.addListener(
+        function( callingWindow, signal )
+        {
+          switch ( signal )
+          {
+          case CMWWindow.CLOSE:
+            if ( messageContext.parentNode )
+              messageContext.parentNode.removeChild( messageContext );
+            document.getElementById( "dump" ).appendChild( messageContext );
+            if ( typeof project === "undefined" || project === null )
+            {
+              rootWindow.close();
+              document.getElementById( "content" ).style.display = "block";
+            }
+            messageWindow = null;
+            break;
+          case CMWWindow.RESIZE:
+            messageContext.style.height = messageWindow.getContentHeight() + "px";
+            break;
+          }
+          return true;
+        } );
 
-		if ( rootWindow.getChild() === null )
-			rootWindow.replaceChild( messageWindow );
-		else
-			rootWindow.replaceChild( new CMWVSplitNode( messageWindow, rootWindow.getChild() ) );
-	}
+      /* be the first window */
+      if ( rootWindow.getFrame().parentNode != document.body )
+      {
+        document.body.appendChild( rootWindow.getFrame() );
+        document.getElementById( "content" ).style.display = "none";
+      }
 
-	messageWindow.focus();
-}
+      if ( rootWindow.getChild() === null )
+        rootWindow.replaceChild( messageWindow );
+      else
+        rootWindow.replaceChild( new CMWVSplitNode( messageWindow, rootWindow.getChild() ) );
+    }
+
+    messageWindow.focus();
+  };
+
+})();

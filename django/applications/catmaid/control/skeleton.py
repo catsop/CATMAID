@@ -6,11 +6,13 @@ from operator import itemgetter
 from datetime import datetime, timedelta
 from collections import defaultdict
 from itertools import chain
+from functools import partial
 
 from django.core.serializers.json import DjangoJSONEncoder
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.db import connection
+from django.db.models import Q
 
 from catmaid.models import Project, UserRole, Class, ClassInstance, Review, \
         ClassInstanceClassInstance, Relation, Treenode, TreenodeConnector
@@ -23,7 +25,6 @@ from catmaid.control.neuron import _delete_if_empty
 from catmaid.control.neuron_annotations import create_annotation_query, \
         _annotate_entities, _update_neuron_annotations
 from catmaid.control.review import get_treenodes_to_reviews, get_review_status
-from catmaid.control.treenode import _create_interpolated_treenode
 from catmaid.control.tree_util import find_root, reroot, edge_count_to_root
 
 
@@ -62,7 +63,6 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
 
     # Some entries repeated, when a node has more than one tag
     # Create a graph with edges from parent to child, and accumulate parents
-    real_root = None
     tree = nx.DiGraph()
     for row in cursor.fetchall():
         nodeID = row[0]
@@ -70,7 +70,6 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
             # It is ok to add edges that already exist: DiGraph doesn't keep duplicates
             tree.add_edge(row[1], nodeID)
         else:
-            real_root = nodeID
             tree.add_node(nodeID)
         tree.node[nodeID]['loc'] = (row[2], row[3], row[4])
         tree.node[nodeID]['ct'] = row[5]
@@ -95,7 +94,7 @@ def last_openleaf(request, project_id=None, skeleton_id=None):
     end_regex = re.compile('(?:' + ')|(?:'.join(end_tags) + ')')
 
     for nodeID, out_degree in tree.out_degree_iter():
-        if 0 == out_degree or nodeID == real_root:
+        if 0 == out_degree or nodeID == tnid and 1 == out_degree:
             # Found an end node
             props = tree.node[nodeID]
             # Check if not tagged with a tag containing 'end'
@@ -123,64 +122,106 @@ def skeleton_statistics(request, project_id=None, skeleton_id=None):
         'measure_construction_time': construction_time,
         'percentage_reviewed': "%.2f" % skel.percentage_reviewed() }), content_type='text/json')
 
-# Will fail if skeleton_id does not exist
+
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def contributor_statistics(request, project_id=None, skeleton_id=None):
+    return contributor_statistics_multiple(request, project_id=project_id, skeleton_ids=[int(skeleton_id)])
+
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
+def contributor_statistics_multiple(request, project_id=None, skeleton_ids=None):
     contributors = defaultdict(int)
     n_nodes = 0
     # Count the total number of 20-second intervals with at least one treenode in them
-    time_bins = set()
-    min_review_bins = set()
-    multi_review_bins = 0
+    n_time_bins = 0
+    n_review_bins = 0
+    n_multi_review_bins = 0
     epoch = datetime.utcfromtimestamp(0)
 
-    for row in Treenode.objects.filter(skeleton_id=skeleton_id).values_list('user_id', 'creation_time'):
-        n_nodes += 1
-        contributors[row[0]] += 1
-        time_bins.add(int((row[1] - epoch).total_seconds() / 20))
+    if not skeleton_ids:
+        skeleton_ids = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('skids['))
 
+    # Count time bins separately for each skeleton
+    time_bins = None
+    last_skeleton_id = None
+    for row in Treenode.objects.filter(skeleton_id__in=skeleton_ids).order_by('skeleton').values_list('skeleton_id', 'user_id', 'creation_time').iterator():
+        if last_skeleton_id != row[0]:
+            if time_bins:
+                n_time_bins += len(time_bins)
+            time_bins = set()
+            last_skeleton_id = row[0]
+        n_nodes += 1
+        contributors[row[1]] += 1
+        time_bins.add(int((row[2] - epoch).total_seconds() / 20))
+
+    # Process last one
+    if time_bins:
+        n_time_bins += len(time_bins)
+    
+    
     # Take into account that multiple people may have reviewed the same nodes
     # Therefore measure the time for the user that has the most nodes reviewed,
     # then add the nodes not reviewed by that user but reviewed by the rest
-    rev = defaultdict(dict)
-    for row in Review.objects.filter(skeleton_id=skeleton_id).values_list('reviewer', 'treenode', 'review_time'):
+    def process_reviews(rev):
+        seen = set()
+        min_review_bins = set()
+        multi_review_bins = 0
+        for reviewer, treenodes in sorted(rev.iteritems(), key=itemgetter(1), reverse=True):
+            reviewer_bins = set()
+            for treenode, timestamp in treenodes.iteritems():
+                time_bin = int((timestamp - epoch).total_seconds() / 20)
+                reviewer_bins.add(time_bin)
+                if not (treenode in seen):
+                    seen.add(treenode)
+                    min_review_bins.add(time_bin)
+            multi_review_bins += len(reviewer_bins)
+        #
+        return len(min_review_bins), multi_review_bins
+
+    rev = None
+    last_skeleton_id = None
+    for row in Review.objects.filter(skeleton_id__in=skeleton_ids).order_by('skeleton').values_list('reviewer', 'treenode', 'review_time', 'skeleton_id').iterator():
+        if last_skeleton_id != row[3]:
+            if rev:
+                a, b = process_reviews(rev)
+                n_review_bins += a
+                n_multi_review_bins += b
+            # Reset for next skeleton
+            rev = defaultdict(dict)
+            last_skeleton_id = row[3]
+        #
         rev[row[0]][row[1]] = row[2]
-    seen = set()
 
-    for reviewer, treenodes in sorted(rev.iteritems(), key=itemgetter(1), reverse=True):
-        reviewer_bins = set()
-        for treenode, timestamp in treenodes.iteritems():
-            time_bin = int((timestamp - epoch).total_seconds() / 20)
-            reviewer_bins.add(time_bin)
-            if not (treenode in seen):
-                seen.add(treenode)
-                min_review_bins.add(time_bin)
-        multi_review_bins += len(reviewer_bins)
+    # Process last one
+    if rev:
+        a, b = process_reviews(rev)
+        n_review_bins += a
+        n_multi_review_bins += b
 
-    relations = {row[0]: row[1] for row in Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id')}
+
+    relations = {row[0]: row[1] for row in Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id').iterator()}
+
+    pre = relations['presynaptic_to']
+    post = relations['postsynaptic_to']
 
     synapses = {}
-    synapses[relations['presynaptic_to']] = defaultdict(int)
-    synapses[relations['postsynaptic_to']] = defaultdict(int)
+    synapses[pre] = defaultdict(int)
+    synapses[post] = defaultdict(int)
 
-    for row in TreenodeConnector.objects.filter(skeleton_id=skeleton_id).values_list('user_id', 'relation_id'):
+    # This may be succint but unless one knows SQL it makes no sense at all
+    for row in TreenodeConnector.objects.filter(
+            Q(relation_id=pre) | Q(relation_id=post),
+            skeleton_id__in=skeleton_ids
+    ).values_list('user_id', 'relation_id').iterator():
         synapses[row[1]][row[0]] += 1
 
-    cq = ClassInstanceClassInstance.objects.filter(
-            relation__relation_name='model_of',
-            project_id=project_id,
-            class_instance_a=int(skeleton_id)).select_related('class_instance_b')
-    neuron_name = cq[0].class_instance_b.name
-
     return HttpResponse(json.dumps({
-        'name': neuron_name,
-        'construction_minutes': int(len(time_bins) / 3.0),
-        'min_review_minutes': int(len(min_review_bins) / 3.0),
-        'multiuser_review_minutes': int(multi_review_bins / 3.0),
+        'construction_minutes': int(n_time_bins / 3.0),
+        'min_review_minutes': int(n_review_bins / 3.0),
+        'multiuser_review_minutes': int(n_multi_review_bins / 3.0),
         'n_nodes': n_nodes,
         'node_contributors': contributors,
-        'n_pre': sum(synapses[relations['presynaptic_to']].values()),
-        'n_post': sum(synapses[relations['postsynaptic_to']].values()),
+        'n_pre': sum(synapses[relations['presynaptic_to']].itervalues()),
+        'n_post': sum(synapses[relations['postsynaptic_to']].itervalues()),
         'pre_contributors': synapses[relations['presynaptic_to']],
         'post_contributors': synapses[relations['postsynaptic_to']]}))
 
@@ -293,6 +334,7 @@ def split_skeleton(request, project_id=None):
     treenode_id = int(request.POST['treenode_id'])
     treenode = Treenode.objects.get(pk=treenode_id)
     skeleton_id = treenode.skeleton_id
+    project_id = int(project_id)
     upstream_annotation_map = json.loads(request.POST.get('upstream_annotation_map'))
     downstream_annotation_map = json.loads(request.POST.get('downstream_annotation_map'))
     cursor = connection.cursor()
@@ -309,7 +351,6 @@ def split_skeleton(request, project_id=None):
           "One part has to keep the whole set of annotations!")
 
     skeleton = ClassInstance.objects.select_related('user').get(pk=skeleton_id)
-    project_id=int(project_id)
 
     # retrieve neuron of this skeleton
     neuron = ClassInstance.objects.get(
@@ -319,11 +360,18 @@ def split_skeleton(request, project_id=None):
     # Make sure the user has permissions to edit
     can_edit_class_instance_or_fail(request.user, neuron.id, 'neuron')
 
-    # retrieve the id, parent_id of all nodes in the skeleton
-    # with minimal ceremony
+    # Retrieve the id, parent_id of all nodes in the skeleton. Also
+    # pre-emptively lock all treenodes and connectors in the skeleton to prevent
+    # race conditions resulting in inconsistent skeleton IDs from, e.g., node
+    # creation or update.
     cursor.execute('''
-    SELECT id, parent_id FROM treenode WHERE skeleton_id=%s
-    ''' % skeleton_id) # no need to sanitize
+        SELECT 1 FROM treenode_connector tc WHERE tc.skeleton_id = %s
+        ORDER BY tc.id
+        FOR NO KEY UPDATE OF tc;
+        SELECT t.id, t.parent_id FROM treenode t WHERE t.skeleton_id = %s
+        ORDER BY t.id
+        FOR NO KEY UPDATE OF t
+        ''', (skeleton_id, skeleton_id)) # no need to sanitize
     # build the networkx graph from it
     graph = nx.DiGraph()
     for row in cursor.fetchall():
@@ -394,7 +442,7 @@ def split_skeleton(request, project_id=None):
     insert_into_log(project_id, request.user.id, "split_skeleton", location,
                     "Split skeleton with ID {0} (neuron: {1})".format( skeleton_id, neuron.name ) )
 
-    return HttpResponse(json.dumps({}), content_type='text/json')
+    return HttpResponse(json.dumps({'skeleton_id': new_skeleton.id}), content_type='text/json')
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def root_for_skeleton(request, project_id=None, skeleton_id=None):
@@ -479,13 +527,13 @@ def skeleton_ancestry(request, project_id=None):
         raise Exception(response_on_error + ':' + str(e))
 
 def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_of_id, cursor):
+    def newSynapseCounts():
+        return [0, 0, 0, 0, 0]
+
     class Partner:
         def __init__(self):
-            self.name = None
             self.num_nodes = 0
-            self.union_reviewed = 0 # total number reviewed nodes
-            self.reviewed = {} # number of reviewed nodes per reviewer
-            self.skids = defaultdict(int) # skid vs synapse count
+            self.skids = defaultdict(newSynapseCounts) # skid vs synapse count
 
     # Dictionary of partner skeleton ID vs Partner
     def newPartner():
@@ -494,7 +542,7 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
 
     # Obtain the synapses made by all skeleton_ids considering the desired direction of the synapse, as specified by relation_id_1 and relation_id_2:
     cursor.execute('''
-    SELECT t1.skeleton_id, t2.skeleton_id
+    SELECT t1.skeleton_id, t2.skeleton_id, LEAST(t1.confidence, t2.confidence)
     FROM treenode_connector t1,
          treenode_connector t2
     WHERE t1.skeleton_id IN (%s)
@@ -504,74 +552,47 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
     ''' % (','.join(map(str, skeleton_ids)), int(relation_id_1), int(relation_id_2)))
 
     # Sum the number of synapses
-    for srcID, partnerID in cursor.fetchall():
-        partners[partnerID].skids[srcID] += 1
+    for srcID, partnerID, confidence in cursor.fetchall():
+        partners[partnerID].skids[srcID][confidence - 1] += 1
 
     # There may not be any synapses
     if not partners:
-        return partners
+        return partners, []
 
     # If op is AND, discard entries where only one of the skids has synapses
     if len(skeleton_ids) > 1 and 'AND' == op:
         for partnerID in partners.keys(): # keys() is a copy of the keys
-            if 1 == len(partners[partnerID].skids):
+            if len(skeleton_ids) != len(partners[partnerID].skids):
                 del partners[partnerID]
 
     # With AND it is possible that no common partners exist
     if not partners:
-        return partners
+        return partners, []
 
     # Obtain a string with unique skeletons
-    skids_string = ','.join(map(str, partners.iterkeys()))
+    skids_string = '),('.join(map(str, partners.iterkeys()))
 
     # Count nodes of each partner skeleton
     cursor.execute('''
     SELECT skeleton_id, count(skeleton_id)
-    FROM treenode
-    WHERE skeleton_id IN (%s)
+    FROM treenode,
+         (VALUES (%s)) skeletons(skid)
+    WHERE skeleton_id = skid
     GROUP BY skeleton_id
     ''' % skids_string) # no need to sanitize
     for row in cursor.fetchall():
         partners[row[0]].num_nodes = row[1]
 
-    # Count nodes that have been reviewed by each user in each partner skeleton
+    # Find which reviewers have reviewed any partner skeletons
     cursor.execute('''
-    SELECT skeleton_id, reviewer_id, count(*)
-    FROM review
-    WHERE skeleton_id IN (%s)
-    GROUP BY reviewer_id, skeleton_id
+    SELECT DISTINCT reviewer_id
+    FROM review,
+         (VALUES (%s)) skeletons(skid)
+    WHERE skeleton_id = skid
     ''' % skids_string) # no need to sanitize
-    for row in cursor.fetchall():
-        partner = partners[row[0]]
-        partner.reviewed[row[1]] = row[2]
+    reviewers = [row[0] for row in cursor]
 
-    # Count total number of reviewed nodes per skeleton
-    cursor.execute('''
-    SELECT skeleton_id, count(*)
-    FROM (SELECT skeleton_id, treenode_id
-          FROM review
-          WHERE skeleton_id IN (%s)
-          GROUP BY skeleton_id, treenode_id) AS sub
-    GROUP BY skeleton_id
-    ''' % skids_string) # no need to sanitize
-    for row in cursor.fetchall():
-        partner = partners[row[0]]
-        partner.union_reviewed = row[1]
-
-    # Obtain name of each skeleton's neuron
-    cursor.execute('''
-    SELECT class_instance_class_instance.class_instance_a,
-           class_instance.name
-    FROM class_instance_class_instance,
-         class_instance
-    WHERE class_instance_class_instance.relation_id=%s
-      AND class_instance_class_instance.class_instance_a IN (%s)
-      AND class_instance.id=class_instance_class_instance.class_instance_b
-    ''' % (model_of_id, skids_string)) # No need to sanitize, and would quote skids_string
-    for row in cursor.fetchall():
-        partners[row[0]].name = row[1]
-
-    return partners
+    return partners, reviewers
 
 def _skeleton_info_raw(project_id, skeletons, op):
     cursor = connection.cursor()
@@ -588,15 +609,15 @@ def _skeleton_info_raw(project_id, skeletons, op):
     relation_ids = dict(cursor.fetchall())
 
     # Obtain partner skeletons and their info
-    incoming = _connected_skeletons(skeletons, op, relation_ids['postsynaptic_to'], relation_ids['presynaptic_to'], relation_ids['model_of'], cursor)
-    outgoing = _connected_skeletons(skeletons, op, relation_ids['presynaptic_to'], relation_ids['postsynaptic_to'], relation_ids['model_of'], cursor)
+    incoming, incoming_reviewers = _connected_skeletons(skeletons, op, relation_ids['postsynaptic_to'], relation_ids['presynaptic_to'], relation_ids['model_of'], cursor)
+    outgoing, outgoing_reviewers = _connected_skeletons(skeletons, op, relation_ids['presynaptic_to'], relation_ids['postsynaptic_to'], relation_ids['model_of'], cursor)
 
     def prepare(partners):
         for partnerID in partners.keys():
             partner = partners[partnerID]
             skids = partner.skids
             # jsonize: swap class instance by its dict of members vs values
-            if partner.skids or partner.reviewed:
+            if partner.skids:
                 partners[partnerID] = partner.__dict__
             else:
                 del partners[partnerID]
@@ -604,7 +625,7 @@ def _skeleton_info_raw(project_id, skeletons, op):
     prepare(incoming)
     prepare(outgoing)
 
-    return incoming, outgoing
+    return incoming, outgoing, incoming_reviewers, outgoing_reviewers
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeleton_info_raw(request, project_id=None):
@@ -614,65 +635,71 @@ def skeleton_info_raw(request, project_id=None):
     op = request.POST.get('boolean_op') # values: AND, OR
     op = {'AND': 'AND', 'OR': 'OR'}[op[6:]] # sanitize
 
-    incoming, outgoing = _skeleton_info_raw(project_id, skeletons, op)
+    incoming, outgoing, incoming_reviewers, outgoing_reviewers = _skeleton_info_raw(project_id, skeletons, op)
 
-    return HttpResponse(json.dumps({'incoming': incoming, 'outgoing': outgoing}), content_type='text/json')
-
-
-@requires_user_role([UserRole.Annotate, UserRole.Browse])
-def skeleton_info(request, project_id=None, skeleton_id=None):
-    # This function can take as much as 15 seconds for a mid-sized arbor
-    # Problems in the generated SQL:
-    # 1. Many repetitions of the query: SELECT ...  FROM "relation" WHERE "relation"."project_id" = 4. Originates in one call per connected skeleton, in Skeleton._fetch_upstream_skeletons and _fetch_downstream_skeletons
-    # 2. Usage of WHERE project_id = 4, despite IDs being unique. Everywhere.
-    # 3. Lots of calls to queries similar to: SELECT ...  FROM "class_instance" WHERE "class_instance"."id" = 17054183
+    return HttpResponse(json.dumps({
+                'incoming': incoming,
+                'outgoing': outgoing,
+                'incoming_reviewers': incoming_reviewers,
+                'outgoing_reviewers': outgoing_reviewers}),
+            content_type='text/json')
 
 
-    p = get_object_or_404(Project, pk=project_id)
+@requires_user_role(UserRole.Browse)
+def connectivity_matrix(request, project_id=None):
+    # sanitize arguments
+    project_id = int(project_id)
+    rows = tuple(int(v) for k, v in request.POST.iteritems() if k.startswith('rows['))
+    cols = tuple(int(v) for k, v in request.POST.iteritems() if k.startswith('columns['))
 
-    synaptic_count_high_pass = int( request.POST.get( 'threshold', 10 ) )
+    matrix = get_connectivity_matrix(project_id, rows, cols)
+    return HttpResponse(json.dumps(matrix), content_type='text/json')
 
 
-    skeleton = Skeleton( skeleton_id, project_id )
+def get_connectivity_matrix(project_id, row_skeleton_ids, col_skeleton_ids):
+    """
+    Return a sparse connectivity matrix representation for the given skeleton
+    IDS. The returned dictionary has a key for each row skeleton having
+    outgoing connections to one or more column skeletons. Each entry stores a
+    dictionary that maps the connection partners to the individual outgoing
+    synapse counts.
+    """
+    cursor = connection.cursor()
+    relation_map = get_relation_to_id_map(project_id)
+    post_rel_id = relation_map['postsynaptic_to']
+    pre_rel_id = relation_map['presynaptic_to']
 
-    data = {
-        'incoming': {},
-        'outgoing': {}
-    }
+    # Obtain all synapses made between row skeletons and column skeletons.
+    cursor.execute('''
+    SELECT t1.skeleton_id, t2.skeleton_id
+    FROM treenode_connector t1,
+         treenode_connector t2
+    WHERE t1.skeleton_id IN (%s)
+      AND t2.skeleton_id IN (%s)
+      AND t1.connector_id = t2.connector_id
+      AND t1.relation_id = %s
+      AND t2.relation_id = %s
+    ''' % (','.join(map(str, row_skeleton_ids)),
+           ','.join(map(str, col_skeleton_ids)),
+           pre_rel_id, post_rel_id))
 
-    for skeleton_id_upstream, synaptic_count in skeleton.upstream_skeletons.items():
-        if synaptic_count >= synaptic_count_high_pass:
-            tmp_skeleton = Skeleton( skeleton_id_upstream )
-            data['incoming'][skeleton_id_upstream] = {
-                'synaptic_count': synaptic_count,
-                'skeleton_id': skeleton_id_upstream,
-                'percentage_reviewed': '%i' % tmp_skeleton.percentage_reviewed(),
-                'node_count': tmp_skeleton.node_count(),
-                'name': '{0} / skeleton {1}'.format( tmp_skeleton.neuron.name, skeleton_id_upstream)
-            }
+    # Build a sparse connectivity representation. For all skeletons requested
+    # map a dictionary of partner skeletons and the number of synapses
+    # connecting to each partner.
+    outgoing = defaultdict(dict)
+    for r in cursor.fetchall():
+        source, target = r[0], r[1]
+        mapping = outgoing[source]
+        count = mapping.get(target, 0)
+        mapping[target] = count + 1
 
-    for skeleton_id_downstream, synaptic_count in skeleton.downstream_skeletons.items():
-        if synaptic_count >= synaptic_count_high_pass:
-            tmp_skeleton = Skeleton( skeleton_id_downstream )
-            data['outgoing'][skeleton_id_downstream] = {
-                'synaptic_count': synaptic_count,
-                'skeleton_id': skeleton_id_downstream,
-                'percentage_reviewed': '%i' % tmp_skeleton.percentage_reviewed(),
-                'node_count': tmp_skeleton.node_count(),
-                'name': '{0} / skeleton {1}'.format( tmp_skeleton.neuron.name, skeleton_id_downstream)
-            }
+    return outgoing
 
-    result = {
-        'incoming': list(reversed(sorted(data['incoming'].values(), key=itemgetter('synaptic_count')))),
-        'outgoing': list(reversed(sorted(data['outgoing'].values(), key=itemgetter('synaptic_count'))))
-    }
-    json_return = json.dumps(result, sort_keys=True, indent=4)
-    return HttpResponse(json_return, content_type='text/json')
 
 @requires_user_role([UserRole.Browse, UserRole.Annotate])
 def review_status(request, project_id=None):
-    """ Return the review status for each skeleton in the request
-    as a value between 0 and 100 (integers). """
+    """ Return the review status for each skeleton in the request as a
+    tuple of total nodes and number of reviewed nodes (integers). """
     skeleton_ids = set(int(v) for k,v in request.POST.iteritems() if k.startswith('skeleton_ids['))
     whitelist = bool(json.loads(request.POST.get('whitelist', 'false')))
     whitelist_id = None
@@ -719,36 +746,34 @@ def _reroot_skeleton(treenode_id, project_id):
     response_on_error = ''
     try:
         response_on_error = 'Failed to select treenode with id %s.' % treenode_id
-        q_treenode = Treenode.objects.filter(
-            id=treenode_id,
-            project=project_id)
+        rootnode = Treenode.objects.get(id=treenode_id, project=project_id)
 
         # Obtain the treenode from the response
-        response_on_error = 'An error occured while rerooting. No valid query result.'
-        treenode = q_treenode[0]
-        first_parent = treenode.parent
+        first_parent = rootnode.parent_id
 
         # If no parent found it is assumed this node is already root
         if first_parent is None:
             return False
 
+        response_on_error = 'An error occured while rerooting.'
+        q_treenode = Treenode.objects.filter(
+                skeleton_id=rootnode.skeleton_id,
+                project=project_id).values_list('id', 'parent_id', 'confidence')
+        nodes = {tnid: (parent_id, confidence) for (tnid, parent_id, confidence) in list(q_treenode)}
+
         # Traverse up the chain of parents, reversing the parent relationships so
         # that the selected treenode (with ID treenode_id) becomes the root.
-        new_parent = treenode
-        new_confidence = treenode.confidence
+        new_parents = []
+        new_parent = rootnode.id
+        new_confidence = rootnode.confidence
         node = first_parent
 
         while True:
-            response_on_error = 'Failed to update treenode with id %s to have new parent %s' % (node.id, new_parent.id)
-
             # Store current values to be used in next iteration
-            parent = node.parent
-            confidence = node.confidence
+            parent, confidence = nodes[node]
 
             # Set new values
-            node.parent = new_parent
-            node.confidence = new_confidence
-            node.save()
+            new_parents.append((node, new_parent, new_confidence))
 
             if parent is None:
                 # Root has been reached
@@ -760,12 +785,18 @@ def _reroot_skeleton(treenode_id, project_id):
                 node = parent
 
         # Finally make treenode root
-        response_on_error = 'Failed to set treenode with ID %s as root.' % treenode.id
-        treenode.parent = None
-        treenode.confidence = 5 # reset to maximum confidence, now it is root.
-        treenode.save()
+        new_parents.append((rootnode.id, 'NULL', 5)) # Reset to maximum confidence.
 
-        return treenode
+        cursor = connection.cursor()
+        cursor.execute('''
+                UPDATE treenode
+                SET parent_id = v.parent_id,
+                    confidence = v.confidence
+                FROM (VALUES %s) v(id, parent_id, confidence)
+                WHERE treenode.id = v.id
+                ''' % ','.join(['(%s,%s,%s)' % node for node in new_parents]))
+
+        return rootnode
 
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
@@ -801,7 +832,9 @@ def join_skeleton(request, project_id=None):
     try:
         from_treenode_id = int(request.POST.get('from_id', None))
         to_treenode_id = int(request.POST.get('to_id', None))
-        annotation_set = json.loads(request.POST.get('annotation_set'))
+        annotation_set = request.POST.get('annotation_set', None)
+        if annotation_set:
+            annotation_set = json.loads(annotation_set)
 
         _join_skeleton(request.user, from_treenode_id, to_treenode_id,
                 project_id, annotation_set)
@@ -826,7 +859,8 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
     linked to the skeleton of to_treenode. It is expected that <annotation_map>
     is a dictionary, mapping an annotation to an annotator ID. Also, all
     reviews of the skeleton that changes ID are changed to refer to the new
-    skeleton ID.
+    skeleton ID. If annotation_map is None, the resulting skeleton will have
+    all annotations available on both skeletons combined.
     """
     if from_treenode_id is None or to_treenode_id is None:
         raise Exception('Missing arguments to _join_skeleton')
@@ -852,21 +886,42 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
         to_skid = to_treenode.skeleton_id
         to_neuron = _get_neuronname_from_skeletonid( project_id, to_skid )
 
+        if from_skid == to_skid:
+            raise Exception('Cannot join treenodes of the same skeleton, this would introduce a loop.')
+
         # Make sure the user has permissions to edit both neurons
         can_edit_class_instance_or_fail(
                 user, from_neuron['neuronid'], 'neuron')
         can_edit_class_instance_or_fail(
                 user, to_neuron['neuronid'], 'neuron')
 
-        # Check if annotations are valid
-        if not check_annotations_on_join(project_id, user,
-                from_neuron['neuronid'], to_neuron['neuronid'],
-                frozenset(annotation_map.keys())):
-            raise Exception("Annotation distribution is not valid for joining. " \
-              "Annotations for which you don't have permissions have to be kept!")
-
-        if from_skid == to_skid:
-            raise Exception('Cannot join treenodes of the same skeleton, this would introduce a loop.')
+        # Check if annotations are valid, if there is a particular selection
+        if annotation_map is None:
+            # Get all current annotations of both skeletons and merge them for
+            # a complete result set.
+            from_annotation_info = get_annotation_info(project_id, (from_skid,),
+                    annotations=True, metaannotations=False, neuronnames=False)
+            to_annotation_info = get_annotation_info(project_id, (to_skid,),
+                    annotations=True, metaannotations=False, neuronnames=False)
+            # Create a new annotation map with the expected structure of
+            # 'annotationname' vs. 'annotator id'.
+            def merge_into_annotation_map(source, skid, target):
+                skeletons = source['skeletons']
+                if skeletons and skid in skeletons:
+                    for a in skeletons[skid]['annotations']:
+                        annotation = source['annotations'][a['id']]
+                        target[annotation] = a['uid']
+            # Merge from after to, so that it overrides entries from the merged
+            # in skeleton.
+            annotation_map = dict()
+            merge_into_annotation_map(to_annotation_info, to_skid, annotation_map)
+            merge_into_annotation_map(from_annotation_info, from_skid, annotation_map)
+        else:
+            if not check_annotations_on_join(project_id, user,
+                    from_neuron['neuronid'], to_neuron['neuronid'],
+                    frozenset(annotation_map.keys())):
+                raise Exception("Annotation distribution is not valid for joining. " \
+                "Annotations for which you don't have permissions have to be kept!")
 
         # Reroot to_skid at to_treenode if necessary
         response_on_error = 'Could not reroot at treenode %s' % to_treenode_id
@@ -914,47 +969,6 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
 
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
-
-@requires_user_role(UserRole.Annotate)
-def join_skeletons_interpolated(request, project_id=None):
-    """ Join two skeletons, adding nodes in between the two nodes to join
-    if they are separated by more than one section in the Z axis."""
-    # Parse parameters
-    decimal_values = {
-            'x': 0,
-            'y': 0,
-            'z': 0,
-            'resx': 0,
-            'resy': 0,
-            'resz': 0,
-            'stack_translation_z': 0,
-            'radius': -1}
-    int_values = {
-            'from_id': 0,
-            'to_id': 0,
-            'stack_id': 0,
-            'confidence': 5}
-    params = {}
-    for p in decimal_values.keys():
-        params[p] = decimal.Decimal(request.POST.get(p, decimal_values[p]))
-    for p in int_values.keys():
-        params[p] = int(request.POST.get(p, int_values[p]))
-    # Copy of the id for _create_interpolated_treenode
-    params['parent_id'] = params['from_id']
-    params['skeleton_id'] = Treenode.objects.get(pk=params['from_id']).skeleton_id
-
-    # Create interpolate nodes skipping the last one
-    last_treenode_id, skeleton_id = _create_interpolated_treenode(request, params, project_id, True)
-
-    # Get set of annoations the combinet skeleton should have
-    annotation_map = json.loads(request.POST.get('annotation_set'))
-
-    # Link last_treenode_id to to_id
-    _join_skeleton(request.user, last_treenode_id, params['to_id'], project_id,
-            annotation_map)
-
-    return HttpResponse(json.dumps({'treenode_id': params['to_id']}))
-
 
 def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=None):
     """Create a skeleton from a networkx directed tree.
@@ -1074,7 +1088,9 @@ def reset_own_reviewer_ids(request, project_id=None, skeleton_id=None):
     <skeleton_id>.
     """
     skeleton_id = int(skeleton_id) # sanitize
-    Review.objects.filter(skeleton_id=skeleton_id, reviewer=request.user).delete();
+    Review.objects.filter(skeleton_id=skeleton_id, reviewer=request.user).delete()
+    insert_into_log(project_id, request.user.id, 'reset_reviews',
+                    None, 'Reset reviews for skeleton %s' % skeleton_id)
     return HttpResponse(json.dumps({'status': 'success'}), content_type='text/json')
 
 
@@ -1105,12 +1121,19 @@ def annotation_list(request, project_id=None):
     """ Returns a JSON serialized object that contains information about the
     given skeletons.
     """
-    skeleton_ids = [v for k,v in request.POST.iteritems()
-            if k.startswith('skeleton_ids[')]
+    skeleton_ids = tuple(int(v) for k,v in request.POST.iteritems()
+            if k.startswith('skeleton_ids['))
     annotations = bool(int(request.POST.get("annotations", 0)))
     metaannotations = bool(int(request.POST.get("metaannotations", 0)))
     neuronnames = bool(int(request.POST.get("neuronnames", 0)))
 
+    response = get_annotation_info(project_id, skeleton_ids, annotations,
+                                   metaannotations, neuronnames)
+
+    return HttpResponse(json.dumps(response), content_type="text/json")
+
+def get_annotation_info(project_id, skeleton_ids, annotations, metaannotations,
+                        neuronnames):
     if not skeleton_ids:
         raise ValueError("No skeleton IDs provided")
 
@@ -1125,11 +1148,13 @@ def annotation_list(request, project_id=None):
         FROM class_instance_class_instance cici
         WHERE cici.project_id = %s AND
               cici.relation_id = %s AND
-              cici.class_instance_a IN (%s)
-    """ % (project_id, relations['model_of'],
-           ','.join(map(str, skeleton_ids))))
+              cici.class_instance_a IN %s
+    """, (project_id, relations['model_of'], skeleton_ids))
     n_to_sk_ids = {n:s for s,n in cursor.fetchall()}
     neuron_ids = n_to_sk_ids.keys()
+
+    if not neuron_ids:
+        raise Http404('No skeleton or neuron found')
 
     # Query for annotations of the given skeletons, specifically
     # neuron_id, auid, aid and aname.
@@ -1211,7 +1236,7 @@ def annotation_list(request, project_id=None):
             })
         response['metaannotations'] = metaannotations
 
-    return HttpResponse(json.dumps(response), content_type="text/json")
+    return response
 
 @requires_user_role(UserRole.Browse)
 def list_skeletons(request, project_id):

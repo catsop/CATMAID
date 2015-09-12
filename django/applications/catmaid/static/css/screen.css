@@ -186,6 +186,22 @@ div.form textarea, div.form input, div.form select
 	padding:0.5em 1em 0.5em 1em;
 }
 
+div#data_view .header {
+	margin:1.5em 16px 0.5em 20px;
+}
+
+div#data_view .header img {
+    float: left;
+    height: 2em;
+    margin-top: 0.2em;
+    margin-left: 1em;
+}
+
+div#data_view .header h1 {
+    float: left;
+    margin: 0px;
+}
+
 div#data_view table
 {
 	margin:1.5em 16px 0.5em 20px;
@@ -398,6 +414,18 @@ div#classification_graph_object img.roiimage {
     margin-bottom: 1em;
 }
 
+.navigator_content th a {
+    text-decoration: underline !important;
+}
+
+.navigator_content th a:hover {
+    text-decoration: none !important;
+}
+
+.navigator_content td input {
+    margin-left: 0;
+}
+
 .neuron_annotations_query_results_table td {
     padding: 2px;
     vertical-align: top;
@@ -438,16 +466,13 @@ div#classification_graph_object img.roiimage {
     margin-bottom: 2px;
 }
 
-.ui-front {
-    z-index: 10000 !important;
-}
-
 .buttonpanel input {
   vertical-align: middle;
 }
 
 .buttonpanel label {
-  margin: 0.5em;
+  margin: 0.1em 0.35em;
+  display: inline-block;
 }
 
 .buttonpanel.ui-tabs {
@@ -465,6 +490,63 @@ div#classification_graph_object img.roiimage {
 
 .buttonpanel ul.ui-tabs-nav li .ui-tabs-anchor {
   padding: .2em 1em;
+}
+
+.partner_table {
+  padding: 3px;
+  border-collapse: collapse;
+  border: 1px solid black;
+}
+
+.partner_table td,
+.partner_table th {
+  border: 1px solid black;
+}
+
+.partner_table thead input {
+  width: auto;
+  margin-right: 12px;
+}
+
+.partner_table .syncount {
+  text-align: center;
+}
+
+.partner_table tfoot {
+  color: grey;
+}
+
+.partner_table a {
+  color: black;
+  text-decoration: none;
+}
+
+.partner_table a:hover {
+  text-decoration: underline;
+}
+
+.connectivity_matrix .partner_table td {
+  min-width: 3em;
+}
+
+.connectivity_matrix .hover-button {
+  cursor: pointer;
+  float: left;
+}
+
+.connectivity_matrix .remove-skeleton {
+  background-color: salmon;
+}
+
+.connectivity_matrix .move-up,
+.connectivity_matrix .move-down,
+.connectivity_matrix .move-left,
+.connectivity_matrix .move-right {
+  background-color: skyblue;
+}
+
+.connectivity_matrix .select {
+  background-color: lightgreen;
 }
 
 .connectivity_widget table {
@@ -487,8 +569,7 @@ div#classification_graph_object img.roiimage {
   border-bottom: 1px solid black;
 }
 
-.connectivity_widget .header th:nth-child(4),
-.connectivity_widget .header th:nth-child(5) {
+.connectivity_widget .threshold-header{
   width: 7em;
 }
 
@@ -567,24 +648,6 @@ div#classification_graph_object img.roiimage {
   margin-bottom: 1em;
 }
 
-.connectivity_widget .partner_table td,
-.connectivity_widget .partner_table th {
-  border: 1px solid black;
-}
-
-.connectivity_widget .partner_table thead input {
-  width: auto;
-  margin-right: 12px;
-}
-
-.connectivity_widget .partner_table .syncount {
-  text-align: center;
-}
-
-.connectivity_widget .partner_table tfoot {
-  color: grey;
-}
-
 .connectivity_widget a {
   color: black;
   text-decoration: none;
@@ -620,8 +683,16 @@ div#classification_graph_object img.roiimage {
   font-weight: bold;
 }
 
-#settings_widget .content {
-  margin-left: 3em;
+#settings_widget > .settings-container {
+  margin-left: 1em;
+}
+
+.settings-container > p {
+  margin-left: 0;
+}
+
+.settings-container .content {
+  margin-left: 1em;
 }
 
 .setting {
@@ -703,4 +774,166 @@ a.neuron-selection-link {
 
 a.neuron-selection-link:hover {
   text-decoration: underline;
+}
+
+.vertical-table-header {
+  text-align: center;
+  vertical-align: top;
+  white-space: nowrap;
+  transform: rotate(-90deg) translate(0%, 100%);
+  transform-origin: bottom left;
+}
+
+.vertical-table-header div {
+  position: absolute;
+}
+
+.ui-dialog-extra-buttonset {
+  float: left;
+}
+
+table.skeleton-table {
+  width: 100%;
+}
+
+table.skeleton-table th {
+  white-space: nowrap;
+}
+
+table.skeleton-table tr th,
+table.skeleton-table tr td {
+  width: 2em;
+}
+
+table.skeleton-table tr th.expanding,
+table.skeleton-table tr td.expanding {
+  width: auto;
+}
+
+table.skeleton-table td * {
+  vertical-align: middle;
+}
+
+table.skeleton-table .ui-icon {
+  margin: auto;
+  display: inline-block;
+  cursor: pointer;
+}
+
+table.skeleton-table .ui-icon-close {
+  zoom: 1.2;
+}
+
+table.skeleton-table th input.filter {
+  width: 50%;
+  max-width: 10em;
+}
+
+table.skeleton-table input,
+table.skeleton-table select {
+  margin: 0;
+}
+
+/* Center checkboxes in selection table */
+table.skeleton-table td input[type=checkbox] {
+  width: 100%;
+}
+
+/* Center buttons in selection table */
+table.skeleton-table tr td.centering {
+  text-align: center;
+}
+
+/* Center colorwheel in selection table */
+table.skeleton-table div.colorwheel {
+  display: inline;
+}
+
+/* Exception for display problem in datatables*/
+table.skeleton-table tr:last-child th::after {
+  content: "";
+}
+
+/* Disable sorting column highlighting */
+table.skeleton-table tr.odd td.sorting_1,
+table.skeleton-table tr.even td.sorting_1 {
+    background: none;
+}
+
+table.skeleton-table .sorting_asc,
+table.skeleton-table .sorting_desc,
+table.skeleton-table .sorting,
+table.skeleton-table .sorting_asc_disabled,
+table.skeleton-table .sorting_desc_disabled {
+	background: none;
+}
+
+table.skeleton-table .sorting_disabled {
+    position: relative;
+    top: 4px;
+}
+
+table.skeleton-table .sorting_asc::after {
+	content: url('../libs/jquery/datatable/images/sort_asc.png');
+    position: relative;
+    top: 0.5em;
+}
+
+table.skeleton-table .sorting_desc::after {
+	content: url('../libs/jquery/datatable/images/sort_desc.png');
+    position: relative;
+    top: 0.5em;
+}
+
+table.skeleton-table .sorting::after {
+	content: url('../libs/jquery/datatable/images/sort_both.png');
+    position: relative;
+    top: 0.5em;
+}
+
+table.skeleton-table .sorting_asc_disabled::after {
+	content: url('../libs/jquery/datatable/images/sort_asc_disabled.png');
+    position: relative;
+    top: 0.5em;
+}
+
+table.skeleton-table .sorting_desc_disabled::after {
+	content: url('../libs/jquery/datatable/images/sort_desc_disabled.png');
+    position: relative;
+    top: 0.5em;
+}
+
+div.selection-table.windowContent {
+    margin-top: 1em;
+}
+
+.help {
+    color: #999;
+    margin-left: 15em;
+}
+
+.checkbox-row .help {
+    margin-left: 0;
+}
+
+.setting input,
+.setting select {
+    margin-left: 0;
+}
+
+.blockMsg img {
+    margin: 0.5em auto 0.5em auto;
+    display: block;
+}
+
+.blockMsg span,
+.blockMsg div {
+    margin: 0.5em auto 0.5em auto;
+    font-size: medium;
+    font-weight: bold;
+    display: block;
+}
+
+.dataTables_wrapper {
+  min-height: 0;
 }

@@ -40,6 +40,27 @@ CATMAID.tools = CATMAID.tools || {};
   };
 
   /**
+   * Compare two objects that represent HSL colors. Sorting is done by hue, then
+   * saturation then luminance.
+   */
+  tools.compareHSLColors = function(hsl1, hsl2)
+  {
+    if (hsl1.h === hsl2.h) {
+      if (hsl1.s === hsl2.s) {
+        if (hsl1.l === hsl2.l) {
+          return 0;
+        } else {
+          return hsl1.l < hsl2.l ? -1 : 1;
+        }
+      } else {
+        return hsl1.s < hsl2.s ? -1 : 1;
+      }
+    } else {
+      return hsl1.h < hsl2.h ? -1 : 1;
+    }
+  };
+
+  /**
    * Parse a string as integer or return false if this is not possible or the
    * integer is negative.
    */
@@ -218,5 +239,111 @@ CATMAID.tools = CATMAID.tools || {};
       }
     }
   };
+
+  /**
+   * Convert a hex color string to an RGB object.
+   */
+  tools.hexToRGB = function(hex) {
+    var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+  };
+
+  /**
+   * Calculate an approximate lumance value from RGB values.
+   */
+  tools.rgbToLuminance = function(r, g, b) {
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+  };
+
+  /**
+   * Return either 'black' or 'white', whichever is better readable o a
+   * background of the given hex color. The heuristic is to use black if the
+   * approximate luminance is above 50%.
+   */
+  tools.getContrastColor = function(hex) {
+    var rgb = CATMAID.tools.hexToRGB(hex);
+    var lum = CATMAID.tools.rgbToLuminance(rgb.r, rgb.g, rgb.b);
+    return lum <= 128 ? "white" : "black";
+  };
+
+  /**
+   * Return the intersection of the line given by the two points with the XY plane
+   * through the given Z.
+   */
+  tools.intersectLineWithZPlane = function(x1, y1, z1, x2, y2, z2, zPlane)
+  {
+    // General point equation would be P1 + (P2 - P1) * t, calculate d = P2 - P1
+    var dx = x2 - x1;
+    var dy = y2 - y1;
+    var dz = z2 - z1;
+
+    // Now the correct t needs to be found that intersects the given z plane.
+    // Using the general point equation we can determine z = z1 + dz * t, which
+    // translates to t = (z - z1) / dz. With z being our z plane we get the
+    // correct t where the intersection happens.
+    var t = (zPlane - z1) / dz;
+
+    // Return the intersection X and Y by using the general point equation. Z
+    // was already given as a parameter.
+
+    return [x1 + t * dx, y1 + t * dy];
+  };
+
+  /**
+   * Test if two number have the same sign.
+   *
+   * @param a First number to compare
+   * @param b Second number to compare
+   * @return true if a and b have the same sign, false otherwise.
+   */
+  tools.sameSign = function(a, b)
+  {
+    return (a < 0) === (b < 0);
+  };
+
+  /**
+   * Return a contextual description of a date based on the current time:
+   *
+   * - For dates less than a minute ago: "x seconds ago"
+   * - For dates less than an hour ago: "x minutes ago"
+   * - For dates less than a day ago: "at YYYY-MM-DD HH:MM:SS"
+   * - For dates more than a day ago: "on YYYY-MM-DD"
+   *
+   * @param  {string} isodate   An ISO 8601 date string.
+   * @return {string}           A description of the date (see comment above).
+   */
+  tools.contextualDateString = (function () {
+    var MINUTE = 60000;
+    var HOUR = 60 * MINUTE;
+    var DAY = 24 * HOUR;
+
+    var formattedDate = function (date) {
+      return date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate();
+    };
+
+    return function (isodate) {
+      var date = new Date(isodate);
+      // ES5 interprets all ISO 8601 times without time zone as UTC, while
+      // CATMAID uses local time. Adjust the time accordingly. This is not
+      // robust for users in different time zones, but is the least surprising
+      // behavior possible so long as CATMAID does not account for time zones.
+      date.setTime(date.getTime() + date.getTimezoneOffset() * MINUTE);
+      var ago = Date.now() - date;
+
+      if (ago < MINUTE) {
+        return Math.round(ago / 1000) + ' seconds ago';
+      } else if (ago < HOUR) {
+        return Math.round(ago / MINUTE) + ' minutes ago';
+      } else if (ago < DAY) {
+        return 'at ' + formattedDate(date) + ' ' + date.toLocaleTimeString();
+      } else {
+        return 'on ' + formattedDate(date);
+      }
+    };
+  })();
 
 })(CATMAID.tools);

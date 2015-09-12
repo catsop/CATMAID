@@ -50,7 +50,7 @@ var ConnectorTable = function(optionalSkid)
           }
 
           if (!skeletonID) {
-            growlAlert('BEWARE', 'You need to activate a treenode to display ' +
+            CATMAID.msg('BEWARE', 'You need to activate a treenode to display ' +
                 'the connector table of its skeleton.');
             skeletonID = 0;
           }
@@ -69,7 +69,7 @@ var ConnectorTable = function(optionalSkid)
           });
           aoData.push({
             "name": "stack_id",
-            "value": project.focusedStack.id
+            "value": project.focusedStackViewer.primaryStack.id
           });
 
           $.ajax({
@@ -168,7 +168,7 @@ var ConnectorTable = function(optionalSkid)
       }
     });
 
-    $(tableid + " tbody tr").live('dblclick', function () {
+    $(tableid + " tbody").on('dblclick', 'tr', function () {
       var idToActivate, skeletonID;
       var aData = self.connectorTable.fnGetData(this);
       // retrieve coordinates and moveTo

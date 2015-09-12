@@ -29,17 +29,21 @@ needed_relations = {
     'presynaptic_to': "Something is presynaptic to something else.",
     'postsynaptic_to': "Something is postsynaptic to something else.",
     'annotated_with': "Something is annotated by something else.",
+    'abutting': "Two things abut against each other",
 }
 
 def check_tracing_setup_view(request, project_id=None):
     all_good, mc, mr, mci = check_tracing_setup_detailed(project_id)
+    initialize = (len(mc) == len(needed_classes)) and \
+                 (len(mr) == len(needed_relations))
     can_administer = request.user.has_perm('can_administer', project_id)
     return HttpResponse(json.dumps(
         {'needs_setup': not all_good,
          'missing_classes': mc,
          'missing_relations': mr,
          'missing_classinstances': mci,
-         'has_needed_permissions': can_administer}))
+         'has_needed_permissions': can_administer,
+         'initialize': initialize}))
 
 def check_tracing_setup(project_id, opt_class_map=None, opt_relation_map=None,
         check_root_ci=True):
