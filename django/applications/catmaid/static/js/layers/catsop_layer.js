@@ -117,11 +117,10 @@
       return slice[0].mask;
     });
 
-    var boundAddSlice = this.addSlice.bind(this);
-
-    CATMAID.PixiContext.GlobalTextureManager.load(sliceUrls, function () {
-      slices.forEach(function (s) { boundAddSlice(s[0], s[1]); });
-    });
+    CATMAID.PixiContext.GlobalTextureManager.load(sliceUrls, (function () {
+      slices.forEach(function (s) { this.addSlice(s[0], s[1]); }, this);
+      this.redraw();
+    }).bind(this));
   };
 
   CatsopResultsLayer.Slices.prototype.addSlice = function (slice, statuses) {
@@ -146,8 +145,6 @@
       sprite: sprite,
       statuses: statuses || []
     };
-    this.redraw();
-
     return sprite;
   };
 
@@ -310,11 +307,14 @@
             self.z_lim = null;
           }
 
-          json[self.regionType].forEach(function (region) {
-            self.addRegion(region, Object.keys(self.flagStyles).filter(function (flag) {
+          var regions = json[self.regionType].map(function (region) {
+            return [
+                region,
+                Object.keys(self.flagStyles).filter(function (flag) {
                   return region[flag];
-                }));
+                })];
           });
+          self.addRegions(regions);
         })));
   };
 
@@ -322,6 +322,11 @@
     CatsopResultsLayer.prototype.clear.call(this);
 
     this.regions = {};
+  };
+
+  CatsopResultsLayer.Overlays.Blocks.prototype.addRegions = function (regions) {
+    regions.forEach(function (r) { this.addRegion(r[0], r[1]); }, this);
+    this.redraw();
   };
 
   CatsopResultsLayer.Overlays.Blocks.prototype.addRegion = function (region, flags) {
@@ -354,7 +359,6 @@
       text: text,
       flags: flags
     };
-    this.redraw();
   };
 
 
