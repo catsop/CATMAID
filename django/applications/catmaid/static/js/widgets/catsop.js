@@ -591,16 +591,25 @@
   };
 
   CatsopWidget.prototype.createSegmentForSlices = function () {
+    if (!this.node) {
+      CATMAID.info('No segment graph is active.');
+      return;
+    }
+
     var hashes = this.node
         .filter(function (d) { return typeof d.mask !== 'undefined' && this.classList.contains('active'); })
         .data()
-        .map(function (d) { return d.hash; })
-        .join(',');
+        .map(function (d) { return d.hash; });
+
+    if (!hashes.length) {
+      CATMAID.info('No slices selected.');
+      return;
+    }
 
     requestQueue.register(
         [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'segment', 'create_for_slices'].join('/'),
         'POST',
-        {hash: hashes},
+        {hash: hashes.join(',')},
         CATMAID.jsonResponseHandler(this.refreshSegments.bind(this)));
   };
 
