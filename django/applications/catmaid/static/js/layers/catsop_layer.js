@@ -43,7 +43,7 @@
     this.batchContainer.scale.x = mag;
     this.batchContainer.scale.y = mag;
 
-    this.renderer.render(this.stage);
+    this._renderIfReady();
 
     if (typeof completionCallback === 'function') {
         completionCallback();
@@ -56,7 +56,7 @@
 
   CatsopResultsLayer.prototype.unregister = function () {
     this.stage.removeChild(this.batchContainer);
-    this.renderer.render(this.stage);
+    this._renderIfReady();
   };
 
   CatsopResultsLayer.prototype.setSolutionId = function (solutionId) {
