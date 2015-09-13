@@ -13,7 +13,7 @@
     this.radius = 3;
 
     if (!CATMAID.PixiLayer.contexts.get(this.stackViewer)) {
-      growlAlert('ERROR', 'CATSOP requires WebGL rendering. Enable WebGL from the settings widget and reload.');
+      CATMAID.msg('ERROR', 'CATSOP requires WebGL rendering. Enable WebGL from the settings widget and reload.');
       return;
     }
     CATMAID.PixiLayer.call(this);

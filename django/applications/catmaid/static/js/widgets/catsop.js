@@ -1,7 +1,6 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* global
   CATMAID,
-  growlAlert,
   InstanceRegistry,
   OffsetStack,
   openProjectStack,
@@ -241,13 +240,13 @@
           if (segments.length) {
             this.activateSegment(segments);
           } else if (json.slices.length) {
-            growlAlert('Information', 'No segments at location');
+            CATMAID.info('No segments at location');
             this.sliceRows = json.slices;
             this.segmentRows = [];
             this.updateSlices();
             this.updateSegments();
           } else {
-            growlAlert('Information', 'No slices at location');
+            CATMAID.info('No slices at location');
           }
         }).bind(this)));
   };
@@ -628,7 +627,7 @@
               'POST',
               {},
               CATMAID.jsonResponseHandler((function (json) {
-                growlAlert('Infomation', json.success);
+                CATMAID.info(json.success);
               }))
           );
         }).bind(this))
@@ -648,7 +647,7 @@
               'POST',
               {},
               CATMAID.jsonResponseHandler((function (json) {
-                growlAlert('Success', 'Assemblies generated for core ' + core.id);
+                CATMAID.msg('Success', 'Assemblies generated for core ' + core.id);
               }))
           );
         }).bind(this))
