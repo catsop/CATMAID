@@ -280,7 +280,7 @@
       while (colorStr.length < 6) { colorStr = '0' + colorStr; }
       colorStr = '#' + colorStr;
       if (region.text.style.fill !== colorStr) {
-        region.text.setStyle({fill: colorStr});
+        region.text.style.fill = colorStr;
       }
     }
 
