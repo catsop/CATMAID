@@ -301,11 +301,8 @@
       segmap.nodes.push(seg);
     });
 
-    this.sliceRows.forEach(function (slice) {
+    var layerSlices = this.sliceRows.map(function (slice) {
       slice.name = 'Sli:' + slice.hash;
-      self.layers.base.forEach(function (layer) {
-        layer.addSlice(slice, ['hidden']);
-      });
       segmap.nodes.push(slice);
       slice.breadth = 0;
       slice.segment_summaries.forEach(function (segsum) {
@@ -319,6 +316,10 @@
               source: match[0], target: slice, graphValue: self.graphValue(match[0], slice)});
         }
       });
+      return [slice, ['hidden']];
+    });
+    this.layers.base.forEach(function (layer) {
+      layer.addSlices(layerSlices);
     });
 
     var graphWidth = this.container.clientWidth,
@@ -527,7 +528,7 @@
     this.moveToSlice(rowIndex);
     var slice = this.sliceRows[rowIndex];
     this.layers.base.forEach(function (layer) {
-      layer.addSlice(slice, ['active']);
+      layer.addSlices([slice, ['active']]);
     });
 
     requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
@@ -537,15 +538,12 @@
         CATMAID.jsonResponseHandler((function (json) {
           var self = this;
           json.conflict.forEach(function (conflictSet) {
-            conflictSet
+            var conflictSetSlices = conflictSet
                 .map(self.getSliceRowByHash.bind(self))
-                .filter(function (s) {return s !== undefined;})
-                .forEach(function (conflictSlice) {
-                    if (conflictSlice.hash !== slice.hash) {
-                      self.layers.base.forEach(function (layer) {
-                        layer.addSlice(conflictSlice, ['conflict']);
-                      });
-                    }
+                .filter(function (s) {return s !== undefined && s.hash !== slice.hash;})
+                .map(function (s) {return [s.hash, ['conflict']];});
+            self.layers.base.forEach(function (layer) {
+              layer.addSlices(conflictSetSlices);
             });
           });
         }).bind(this)));

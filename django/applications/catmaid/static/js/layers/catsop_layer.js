@@ -105,7 +105,23 @@
 
   CatsopResultsLayer.Slices.prototype.clear = function () {
     CatsopResultsLayer.prototype.clear.call(this);
+    Object.keys(this.slices).forEach(function (hash) {
+      CATMAID.PixiContext.GlobalTextureManager.dec(
+          this.slices[hash].sprite.texture.baseTexture.source.getAttribute('src'));
+    }, this);
     this.slices = {};
+  };
+
+  CatsopResultsLayer.Slices.prototype.addSlices = function (slices) {
+    var sliceUrls = slices.map(function (slice) {
+      return slice[0].mask;
+    });
+
+    var boundAddSlice = this.addSlice.bind(this);
+
+    CATMAID.PixiContext.GlobalTextureManager.load(sliceUrls, function () {
+      slices.forEach(function (s) { boundAddSlice(s[0], s[1]); });
+    });
   };
 
   CatsopResultsLayer.Slices.prototype.addSlice = function (slice, statuses) {
@@ -116,6 +132,7 @@
     }
 
     var sprite = new PIXI.Sprite.fromImage(slice.mask);
+    CATMAID.PixiContext.GlobalTextureManager.inc(slice.mask);
     sprite.texture.once('update', this.redraw.bind(this));
     sprite.x = slice.box[0];
     sprite.y = slice.box[1];
@@ -192,19 +209,25 @@
             z: this.stackViewer.z
         },
         CATMAID.jsonResponseHandler((function (json) {
-          var czer = new Colorizer();
-          json.slices.forEach(function (slice) {
-            if (!(slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId))) return;
-
-            var sprite = self.addSlice(slice, ['in-solution']);
-            var assemblyId = slice.in_solution[self.solutionId];
-            if (!(assemblyId in CatsopResultsLayer.assemblyColors)) {
-              CatsopResultsLayer.assemblyColors[assemblyId] = czer.pickColor().getHex();
-            }
-
-            sprite.tint = CatsopResultsLayer.assemblyColors[assemblyId];
-          });
+          self.clear();
+          var solutionSlices = json.slices
+              .filter(function (slice) {
+                  return slice.in_solution && slice.in_solution.hasOwnProperty(self.solutionId);})
+              .map(function (slice) { return [slice, ['in-solution']]; });
+          self.addSlices(solutionSlices);
         })));
+  };
+
+  CatsopResultsLayer.Overlays.Assemblies.prototype.addSlice = function (slice, statuses) {
+    var sprite = CatsopResultsLayer.Slices.prototype.addSlice.call(this, slice, statuses);
+
+    var assemblyId = slice.in_solution[this.solutionId];
+    if (!(assemblyId in CatsopResultsLayer.assemblyColors)) {
+      CatsopResultsLayer.assemblyColors[assemblyId] = CatsopResultsLayer.colorizer.pickColor().getHex();
+    }
+
+    sprite.tint = CatsopResultsLayer.assemblyColors[assemblyId];
+    return sprite;
   };
 
   CatsopResultsLayer.Overlays.Assemblies.prototype.setSolutionId = function (solutionId) {
@@ -213,6 +236,7 @@
   };
 
   CatsopResultsLayer.assemblyColors = {};
+  CatsopResultsLayer.colorizer = new Colorizer();
 
 
   CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStackId, scale, solutionId) {
