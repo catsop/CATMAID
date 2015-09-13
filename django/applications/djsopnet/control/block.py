@@ -43,11 +43,9 @@ def generate_block_response(block):
 
 
 def generate_blocks_response(blocks):
-    if blocks is not None:
-        block_dicts = [block_dict(block) for block in blocks]
-        return HttpResponse(json.dumps({'ok': True, 'length': len(block_dicts), 'blocks': block_dicts}))
-    else:
-        return HttpResponse(json.dumps({'ok': True, 'length': 0}))
+    blocks = blocks or []
+    block_dicts = [block_dict(block) for block in blocks]
+    return HttpResponse(json.dumps({'ok': True, 'length': len(block_dicts), 'blocks': block_dicts}))
 
 
 def generate_core_response(core):
@@ -58,11 +56,9 @@ def generate_core_response(core):
 
 
 def generate_cores_response(cores):
-    if cores is not None:
-        core_dicts = [core_dict(core) for core in cores]
-        return HttpResponse(json.dumps({'length': len(core_dicts), 'cores' : core_dicts}))
-    else:
-        return HttpResponse(json.dumps({'length': 0}))
+    cores = cores or []
+    core_dicts = [core_dict(core) for core in cores]
+    return HttpResponse(json.dumps({'length': len(core_dicts), 'cores' : core_dicts}))
 
 
 def generate_block_info_response(block_info):

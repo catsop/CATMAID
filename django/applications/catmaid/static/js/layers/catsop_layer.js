@@ -304,7 +304,7 @@
             var region = json[self.regionType][0];
             self.z_lim = {min: region.box[2], max: region.box[5]};
           } else {
-            self.z_lim = null;
+            self.z_lim = {min: self.stackViewer.z, max: self.stackViewer.z + 1};
           }
 
           var regions = json[self.regionType].map(function (region) {
