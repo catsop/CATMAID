@@ -11,7 +11,7 @@ from django.templatetags.static import static
 
 from catmaid.control.authentication import requires_user_role
 from catmaid.models import UserRole
-from djsopnet.control.common import error_response, safe_split, hash_to_id, id_to_hash
+from djsopnet.control.common import safe_split, hash_to_id, id_to_hash
 from djsopnet.models import SegmentationStack
 
 
@@ -142,30 +142,28 @@ def retrieve_slices_by_blocks_and_conflict(request, project_id, segmentation_sta
     ConflictSet that is associated with those Blocks.
     """
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    try:
-        block_ids = ','.join([str(int(id)) for id in safe_split(request.POST.get('block_ids'), 'block IDs')])
 
-        cursor = connection.cursor()
-        cursor.execute(_slice_select_query(segmentation_stack_id, '''
-                SELECT sbr.slice_id
-                  FROM segstack_%(segstack_id)s.slice_block_relation sbr
-                  WHERE sbr.block_id IN (%(block_ids)s)
-                UNION SELECT scs_cbr_a.slice_a_id AS slice_id
-                  FROM segstack_%(segstack_id)s.block_conflict_relation bcr
-                  JOIN segstack_%(segstack_id)s.slice_conflict scs_cbr_a ON (scs_cbr_a.id = bcr.slice_conflict_id)
-                  WHERE bcr.block_id IN (%(block_ids)s)
-                UNION SELECT scs_cbr_b.slice_b_id AS slice_id
-                  FROM segstack_%(segstack_id)s.block_conflict_relation bcr
-                  JOIN segstack_%(segstack_id)s.slice_conflict scs_cbr_b ON (scs_cbr_b.id = bcr.slice_conflict_id)
-                  WHERE bcr.block_id IN (%(block_ids)s)
-                ''' % {'segstack_id': segstack.id, 'block_ids': block_ids}))
+    block_ids = ','.join([str(int(id)) for id in safe_split(request.POST.get('block_ids'), 'block IDs')])
 
-        slices = _slicecursor_to_namedtuple(cursor)
+    cursor = connection.cursor()
+    cursor.execute(_slice_select_query(segmentation_stack_id, '''
+            SELECT sbr.slice_id
+              FROM segstack_%(segstack_id)s.slice_block_relation sbr
+              WHERE sbr.block_id IN (%(block_ids)s)
+            UNION SELECT scs_cbr_a.slice_a_id AS slice_id
+              FROM segstack_%(segstack_id)s.block_conflict_relation bcr
+              JOIN segstack_%(segstack_id)s.slice_conflict scs_cbr_a ON (scs_cbr_a.id = bcr.slice_conflict_id)
+              WHERE bcr.block_id IN (%(block_ids)s)
+            UNION SELECT scs_cbr_b.slice_b_id AS slice_id
+              FROM segstack_%(segstack_id)s.block_conflict_relation bcr
+              JOIN segstack_%(segstack_id)s.slice_conflict scs_cbr_b ON (scs_cbr_b.id = bcr.slice_conflict_id)
+              WHERE bcr.block_id IN (%(block_ids)s)
+            ''' % {'segstack_id': segstack.id, 'block_ids': block_ids}))
 
-        return generate_slices_response(slices=slices,
-                with_conflicts=True, with_solutions=True)
-    except:
-        return error_response()
+    slices = _slicecursor_to_namedtuple(cursor)
+
+    return generate_slices_response(slices=slices,
+            with_conflicts=True, with_solutions=True)
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -223,58 +221,54 @@ def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
 def retrieve_slices_by_bounding_box(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
     bi = segstack.configuration.block_info
-    try:
-        zoom = 2**(-bi.scale)
-        min_x = int(float(request.POST.get('min_x', None))) * zoom
-        min_y = int(float(request.POST.get('min_y', None))) * zoom
-        max_x = int(float(request.POST.get('max_x', None))) * zoom
-        max_y = int(float(request.POST.get('max_y', None))) * zoom
-        z = int(float(request.POST.get('z', None)))
 
-        cursor = connection.cursor()
-        cursor.execute(_slice_select_query(segmentation_stack_id, '''
-                SELECT s.id AS slice_id
-                  FROM segstack_%(segstack_id)s.assembly_segment aseg
-                  JOIN segstack_%(segstack_id)s.solution_assembly sola
-                    ON sola.assembly_id = aseg.assembly_id
-                  JOIN segstack_%(segstack_id)s.solution_precedence sp
-                    ON sp.solution_id = sola.solution_id
-                  JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.segment_id = aseg.segment_id)
-                  JOIN segstack_%(segstack_id)s.slice s ON (s.id = ss.slice_id)
-                  WHERE s.section = %(z)s
-                    AND s.min_x <= %(max_x)s
-                    AND s.max_x >= %(min_x)s
-                    AND s.min_y <= %(max_y)s
-                    AND s.max_y >= %(min_y)s
-                ''' % {'segstack_id': segstack.id, 'z': z, 'max_x': max_x, 'min_x': min_x, 'max_y': max_y, 'min_y': min_y}))
+    zoom = 2**(-bi.scale)
+    min_x = int(float(request.POST.get('min_x', None))) * zoom
+    min_y = int(float(request.POST.get('min_y', None))) * zoom
+    max_x = int(float(request.POST.get('max_x', None))) * zoom
+    max_y = int(float(request.POST.get('max_y', None))) * zoom
+    z = int(float(request.POST.get('z', None)))
 
-        slices = _slicecursor_to_namedtuple(cursor)
+    cursor = connection.cursor()
+    cursor.execute(_slice_select_query(segmentation_stack_id, '''
+            SELECT s.id AS slice_id
+              FROM segstack_%(segstack_id)s.assembly_segment aseg
+              JOIN segstack_%(segstack_id)s.solution_assembly sola
+                ON sola.assembly_id = aseg.assembly_id
+              JOIN segstack_%(segstack_id)s.solution_precedence sp
+                ON sp.solution_id = sola.solution_id
+              JOIN segstack_%(segstack_id)s.segment_slice ss ON (ss.segment_id = aseg.segment_id)
+              JOIN segstack_%(segstack_id)s.slice s ON (s.id = ss.slice_id)
+              WHERE s.section = %(z)s
+                AND s.min_x <= %(max_x)s
+                AND s.max_x >= %(min_x)s
+                AND s.min_y <= %(max_y)s
+                AND s.max_y >= %(min_y)s
+            ''' % {'segstack_id': segstack.id, 'z': z, 'max_x': max_x, 'min_x': min_x, 'max_y': max_y, 'min_y': min_y}))
 
-        return generate_slices_response(slices=slices,
-                with_conflicts=True, with_solutions=True)
-    except:
-        return error_response()
+    slices = _slicecursor_to_namedtuple(cursor)
+
+    return generate_slices_response(slices=slices,
+            with_conflicts=True, with_solutions=True)
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_conflict_sets(request, project_id, segmentation_stack_id):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    try:
-        slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
 
-        cursor = connection.cursor()
-        cursor.execute('''
-            SELECT slice_a_id, slice_b_id
-            FROM segstack_%(segstack_id)s.slice_conflict
-            WHERE slice_a_id IN (%(slice_ids)s)
-              OR slice_b_id IN (%(slice_ids)s)
-            ''' % {'segstack_id': segstack.id, 'slice_ids': ','.join(map(str, slice_ids))})
-        conflicts = cursor.fetchall()
-        conflicts = [map(id_to_hash, conflict) for conflict in conflicts]
+    slice_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'slice hashes'))
 
-        return HttpResponse(json.dumps({'ok': True, 'conflict': conflicts}))
-    except:
-        return error_response()
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT slice_a_id, slice_b_id
+        FROM segstack_%(segstack_id)s.slice_conflict
+        WHERE slice_a_id IN (%(slice_ids)s)
+          OR slice_b_id IN (%(slice_ids)s)
+        ''' % {'segstack_id': segstack.id, 'slice_ids': ','.join(map(str, slice_ids))})
+    conflicts = cursor.fetchall()
+    conflicts = [map(id_to_hash, conflict) for conflict in conflicts]
+
+    return HttpResponse(json.dumps({'ok': True, 'conflict': conflicts}))
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])

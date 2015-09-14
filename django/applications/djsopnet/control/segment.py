@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404
 from catmaid.control.authentication import requires_user_role
 from catmaid.models import UserRole
 
-from djsopnet.control.common import error_response, safe_split, hash_to_id, id_to_hash
+from djsopnet.control.common import safe_split, hash_to_id, id_to_hash
 from djsopnet.control.slice import slice_dict, _retrieve_slices_by_ids, \
         _slicecursor_to_namedtuple, _slice_select_query
 from djsopnet.models import SegmentationStack
@@ -160,48 +160,46 @@ def retrieve_segment_and_conflicts(request, project_id, segmentation_stack_id):
     the same section.
     """
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    try:
-        segment_id = ','.join([str(hash_to_id(x)) for x in safe_split(request.POST.get('hash'), 'segment hashes')])
 
-        cursor = connection.cursor()
-        cursor.execute(('''
-                WITH req_seg_slices AS (
-                    SELECT slice_id FROM segstack_%(segstack_id)s.segment_slice
-                      WHERE segment_id IN (%(segment_id)s))
-                ''' % {'segstack_id': segmentation_stack_id, 'segment_id': segment_id}) + \
-                _slice_select_query(segmentation_stack_id, '''
-                        SELECT ss2.slice_id
-                            FROM segstack_%(segstack_id)s.segment_slice ss1
-                            JOIN segstack_%(segstack_id)s.segment ss1_seg
-                                ON (ss1.segment_id = ss1_seg.id
-                                    AND ss1_seg.section_sup = (
-                                        SELECT section_sup FROM segstack_%(segstack_id)s.segment
-                                        WHERE id IN (%(segment_id)s) LIMIT 1))
-                            JOIN segstack_%(segstack_id)s.segment_slice ss2
-                                ON (ss2.segment_id = ss1.segment_id)
-                            WHERE ss1.slice_id IN
-                                (SELECT slice_id FROM req_seg_slices
-                                UNION SELECT scs_a.slice_a_id AS slice_id
-                                  FROM segstack_%(segstack_id)s.slice_conflict scs_a, req_seg_slices
-                                  WHERE scs_a.slice_b_id = req_seg_slices.slice_id
-                                UNION SELECT scs_b.slice_b_id AS slice_id
-                                  FROM segstack_%(segstack_id)s.slice_conflict scs_b, req_seg_slices
-                                  WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
-                        ''' % {'segstack_id': segmentation_stack_id, 'segment_id': segment_id}))
+    segment_id = ','.join([str(hash_to_id(x)) for x in safe_split(request.POST.get('hash'), 'segment hashes')])
 
-        slices = _slicecursor_to_namedtuple(cursor)
+    cursor = connection.cursor()
+    cursor.execute(('''
+            WITH req_seg_slices AS (
+                SELECT slice_id FROM segstack_%(segstack_id)s.segment_slice
+                  WHERE segment_id IN (%(segment_id)s))
+            ''' % {'segstack_id': segmentation_stack_id, 'segment_id': segment_id}) + \
+            _slice_select_query(segmentation_stack_id, '''
+                    SELECT ss2.slice_id
+                        FROM segstack_%(segstack_id)s.segment_slice ss1
+                        JOIN segstack_%(segstack_id)s.segment ss1_seg
+                            ON (ss1.segment_id = ss1_seg.id
+                                AND ss1_seg.section_sup = (
+                                    SELECT section_sup FROM segstack_%(segstack_id)s.segment
+                                    WHERE id IN (%(segment_id)s) LIMIT 1))
+                        JOIN segstack_%(segstack_id)s.segment_slice ss2
+                            ON (ss2.segment_id = ss1.segment_id)
+                        WHERE ss1.slice_id IN
+                            (SELECT slice_id FROM req_seg_slices
+                            UNION SELECT scs_a.slice_a_id AS slice_id
+                              FROM segstack_%(segstack_id)s.slice_conflict scs_a, req_seg_slices
+                              WHERE scs_a.slice_b_id = req_seg_slices.slice_id
+                            UNION SELECT scs_b.slice_b_id AS slice_id
+                              FROM segstack_%(segstack_id)s.slice_conflict scs_b, req_seg_slices
+                              WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
+                    ''' % {'segstack_id': segmentation_stack_id, 'segment_id': segment_id}))
 
-        expanded_segment_ids = sum([
-            [summary['segment_id'] for summary in slice.segment_summaries]
-            for slice in slices if slice.segment_summaries], [])
+    slices = _slicecursor_to_namedtuple(cursor)
 
-        segments = _retrieve_segments_by_ids(segstack.id, expanded_segment_ids)
+    expanded_segment_ids = sum([
+        [summary['segment_id'] for summary in slice.segment_summaries]
+        for slice in slices if slice.segment_summaries], [])
 
-        segment_list = [segment_dict(segment, with_solution=True) for segment in segments]
-        slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices]
-        return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
-    except:
-        return error_response()
+    segments = _retrieve_segments_by_ids(segstack.id, expanded_segment_ids)
+
+    segment_list = [segment_dict(segment, with_solution=True) for segment in segments]
+    slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices]
+    return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
 
 
 def set_feature_names(request, project_id=None, stack_id=None):
@@ -226,8 +224,6 @@ def set_feature_names(request, project_id=None, stack_id=None):
             return HttpResponse(json.dumps({'ok': False,
                                             'reason' : 'something went horribly, horribly awry'}),
                                 content_type='text/json')
-    except:
-        return error_response()
 
 
 def retrieve_feature_names(request, project_id=None, stack_id=None):
@@ -239,42 +235,35 @@ def retrieve_feature_names(request, project_id=None, stack_id=None):
 
 def get_segment_features(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        segment_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'segment hashes'))
-        features = SegmentFeatures.objects.filter(segment__in=segment_ids)
-        return generate_features_response(features)
-    except:
-        return error_response()
+
+    segment_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'segment hashes'))
+    features = SegmentFeatures.objects.filter(segment__in=segment_ids)
+    return generate_features_response(features)
 
 
 def retrieve_segment_solutions(request, project_id=None, stack_id=None):
-    try:
-        segment_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'segment hashes'))
-        core_id = int(request.POST.get('core_id'))
-        solutions = SegmentSolution.objects.filter(core_id=core_id, segment__in=segment_ids)
+    segment_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'segment hashes'))
+    core_id = int(request.POST.get('core_id'))
+    solutions = SegmentSolution.objects.filter(core_id=core_id, segment__in=segment_ids)
 
-        solution_dicts = [{'hash': id_to_hash(solution.segment.id),
-                           'solution': solution.solution} for solution in solutions]
+    solution_dicts = [{'hash': id_to_hash(solution.segment.id),
+                       'solution': solution.solution} for solution in solutions]
 
-        return HttpResponse(json.dumps({'ok': True, 'solutions': solution_dicts}),
-                            content_type='text/json')
-    except:
-        return error_response()
+    return HttpResponse(json.dumps({'ok': True, 'solutions': solution_dicts}),
+                        content_type='text/json')
 
 
 def retrieve_block_ids_by_segments(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
-    try:
-        segment_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'segment hashes'))
 
-        segments = Segment.objects.filter(stack=s, id__in=segment_ids)
-        block_relations = SegmentBlockRelation.objects.filter(segment__in=segments)
-        blocks = {br.block for br in block_relations}
-        block_ids = [block.id for block in blocks]
+    segment_ids = map(hash_to_id, safe_split(request.POST.get('hash'), 'segment hashes'))
 
-        return HttpResponse(json.dumps({'ok': True, 'block_ids': block_ids}), content_type='text/json')
-    except:
-        return error_response()
+    segments = Segment.objects.filter(stack=s, id__in=segment_ids)
+    block_relations = SegmentBlockRelation.objects.filter(segment__in=segments)
+    blocks = {br.block for br in block_relations}
+    block_ids = [block.id for block in blocks]
+
+    return HttpResponse(json.dumps({'ok': True, 'block_ids': block_ids}), content_type='text/json')
 
 
 @requires_user_role(UserRole.Annotate)
@@ -291,8 +280,6 @@ def create_segment_for_slices(request, project_id, segmentation_stack_id):
         return HttpResponseBadRequest(json.dumps({'error': str(ve)}), content_type='application/json')
     except DuplicateSegmentException as dse:
         return HttpResponse(json.dumps({'error': str(dse)}), status=409, content_type='application/json')
-    except:
-        return error_response()
 
 
 class DuplicateSegmentException(Exception):
@@ -383,88 +370,83 @@ def _create_segment_for_slices(segmentation_stack_id, slice_ids, section_sup):
 @requires_user_role(UserRole.Annotate)
 def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
-    try:
-        segment_id = hash_to_id(segment_hash)
 
-        cursor = connection.cursor()
-        cursor.execute('SELECT 1 FROM segstack_%s.segment WHERE id = %s LIMIT 1' % (segstack.id, segment_id))
-        if cursor.rowcount == 0:
-            raise Http404('No segment exists with hash: %s id: %s' % (segment_hash, segment_id))
+    segment_id = hash_to_id(segment_hash)
 
-        cursor.execute('''
-                WITH solconstraint AS (
-                    INSERT INTO segstack_%(segstack_id)s.solution_constraint
-                        (user_id, relation, value, creation_time, edition_time) VALUES
-                        (%(user_id)s, 'Equal', 1.0, current_timestamp, current_timestamp)
-                        RETURNING id)
-                INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
-                    (segment_id, constraint_id, coefficient)
-                    (SELECT segment.id, solconstraint.id, 1.0
-                        FROM (VALUES (%(segment_id)s)) AS segment (id), solconstraint)
-                    RETURNING constraint_id;
-                ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'user_id': request.user.id})
-        constraint_id = cursor.fetchone()[0]
+    cursor = connection.cursor()
+    cursor.execute('SELECT 1 FROM segstack_%s.segment WHERE id = %s LIMIT 1' % (segstack.id, segment_id))
+    if cursor.rowcount == 0:
+        raise Http404('No segment exists with hash: %s id: %s' % (segment_hash, segment_id))
 
-        cursor.execute('''
-            INSERT INTO segstack_%(segstack_id)s.block_constraint_relation
-                (constraint_id, block_id)
-                (SELECT solconstraint.id, sbr.block_id
-                    FROM (VALUES (%(constraint_id)s)) AS solconstraint (id),
-                    (SELECT block_id FROM segstack_%(segstack_id)s.segment_block_relation
-                        WHERE segment_id = %(segment_id)s) AS sbr);
-            ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'constraint_id': constraint_id})
+    cursor.execute('''
+            WITH solconstraint AS (
+                INSERT INTO segstack_%(segstack_id)s.solution_constraint
+                    (user_id, relation, value, creation_time, edition_time) VALUES
+                    (%(user_id)s, 'Equal', 1.0, current_timestamp, current_timestamp)
+                    RETURNING id)
+            INSERT INTO segstack_%(segstack_id)s.constraint_segment_relation
+                (segment_id, constraint_id, coefficient)
+                (SELECT segment.id, solconstraint.id, 1.0
+                    FROM (VALUES (%(segment_id)s)) AS segment (id), solconstraint)
+                RETURNING constraint_id;
+            ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'user_id': request.user.id})
+    constraint_id = cursor.fetchone()[0]
 
-        # Mark explicitly conflicting segments (segments with slices in conflict
-        # sets with the constrained segment, or segments in the same section
-        # with slices in common with the constrained segment) as mistakes being
-        # corrected. The latter condition is needed to mark end segments, which
-        # may not involve a conflicting slice.
-        cursor.execute('''
-            WITH req_seg_slices AS (
-                SELECT slice_id, direction
-                FROM segstack_%(segstack_id)s.segment_slice
-                  WHERE segment_id = %(segment_id)s)
-            INSERT INTO segstack_%(segstack_id)s.correction (constraint_id, mistake_id)
-            SELECT c.id, conflict.segment_id
-            FROM (VALUES (%(constraint_id)s)) AS c (id),
-                (SELECT DISTINCT aseg.segment_id AS segment_id
-                    FROM segstack_%(segstack_id)s.solution_precedence sp
-                    JOIN segstack_%(segstack_id)s.solution_assembly sola
-                      ON sola.solution_id = sp.solution_id
-                    JOIN segstack_%(segstack_id)s.assembly_segment aseg
-                      ON (aseg.assembly_id = sola.assembly_id AND aseg.segment_id <> %(segment_id)s)
-                    JOIN segstack_%(segstack_id)s.segment_slice ss ON (aseg.segment_id = ss.segment_id)
-                    WHERE ss.slice_id IN (
-                            SELECT scs_a.slice_a_id AS slice_id
-                              FROM segstack_%(segstack_id)s.slice_conflict scs_a, req_seg_slices
-                              WHERE scs_a.slice_b_id = req_seg_slices.slice_id
-                            UNION SELECT scs_b.slice_b_id AS slice_id
-                              FROM segstack_%(segstack_id)s.slice_conflict scs_b, req_seg_slices
-                              WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
-                      OR ((ss.slice_id, ss.direction) IN (SELECT * FROM req_seg_slices)))
-                    AS conflict
-            ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'constraint_id': constraint_id})
+    cursor.execute('''
+        INSERT INTO segstack_%(segstack_id)s.block_constraint_relation
+            (constraint_id, block_id)
+            (SELECT solconstraint.id, sbr.block_id
+                FROM (VALUES (%(constraint_id)s)) AS solconstraint (id),
+                (SELECT block_id FROM segstack_%(segstack_id)s.segment_block_relation
+                    WHERE segment_id = %(segment_id)s) AS sbr);
+        ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'constraint_id': constraint_id})
 
-        return HttpResponse(json.dumps({'ok': True, 'constraint_id': constraint_id}), content_type='text/json')
-    except:
-        return error_response()
+    # Mark explicitly conflicting segments (segments with slices in conflict
+    # sets with the constrained segment, or segments in the same section
+    # with slices in common with the constrained segment) as mistakes being
+    # corrected. The latter condition is needed to mark end segments, which
+    # may not involve a conflicting slice.
+    cursor.execute('''
+        WITH req_seg_slices AS (
+            SELECT slice_id, direction
+            FROM segstack_%(segstack_id)s.segment_slice
+              WHERE segment_id = %(segment_id)s)
+        INSERT INTO segstack_%(segstack_id)s.correction (constraint_id, mistake_id)
+        SELECT c.id, conflict.segment_id
+        FROM (VALUES (%(constraint_id)s)) AS c (id),
+            (SELECT DISTINCT aseg.segment_id AS segment_id
+                FROM segstack_%(segstack_id)s.solution_precedence sp
+                JOIN segstack_%(segstack_id)s.solution_assembly sola
+                  ON sola.solution_id = sp.solution_id
+                JOIN segstack_%(segstack_id)s.assembly_segment aseg
+                  ON (aseg.assembly_id = sola.assembly_id AND aseg.segment_id <> %(segment_id)s)
+                JOIN segstack_%(segstack_id)s.segment_slice ss ON (aseg.segment_id = ss.segment_id)
+                WHERE ss.slice_id IN (
+                        SELECT scs_a.slice_a_id AS slice_id
+                          FROM segstack_%(segstack_id)s.slice_conflict scs_a, req_seg_slices
+                          WHERE scs_a.slice_b_id = req_seg_slices.slice_id
+                        UNION SELECT scs_b.slice_b_id AS slice_id
+                          FROM segstack_%(segstack_id)s.slice_conflict scs_b, req_seg_slices
+                          WHERE scs_b.slice_a_id = req_seg_slices.slice_id)
+                  OR ((ss.slice_id, ss.direction) IN (SELECT * FROM req_seg_slices)))
+                AS conflict
+        ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'constraint_id': constraint_id})
+
+    return HttpResponse(json.dumps({'ok': True, 'constraint_id': constraint_id}), content_type='text/json')
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def retrieve_user_constraints_by_blocks(request, project_id=None, stack_id=None):
-    try:
-        block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
-        cursor = connection.cursor()
-        cursor.execute('''
-            SELECT csr.constraint_id, array_agg(csr.segment_id) as segment_ids
-            FROM djsopnet_blockconstraintrelation bcr
-            JOIN djsopnet_constraintsegmentrelation csr
-                ON bcr.constraint_id = csr.constraint_id
-            WHERE bcr.block_id IN (%s)
-            GROUP BY csr.constraint_id
-            ''' % ','.join(map(str, block_ids)))
-        constraints = cursor.fetchall()
+    block_ids = [int(id) for id in safe_split(request.POST.get('block_ids'), 'block IDs')]
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT csr.constraint_id, array_agg(csr.segment_id) as segment_ids
+        FROM djsopnet_blockconstraintrelation bcr
+        JOIN djsopnet_constraintsegmentrelation csr
+            ON bcr.constraint_id = csr.constraint_id
+        WHERE bcr.block_id IN (%s)
+        GROUP BY csr.constraint_id
+        ''' % ','.join(map(str, block_ids)))
+    constraints = cursor.fetchall()
 
-        return HttpResponse(json.dumps({'ok': True, 'constraints': constraints}), content_type='text/json')
-    except:
-        return error_response()
+    return HttpResponse(json.dumps({'ok': True, 'constraints': constraints}), content_type='text/json')
