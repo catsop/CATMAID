@@ -16,9 +16,15 @@ before_install:
   - git clone https://github.com/catsop/python-sopnet.git
   - cd python-sopnet
   - git submodule update --init
-  - travis_retry sudo add-apt-repository --yes ppa:kalakris/cmake # PPA for cmake > precise 2.8.7
+  - travis_retry sudo add-apt-repository --yes ppa:purplekarrot/cmake # precise PPA for cmake > 3
+  - travis_retry sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test # precise PPA for GCC >= 4.8
+  - travis_retry sudo add-apt-repository --yes ppa:boost-latest/ppa # precise PPA for Boost >= 1.49
   - travis_retry sudo apt-get update -y -qq
-  - travis_retry sudo apt-get install cmake
+  - travis_retry sudo apt-get install cmake cmake-data
+  - travis_retry sudo apt-get install -qq g++-4.8
+  - export CXX="g++-4.8" CC="gcc-4.8"
+  # GCC crashes with more than one job because of travis memory limits.
+  - sed -i 's/make -j`[^`]*`/make -j1/g' compile_wrapper.sh
   - travis_retry sudo apt-get install -y -qq $(< packagelist-ubuntu-12.04-apt.txt)
   - python setup.py install
   - cd ..
