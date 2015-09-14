@@ -11,6 +11,7 @@
     "strict"        : false,    // true: Requires all functions run in ES5 Strict Mode
 
     // Relaxing
+    "esnext"        : true,     // true: Tolerate use of ECMAScript 6 specific syntax
     "evil"          : true,     // true: Tolerate use of `eval` and `new Function()`
     "funcscope"     : true,     // true: Tolerate defining variables inside control statements
     "globalstrict"  : true,     // true: Allow global "use strict" (also enables 'strict')
