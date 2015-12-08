@@ -424,7 +424,7 @@ class ViewPageTests(TestCase):
     def test_project_list(self):
         # Check that, pre-authentication, we can see none of the
         # projects:
-        response = self.client.get('/projects')
+        response = self.client.get('/projects/')
         self.assertEqual(response.status_code, 200)
         result = json.loads(response.content)
         self.assertEqual(len(result), 0)
@@ -436,23 +436,17 @@ class ViewPageTests(TestCase):
 
         # Check that, pre-authentication, we can see two of the
         # projects:
-        response = self.client.get('/projects')
+        response = self.client.get('/projects/')
         self.assertEqual(response.status_code, 200)
         result = json.loads(response.content)
         self.assertEqual(len(result), 1)
 
-        # Check the project:
-        options = result[0]['action']
-        self.assertEqual(len(options), 2)
-
         # Check stacks:
-        stacks = result[0]['action'][0]['action']
+        stacks = result[0]['stacks']
         self.assertEqual(len(stacks), 1)
-        stack = stacks['3']
-        self.assertTrue(re.search(r'javascript:openProjectStack\( *3, *3 *\)', stack['action']))
 
         # Check stacks groups
-        stackgroups = result[0]['action'][1]['action']
+        stackgroups = result[0]['stackgroups']
         self.assertEqual(len(stackgroups), 0)
 
         # Now log in and check that we see a different set of projects:
@@ -464,32 +458,141 @@ class ViewPageTests(TestCase):
             p = Project.objects.get(pk=pid)
             assign_perm('can_browse', test_user, p)
 
-        # We expect three projects, because there are no stacks linked to
-        # project 2. This API should therefore not return it.
-        response = self.client.get('/projects')
+        # We expect four projects, one of them (project 2) is empty.
+        response = self.client.get('/projects/')
         self.assertEqual(response.status_code, 200)
         result = json.loads(response.content)
-        self.assertEqual(len(result), 3)
+        self.assertEqual(len(result), 4)
 
         def get_project(result, pid):
-            rl = [r for r in result if r['pid'] == pid]
+            rl = [r for r in result if r['id'] == pid]
             if len(rl) != 1:
                 raise ValueError("Malformed result")
             return rl[0]
 
         # Check the first project:
-        stacks = get_project(result, 1)['action'][0]['action']
+        stacks = get_project(result, 1)['stacks']
         self.assertEqual(len(stacks), 1)
 
         # Check the second project:
-        stacks = get_project(result, 3)['action'][0]['action']
+        stacks = get_project(result, 3)['stacks']
         self.assertEqual(len(stacks), 1)
-        stack = stacks['3']
-        self.assertTrue(re.search(r'javascript:openProjectStack\( *3, *3 *\)', stack['action']))
 
         # Check the third project:
-        stacks = get_project(result, 5)['action'][0]['action']
+        stacks = get_project(result, 5)['stacks']
         self.assertEqual(len(stacks), 2)
+
+    def test_client_datastores(self):
+        url = '/client/datastores/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertTrue(parsed_response['permission_error'])
+
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertTrue(parsed_response['permission_error'])
+
+        # Test basic datastore creation.
+        self.fake_authentication()
+        name = 'test-  %% datastore'
+        response = self.client.post(url, {'name': name})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertTrue('error' in parsed_response)
+        name = 'test-datastore'
+        response = self.client.post(url, {'name': name})
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        parsed_response = [p for p in parsed_response if p['name'] == name]
+        self.assertEqual(len(parsed_response), 1)
+        response = self.client.delete(url + name)
+        self.assertEqual(response.status_code, 403)
+
+        # Create data entries.
+        url = url + name + '/'
+        response = self.client.put(
+                url,
+                urllib.urlencode({
+                    'key': 'test a',
+                    'value': '{"json": false'}),
+                content_type='application/x-www-form-urlencoded')
+        self.assertEqual(response.status_code, 400)
+        parsed_response = json.loads(response.content)
+        response = self.client.put(
+                url,
+                urllib.urlencode({
+                    'key': 'test a',
+                    'value': '{"json": true, "scope": "user-instance"}'}),
+                content_type='application/x-www-form-urlencoded')
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertFalse('error' in parsed_response)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertEqual(len(parsed_response), 1)
+        self.assertEqual(parsed_response[0]['key'], 'test a')
+
+        # Test that PUTting the same key replaces the value.
+        response = self.client.put(
+                url,
+                urllib.urlencode({
+                    'key': 'test a',
+                    'value': '{"json": true, "scope": "user-instance", "replaced": true}'}),
+                content_type='application/x-www-form-urlencoded')
+        self.assertEqual(response.status_code, 204)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertEqual(len(parsed_response), 1)
+        value = json.loads(parsed_response[0]['value'])
+        self.assertTrue(value['replaced'])
+
+        response = self.client.put(
+                url,
+                urllib.urlencode({
+                    'key': 'test a',
+                    'project_id': self.test_project_id,
+                    'value': '{"json": true, "scope": "user-project"}'}),
+                content_type='application/x-www-form-urlencoded')
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertFalse('error' in parsed_response)
+        # Omitting project ID should return only global and user-instance keys.
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertEqual(len(parsed_response), 1)
+        response = self.client.get(url, {'project_id': self.test_project_id})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        self.assertEqual(len(parsed_response), 2)
+        self.assertEqual(parsed_response[0]['key'], 'test a')
+        self.assertEqual(parsed_response[1]['key'], 'test a')
+
+        # Test that a non-admin user cannot change global data.
+        response = self.client.put(
+                url,
+                urllib.urlencode({
+                    'key': 'test a',
+                    'ignore_user': 'true',
+                    'value': '{"json": true, "scope": "global-instance"}'}),
+                content_type='application/x-www-form-urlencoded')
+        self.assertEqual(response.status_code, 403)
+
+        response = self.client.put(
+                url,
+                urllib.urlencode({
+                    'key': 'test a',
+                    'ignore_user': 'true',
+                    'project_id': self.test_project_id,
+                    'value': '{"json": true, "scope": "global-instance"}'}),
+                content_type='application/x-www-form-urlencoded')
+        self.assertEqual(response.status_code, 403)
 
     def test_rename_neuron(self):
         self.fake_authentication()
@@ -640,13 +743,6 @@ class ViewPageTests(TestCase):
         }
         parsed_response = json.loads(response.content)
         self.assertEqual(expected_result, parsed_response)
-
-    def test_multiple_treenodes(self):
-        pass
-        # self.fake_authentication()
-        # FIXME API does not exist anymore. Investigate
-        # response = self.client.get('/%d/multiple-presynaptic-terminals' % (self.test_project_id,))
-        # self.assertEqual(response.status_code, 200)
 
     def test_list_treenode_table_simple(self):
         self.fake_authentication()
@@ -2019,7 +2115,7 @@ class ViewPageTests(TestCase):
             '/%d/skeletons/connectivity' % (self.test_project_id,),
             {'source_skeleton_ids[0]': 235,
              'source_skeleton_ids[1]': 373,
-             'boolean_op': 'logic-OR'})
+             'boolean_op': 'OR'})
         self.assertEqual(response.status_code, 200)
         parsed_response = json.loads(response.content)
         expected_result = {
@@ -2027,6 +2123,21 @@ class ViewPageTests(TestCase):
             "outgoing": {"361": {"skids": {"235": [0, 0, 0, 0, 1]}, "num_nodes": 9},
                          "373": {"skids": {"235": [0, 0, 0, 0, 2]}, "num_nodes": 5}},
             "incoming": {"235": {"skids": {"373": [0, 0, 0, 0, 2]}, "num_nodes": 28}},
+            "incoming_reviewers": []}
+        self.assertEqual(expected_result, parsed_response)
+
+        # Test for conjunctive connectivity.
+        response = self.client.post(
+            '/%d/skeletons/connectivity' % (self.test_project_id,),
+            {'source_skeleton_ids[0]': 235,
+             'source_skeleton_ids[1]': 373,
+             'boolean_op': 'AND'})
+        self.assertEqual(response.status_code, 200)
+        parsed_response = json.loads(response.content)
+        expected_result = {
+            "outgoing_reviewers": [],
+            "outgoing": {},
+            "incoming": {},
             "incoming_reviewers": []}
         self.assertEqual(expected_result, parsed_response)
 

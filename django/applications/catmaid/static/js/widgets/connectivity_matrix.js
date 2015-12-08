@@ -42,7 +42,7 @@
    * Handle destruction of widget.
    */
   ConnectivityMatrixWidget.prototype.destroy = function() {
-    NeuronNameService.getInstance().unregister(this);
+    CATMAID.NeuronNameService.getInstance().unregister(this);
     this.content = null;
     this.rowDimension.destroy();
     this.colDimension.destroy();
@@ -78,14 +78,6 @@
           return o;
         }).bind(this), {});
 
-        // Create hidden select elements for row and column sources
-        var rowSelect = CATMAID.skeletonListSources.createSelect(this.rowDimension);
-        rowSelect.style.display = 'none';
-        tabs['Main'].appendChild(rowSelect);
-        var colSelect = CATMAID.skeletonListSources.createSelect(this.colDimension);
-        colSelect.style.display = 'none';
-        tabs['Main'].appendChild(colSelect);
-
         // This UI combines two skeleton source selects into one.
         tabs['Main'].appendChild(document.createTextNode('From'));
         var sourceSelect = CATMAID.skeletonListSources.createSelect(this,
@@ -95,6 +87,16 @@
           rowSelect.value = this.value;
           colSelect.value = this.value;
         };
+
+        // Create hidden select elements for row and column sources
+        var rowSelect = CATMAID.skeletonListSources.createSelect(this.rowDimension);
+        rowSelect.value = sourceSelect.value;
+        rowSelect.style.display = 'none';
+        tabs['Main'].appendChild(rowSelect);
+        var colSelect = CATMAID.skeletonListSources.createSelect(this.colDimension);
+        colSelect.value = sourceSelect.value;
+        colSelect.style.display = 'none';
+        tabs['Main'].appendChild(colSelect);
 
         // Indicates if loaded skeletons should be part of a group
         var loadAsGroup = false;
@@ -423,7 +425,7 @@
 
     // Update connectivity matrix and make sure all currently looked at
     // skeletons are known to the neuron name service.
-    var nns = NeuronNameService.getInstance();
+    var nns = CATMAID.NeuronNameService.getInstance();
     this.matrix.rowSkeletonIDs = this.rowDimension.getSelectedSkeletons();
     this.matrix.colSkeletonIDs = this.colDimension.getSelectedSkeletons();
     this.matrix.refresh()
@@ -867,7 +869,7 @@
     }
 
     var m = matrix.connectivityMatrix;
-    var nns = NeuronNameService.getInstance();
+    var nns = CATMAID.NeuronNameService.getInstance();
     var rowSums = [];
     var colSums = [];
 
@@ -1070,7 +1072,7 @@
       sort: function(desc, matrix, src, isRow, a, b) {
         // Compare against the group name, if a or b is a group,
         // otherwise use the name of the neuron name service.
-        var nns = NeuronNameService.getInstance();
+        var nns = CATMAID.NeuronNameService.getInstance();
         a = src.isGroup(a) ? a : nns.getName(a);
         b = src.isGroup(b) ? b : nns.getName(b);
         var c = CATMAID.tools.compareStrings('' + a, '' + b);

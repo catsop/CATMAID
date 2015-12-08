@@ -6,7 +6,6 @@
   error,
   fetchSkeletons,
   InstanceRegistry,
-  NeuronNameService,
   project,
   requestQueue,
   session,
@@ -73,7 +72,7 @@
     this.unregisterInstance();
     this.unregisterSource();
     this.space.destroy();
-    NeuronNameService.getInstance().unregister(this);
+    CATMAID.NeuronNameService.getInstance().unregister(this);
     Object.keys(this).forEach(function(key) { delete this[key]; }, this);
   };
 
@@ -91,6 +90,15 @@
       return this.space.content.skeletons[skeleton_id].skeletonmodel.clone();
     }
     return null;
+  };
+
+  WebGLApplication.prototype.getSkeletonModels = function() {
+    var skeletons = this.space.content.skeletons;
+    return Object.keys(skeletons).reduce(function(m, skid) {
+      var skeleton = skeletons[skid];
+      m[skid] = skeleton.skeletonmodel.clone();
+      return m;
+    }, {});
   };
 
   WebGLApplication.prototype.getSelectedSkeletonModels = function() {
@@ -335,7 +343,7 @@
     dialog.appendMessage('Adjust the catalog export settings to your liking.');
 
     // Create a new empty neuron name service that takes care of the sorting names
-    var ns = NeuronNameService.newInstance(true);
+    var ns = CATMAID.NeuronNameService.newInstance(true);
     var namingOptions = ns.getOptions();
     var namingOptionNames = namingOptions.map(function(o) { return o.name; });
     var namingOptionIds = namingOptions.map(function(o) { return o.id; });
@@ -1259,7 +1267,7 @@
 
 
     // Register with the neuron name service and fetch the skeleton data
-    NeuronNameService.getInstance().registerAll(this, models,
+    CATMAID.NeuronNameService.getInstance().registerAll(this, models,
       fetchSkeletons.bind(this,
           skeleton_ids,
           function(skeleton_id) {
@@ -2361,7 +2369,7 @@
           text.setAttribute('x', svg.viewBox.baseVal.x + 5);
           text.setAttribute('y', svg.viewBox.baseVal.y + fontsize + 5);
           text.setAttribute('style', 'font-family: Arial; font-size: ' + fontsize + 'px;');
-          var name = NeuronNameService.getInstance().getName(skid);
+          var name = CATMAID.NeuronNameService.getInstance().getName(skid);
           text.appendChild(document.createTextNode(name));
           svg.appendChild(text);
         }
@@ -2923,7 +2931,7 @@
 
     this.mesh.position.set(pos.x, pos.y, pos.z);
 
-    var overlay = SkeletonAnnotations.getSVGOverlay(SkeletonAnnotations.getActiveStackViewerId());
+    var overlay = SkeletonAnnotations.getTracingOverlay(SkeletonAnnotations.getActiveStackViewerId());
     var radius = overlay.nodes[SkeletonAnnotations.getActiveNodeId()].radius;
     CATMAID.tools.setXYZ(this.mesh.scale, radius > 0 ? radius : 40 * options.skeleton_node_scaling);
   };
@@ -3497,7 +3505,7 @@
             'varying float activeNodeDistanceDarkening;\n');
         this.line_material.insertSnippet(
             'fragmentColor',
-            'gl_FragColor = vec4(diffuse * activeNodeDistanceDarkening, opacity);\n');
+            'gl_FragColor = vec4(outgoingLight * activeNodeDistanceDarkening, diffuseColor.a);\n');
 
         this.line_material.addUniforms({
             u_activeNodePosition: { type: 'v3', value: SkeletonAnnotations.getActiveNodeProjectVector3() },
@@ -3520,7 +3528,7 @@
         node_weights = {};
         if (!this.axon) {
           // Not computable
-          console.log("Shading '" + options.shading_method + "' not computable for skeleton ID #" + this.id + ", neuron named: " + NeuronNameService.getInstance().getName(this.id) + ". The axon is missing.");
+          console.log("Shading '" + options.shading_method + "' not computable for skeleton ID #" + this.id + ", neuron named: " + CATMAID.NeuronNameService.getInstance().getName(this.id) + ". The axon is missing.");
         } else {
           // Prune artifactual branches
           if (this.tags['not a branch']) {
@@ -3537,7 +3545,7 @@
             var cuts = arbor.approximateTwigRoots(options.strahler_cut);
             if (cuts && cuts.length > 0) {
               upstream = arbor.upstreamArbor(cuts);
-              CATMAID.msg("Approximating dendritic backbone", "By strahler number " + options.strahler_cut + ", neuron: " + NeuronNameService.getInstance().getName(this.id));
+              CATMAID.msg("Approximating dendritic backbone", "By strahler number " + options.strahler_cut + ", neuron: " + CATMAID.NeuronNameService.getInstance().getName(this.id));
             }
           }
           node_weights = {};
@@ -4732,7 +4740,7 @@
     var docURL = CATMAID.makeDocURL('user_faq.html#faq-3dviewer-webm');
     dialog.appendHTML('Note: you can convert the resulting WebM file to ' +
         'other formats. Have a look at the <a href="' + docURL +
-        '">documentation</a> for more information.');
+        '" target="_blank">documentation</a> for more information.');
 
     dialog.onOK = handleOK.bind(this);
 
@@ -5011,7 +5019,7 @@
           }
         }
 
-        rows.push([skid, NeuronNameService.getInstance().getName(skid), count]);
+        rows.push([skid, CATMAID.NeuronNameService.getInstance().getName(skid), count]);
       }, this);
 
 
@@ -5074,7 +5082,7 @@
       replacement: 'void main() {'},
     fragmentColor: {
       shader: 'fragment',
-      regex: /gl_FragColor\s*=\s*vec4\(\s*diffuse,\s*opacity\s*\);/,
+      regex: /gl_FragColor\s*=\s*vec4\(\s*outgoingLight,\s*diffuseColor\.a\s*\);/,
       replacement: ''}
   };
 

@@ -6,6 +6,8 @@ from django.views.generic import TemplateView
 from rest_framework_swagger.urlparser import UrlParser
 
 from catmaid.views import CatmaidView, ExportWidgetView
+from catmaid.control.client import ClientDataList, \
+                                   ClientDatastoreDetail, ClientDatastoreList
 from catmaid.control.suppressed_virtual_treenode import SuppressedVirtualTreenodeDetail, SuppressedVirtualTreenodeList
 
 
@@ -60,9 +62,16 @@ urlpatterns += patterns('catmaid.control.message',
     (r'^messages/latestunreaddate', 'get_latest_unread_date'),
 )
 
+# CATMAID client datastore and data access
+urlpatterns += patterns('catmaid.control.client',
+    (r'^client/datastores/$', ClientDatastoreList.as_view()),
+    (r'^client/datastores/(?P<name>[\w-]+)$', ClientDatastoreDetail.as_view()),
+    (r'^client/datastores/(?P<name>[\w-]+)/$', ClientDataList.as_view()),
+)
+
 # General project model access
 urlpatterns += patterns('catmaid.control.project',
-    (r'^projects$', 'projects'),
+    (r'^projects/$', 'projects'),
 )
 
 # General stack model access
@@ -448,7 +457,7 @@ urlpatterns += patterns('catmaid.control',
 
 # Patterns for FlyTEM access
 urlpatterns += patterns('catmaid.control.flytem',
-    (r'^flytem/projects$', 'project.projects'),
+    (r'^flytem/projects/$', 'project.projects'),
     (r'^(?P<project_id>.+)/user/reviewer-whitelist$', 'review.reviewer_whitelist'),
     (r'^flytem/(?P<project_id>.+)/stack/(?P<stack_id>.+)/info$', 'stack.stack_info'),
     (r'^flytem/(?P<project_id>.+)/stacks$', 'stack.stacks'),
@@ -456,7 +465,7 @@ urlpatterns += patterns('catmaid.control.flytem',
 
 # Patterns for DVID access
 urlpatterns += patterns('catmaid.control.dvid',
-    (r'^dvid/projects$', 'project.projects'),
+    (r'^dvid/projects/$', 'project.projects'),
     (r'^(?P<project_id>.+)/user/reviewer-whitelist$', 'review.reviewer_whitelist'),
     (r'^dvid/(?P<project_id>.+)/stack/(?P<stack_id>.+)/info$', 'stack.stack_info'),
     (r'^dvid/(?P<project_id>.+)/stacks$', 'stack.stacks'),
