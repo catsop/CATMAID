@@ -1,6 +1,6 @@
 .. _alternative-install:
 
-Setting up Nginx for CATMAID
+Setting Up Nginx for CATMAID
 ============================
 
 Of course, using Apache and its WSGI module (mod_wsgi) is not the only
@@ -68,7 +68,7 @@ following, a Nginx configuration is provided to give access to CATMAID:
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           # This lets Django know which protocol was used to connect and also
           # overrides the header a client who fakes it.
-          proxy_set_header X-Forwarded-Protocol $scheme;
+          proxy_set_header X-Forwarded-Proto $scheme;
       }
   }
 

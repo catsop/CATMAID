@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib.gis.db import models as spatial_models
 from django.db import models
 from django.db.models import Q
 from django.db.models.signals import pre_save, post_save, post_syncdb
@@ -49,6 +50,18 @@ class Project(models.Model):
     def __unicode__(self):
         return self.title
 
+def on_project_save(sender, instance, created, **kwargs):
+    """ Make sure all required classes and relations are set up.
+    """
+    if created and sender == Project:
+        from control.project import validate_project_setup
+        from catmaid import get_system_user
+        user = get_system_user()
+        validate_project_setup(instance.id, user.id)
+
+# Validate project when they are saved
+post_save.connect(on_project_save, sender=Project)
+
 class Stack(models.Model):
     class Meta:
         db_table = "stack"
@@ -75,7 +88,17 @@ class Stack(models.Model):
     tile_height = models.IntegerField(default=256,
             help_text="The height of one tile.")
     tile_source_type = models.IntegerField(default=1,
-            help_text="This represents how the tile data is organized.")
+            choices=((1, '1: File-based image stack'),
+                     (2, '2: Request query-based image stack'),
+                     (3, '3: HDF5 via CATMAID backend'),
+                     (4, '4: File-based image stack with zoom level directories'),
+                     (5, '5: Directory-based image stack'),
+                     (6, '6: DVID imageblk voxels'),
+                     (7, '7: Render service'),
+                     (8, '8: DVID imagetile tiles')),
+            help_text='This represents how the tile data is organized. '
+            'See <a href="http://catmaid.org/tile_sources.html">tile source '
+            'conventions documentation</a>.')
     metadata = models.TextField(default='', blank=True,
             help_text="Arbitrary text that is displayed alongside the stack.")
     tags = TaggableManager(blank=True)
@@ -440,6 +463,14 @@ class Treenode(UserFocusedModel):
     skeleton = models.ForeignKey(ClassInstance)
 
 
+class SuppressedVirtualTreenode(UserFocusedModel):
+    class Meta:
+        db_table = "suppressed_virtual_treenode"
+    child = models.ForeignKey(Treenode)
+    location_coordinate = models.FloatField()
+    orientation = models.SmallIntegerField(choices=((0, 'z'), (1, 'y'), (2, 'x')))
+
+
 class Connector(UserFocusedModel):
     class Meta:
         db_table = "connector"
@@ -471,6 +502,7 @@ class ConnectorClassInstance(UserFocusedModel):
 class TreenodeConnector(UserFocusedModel):
     class Meta:
         db_table = "treenode_connector"
+        unique_together = (('project', 'treenode', 'connector', 'relation'),)
     # Repeat the columns inherited from 'relation_instance'
     relation = models.ForeignKey(Relation)
     # Now new columns:
@@ -504,6 +536,18 @@ class ReviewerWhitelist(models.Model):
     user = models.ForeignKey(User)
     reviewer = models.ForeignKey(User, related_name='+')
     accept_after = models.DateTimeField(default=datetime.min)
+
+class Volume(UserFocusedModel):
+    """A three-dimensional volume in project space. Implemented as PostGIS
+    Geometry type.
+    """
+    editor = models.ForeignKey(User, related_name='editor', db_column='editor_id')
+    name = models.CharField(max_length=255)
+    comment = models.TextField(blank=True, null=True)
+    # GeoDjango-specific: a geometry field with PostGIS-specific 3 dimensions.
+    geometry = spatial_models.GeometryField(dim=3, srid=0)
+    # Override default manager with a GeoManager instance
+    objects = spatial_models.GeoManager()
 
 class RegionOfInterest(UserFocusedModel):
     class Meta:
@@ -664,6 +708,52 @@ class CardinalityRestriction(models.Model):
         else:
             raise Exception("Unsupported cardinality type.")
 
+class StackClassInstance(models.Model):
+    class Meta:
+        db_table = "stack_class_instance"
+    # Repeat the columns inherited from 'relation_instance'
+    user = models.ForeignKey(User)
+    creation_time = models.DateTimeField(default=datetime.now)
+    edition_time = models.DateTimeField(default=datetime.now)
+    project = models.ForeignKey(Project)
+    relation = models.ForeignKey(Relation)
+    # Now new columns:
+    stack = models.ForeignKey(Stack)
+    class_instance = models.ForeignKey(ClassInstance)
+
+
+class StackStackGroupManager(models.Manager):
+    """A manager that will return only objects (expected to be class instances)
+    that have their class attribute set to 'stackgroup'"""
+
+    def get_queryset(self):
+        return super(StackStackGroupManager, self).get_queryset().filter(
+            class_instance__class_column__class_name='stackgroup')
+
+
+class StackStackGroup(StackClassInstance):
+    objects = StackStackGroupManager()
+    class Meta:
+        proxy=True
+
+
+class StackGroupManager(models.Manager):
+    """A manager that will return only objects (expected to be class instances)
+    that have their class attribute set to 'stackgroup'"""
+
+    def get_queryset(self):
+        return super(StackGroupManager, self).get_queryset().filter(
+            class_column__class_name='stackgroup')
+
+
+class StackGroup(ClassInstance):
+    objects = StackGroupManager()
+    class Meta:
+        proxy=True
+
+    def __unicode__(self):
+        return self.name
+
 # ------------------------------------------------------------------------
 # Now the non-Django tables:
 
@@ -791,6 +881,8 @@ class UserProfile(models.Model):
         default=settings.PROFILE_PREFER_WEBGL_LAYERS)
     use_cursor_following_zoom = models.BooleanField(
         default=settings.PROFILE_USE_CURSOR_FOLLOWING_ZOOM)
+    tile_linear_interpolation = models.BooleanField(
+        default=settings.PROFILE_TILE_LINEAR_INTERPOLATION)
 
     def __unicode__(self):
         return self.user.username
@@ -815,6 +907,7 @@ class UserProfile(models.Model):
         pdict['tracing_overlay_scale'] = self.tracing_overlay_scale
         pdict['prefer_webgl_layers'] = self.prefer_webgl_layers
         pdict['use_cursor_following_zoom'] = self.use_cursor_following_zoom
+        pdict['tile_linear_interpolation'] = self.tile_linear_interpolation
         return pdict
 
     # Fix a problem with duplicate keys when new users are added.

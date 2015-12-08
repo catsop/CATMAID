@@ -1,6 +1,6 @@
 .. _administering:
 
-Administering a CATMAID instance
+Administering a CATMAID Instance
 ================================
 
 This section presents information on how to update a running CATMAID
@@ -41,7 +41,7 @@ Activate the `virtualenv`::
 
 Update Python packages::
 
-   pip install -r pip-frozen
+   pip install -r requirements.txt
 
 Synchronize the Django environment with the database::
 
@@ -57,6 +57,11 @@ start the database migration. If you don't need it anymore, you can also
 clone the virtualenv by calling::
 
    deactivate
+
+.. note::
+
+   Updating PostGIS on your host system could cause CATMAID to stop working. See
+   :ref:`here <faq-postgis-update-problems>` for how to fix this.
 
 Backup an restore the database
 ------------------------------

@@ -6,7 +6,7 @@ var ClassificationEditor = new function()
     var display_previews = true;
     var display_edit_tools = true;
     var workspace_pid;
-    var bboxtool = new BoxSelectionTool();
+    var bboxtool = new CATMAID.BoxSelectionTool();
     // Offsets for the image preview when hovering a
     // ROI indication icon.
     var preview_x_offset = 0;
@@ -458,7 +458,7 @@ var ClassificationEditor = new function()
     this.link_roi = function(tree_id, node_id) {
         // Open Roi tool and register it with current stack. Bind own method
         // to apply button.
-        var tool = new RoiTool();
+        var tool = new CATMAID.RoiTool();
         tool.button_roi_apply.onclick = function() {
             // Collect relevant information
             var cb = tool.getCropBox();
@@ -489,7 +489,7 @@ var ClassificationEditor = new function()
         };
 
         // Open the navigator tool as replacement
-        project.setTool( new Navigator() );
+        project.setTool( new CATMAID.Navigator() );
 
         // Create a cancel button
         var cancel_button = document.createElement("div");
@@ -498,7 +498,7 @@ var ClassificationEditor = new function()
         cancel_link.setAttribute("class", "button");
         cancel_link.onclick = function()
         {
-            project.setTool( new Navigator() );
+            project.setTool( new CATMAID.Navigator() );
         };
         var cancel_img = document.createElement("img");
         cancel_img.setAttribute("src", STATIC_URL_JS + "images/cancel.gif");
@@ -613,7 +613,7 @@ var ClassificationEditor = new function()
                                 bboxtool.destroy();
                             };
                             // set tool to navigator
-                            project.setTool( new Navigator() );
+                            project.setTool( new CATMAID.Navigator() );
                         }
                     };
                     openProjectStack( roi.project_id, roi.stack_id, callback);

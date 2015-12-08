@@ -5,9 +5,7 @@
   NeuronNameService,
   project,
   requestQueue,
-  SelectionTable,
   SkeletonAnnotations,
-  User,
   userprofile,
   WindowMaker
 */
@@ -25,111 +23,13 @@
    */
   SettingsWidget.prototype.init = function(space)
   {
-    /**
-     * Helper function to create a collapsible settings container.
-     */
-    var addSettingsContainer = function(parent, name, closed)
-    {
-      var content = $('<div/>').addClass('content');
-      if (closed) {
-        content.css('display', 'none');
-      }
-      var sc = $('<div/>')
-        .addClass('settings-container')
-        .append($('<p/>')
-          .addClass('title')
-          .append($('<span/>')
-            .addClass(closed ? 'extend-box-closed' : 'extend-box-open'))
-          .append(name))
-        .append(content);
-
-      $(parent).append(sc);
-
-      return content;
-    };
-
-    /**
-     * Create a container for help text.
-     */
-    var createHelpText = function(text)
-    {
-      return $('<div/>').addClass('help').append(text);
-    };
-
-    /**
-     * Helper function to add a labeled control.
-     */
-    var createLabeledControl = function(name, control, helptext)
-    {
-      var label = $('<label/>')
-        .append($('<span/>')
-          .addClass('description')
-          .append(name))
-        .append(control);
-
-      if (helptext) {
-        label.append(createHelpText(helptext));
-      }
-
-      return $('<div/>').addClass('setting').append(label);
-    };
-
-    /**
-     * Helper function to create a checkbox with label.
-     */
-    var createCheckboxSetting = function(name, checked, helptext, handler)
-    {
-      var cb = $('<input/>').attr('type', 'checkbox');
-      if (checked) {
-        cb.prop('checked', checked);
-      }
-      if (handler) {
-        cb.change(handler);
-      }
-      var label = $('<div/>')
-        .addClass('setting checkbox-row')
-        .append($('<label/>').append(cb).append(name));
-
-      if (helptext) {
-        label.append(createHelpText(helptext));
-      }
-
-      return label;
-    };
-
-    /**
-     * Helper function to create a text input field with label.
-     */
-    var createInputSetting = function(name, val, helptext, handler)
-    {
-      var input = $('<input/>').attr('type', 'text').val(val);
-      if (handler) {
-        input.change(handler);
-      }
-      return createLabeledControl(name, input, helptext);
-    };
-
-    /**
-     * Helper function to create a set of radio buttons.
-     */
-    var createRadioSetting = function(name, values, helptext, handler)
-    {
-      return values.reduce(function (cont, val) {
-        return cont.append(createLabeledControl(val.desc, $('<input />').attr({
-            type: 'radio',
-            name: name,
-            id: val.id,
-            value: val.id
-        }, helptext).prop('checked', val.checked).change(handler)));
-      }, $('<div />'));
-    };
 
     /**
      * Adds general settings to the given container.
      */
     var addGeneralSettings = function(container)
     {
-      var ds = addSettingsContainer(container, "General settings");
+      var ds = CATMAID.DOM.addSettingsContainer(container, "General settings");
 
       var msgPosition = $('<select/>');
       var positionOptions = [
@@ -144,7 +44,7 @@
         this.append(new Option(o.name, o.id));
       }, msgPosition);
 
-      ds.append(createLabeledControl('Message position', msgPosition,
+      ds.append(CATMAID.DOM.createLabeledControl('Message position', msgPosition,
             'Choose where on the screen messages should be displayed. By ' +
             'default they are displayed in the upper right corner'));
       msgPosition.on('change', function(e) {
@@ -163,9 +63,9 @@
         this.append(new Option(o.name, o.id, selected, selected));
       }, hoverBehavior);
 
-      ds.append(createLabeledControl('Window hover behavior', hoverBehavior,
-            'Select if and how focus should change when the mouse pointer ' +
-            'moves over a window.'));
+      ds.append(CATMAID.DOM.createLabeledControl('Window hover behavior',
+            hoverBehavior, 'Select if and how focus should change when the ' +
+            'mouse pointer moves over a window.'));
       hoverBehavior.on('change', function(e) {
         CATMAID.focusBehavior = parseInt(this.value, 10);
       });
@@ -176,9 +76,9 @@
      */
     var addTileLayerSettings = function(container)
     {
-      var ds = addSettingsContainer(container, "Stack view");
+      var ds = CATMAID.DOM.addSettingsContainer(container, "Stack view");
 
-      ds.append(createCheckboxSetting("Invert mouse wheel",
+      ds.append(CATMAID.DOM.createCheckboxSetting("Invert mouse wheel",
         userprofile.inverse_mouse_wheel, null, function() {
           userprofile.inverse_mouse_wheel = this.checked;
           userprofile.saveAll(function () {
@@ -186,7 +86,7 @@
           });
         }));
 
-      ds.append(createCheckboxSetting("Display reference lines",
+      ds.append(CATMAID.DOM.createCheckboxSetting("Display reference lines",
         userprofile.display_stack_reference_lines, "Show a faint horizontal " +
         "and vertical line that meet at the current view's center.",
         function() {
@@ -200,7 +100,7 @@
         }));
 
       // Cursor following zoom
-      ds.append(createCheckboxSetting("Use cursor following zoom",
+      ds.append(CATMAID.DOM.createCheckboxSetting("Use cursor following zoom",
         userprofile.use_cursor_following_zoom, "Choose whether zooming " +
         "follows the position of the cursor (checked) or the center of the " +
         "stack view (unchecked).",
@@ -212,7 +112,7 @@
         }));
 
       // WebGL layers
-      ds.append(createCheckboxSetting("Prefer WebGL Layers",
+      ds.append(CATMAID.DOM.createCheckboxSetting("Prefer WebGL Layers",
         userprofile.prefer_webgl_layers,
         'Choose whether to use WebGL or Canvas tile layer rendering when ' +
         'supported by your tile source and browser. Note that your tile ' +
@@ -225,6 +125,34 @@
             CATMAID.msg('Success', 'User profile updated successfully.');
           });
         }));
+
+      // Tile interpolation
+      var tileInterpolation = $('<select/>');
+      var interpolationModes = [
+        {name: 'Smoothly blur pixels (linear)', id: 'linear'},
+        {name: 'Keep images pixelated (nearest)', id: 'nearest'}
+      ];
+      interpolationModes.forEach(function(o) {
+        var selected = (o.id === (userprofile.tile_linear_interpolation ? 'linear' : 'nearest'));
+        this.append(new Option(o.name, o.id, selected, selected));
+      }, tileInterpolation);
+
+      ds.append(CATMAID.DOM.createLabeledControl('Image tile interpolation',
+            tileInterpolation, 'Choose how to interpolate pixel values when ' +
+            'image tiles are magnified.'));
+      tileInterpolation.on('change', function(e) {
+        userprofile.tile_linear_interpolation = this.value === 'linear';
+        userprofile.saveAll(function () {
+          CATMAID.msg('Success', 'User profile updated successfully.');
+        });
+        project.getStackViewers().forEach(function (stackViewer) {
+          stackViewer.getLayers().forEach(function (layer) {
+            if (layer instanceof CATMAID.TileLayer) {
+              layer.setInterpolationMode(userprofile.tile_linear_interpolation);
+            }
+          });
+        });
+      });
     };
 
     /*
@@ -232,13 +160,13 @@
      */
     var addGridSettings = function(container)
     {
-      var ds = addSettingsContainer(container, "Grid overlay");
+      var ds = CATMAID.DOM.addSettingsContainer(container, "Grid overlay");
       // Grid cell dimensions and offset
-      var gridCellWidth = createInputSetting("Grid width (nm)", 1000);
-      var gridCellHeight = createInputSetting("Grid height (nm)", 1000);
-      var gridCellXOffset = createInputSetting("X offset (nm)", 0);
-      var gridCellYOffset = createInputSetting("Y offset (nm)", 0);
-      var gridLineWidth = createInputSetting("Line width (px)", 1);
+      var gridCellWidth = CATMAID.DOM.createInputSetting("Grid width (nm)", 1000);
+      var gridCellHeight = CATMAID.DOM.createInputSetting("Grid height (nm)", 1000);
+      var gridCellXOffset = CATMAID.DOM.createInputSetting("X offset (nm)", 0);
+      var gridCellYOffset = CATMAID.DOM.createInputSetting("Y offset (nm)", 0);
+      var gridLineWidth = CATMAID.DOM.createInputSetting("Line width (px)", 1);
       var getGridOptions = function() {
         return {
           cellWidth: parseInt($("input", gridCellWidth).val()),
@@ -249,7 +177,7 @@
         };
       };
       // General grid visibility
-      $(ds).append(createCheckboxSetting("Show grid on open stacks", false, null,
+      $(ds).append(CATMAID.DOM.createCheckboxSetting("Show grid on open stacks", false, null,
           function() {
             // Add a grid layer to all open stacks
             if (this.checked) {
@@ -298,7 +226,7 @@
 
     var addTracingSettings = function(container)
     {
-      var ds = addSettingsContainer(container, "Annotations");
+      var ds = CATMAID.DOM.addSettingsContainer(container, "Annotations");
       // Add explanatory text
       ds.append($('<div/>').addClass('setting').append("Many widgets of " +
           "the tracing tool display neurons in one way or another. This " +
@@ -308,7 +236,7 @@
           "You can add different representations to a fallback list, in case " +
           "a desired representation isn't available for a neuron."));
 
-      ds.append(createCheckboxSetting("Append Skeleton ID",
+      ds.append(CATMAID.DOM.createCheckboxSetting("Append Skeleton ID",
         NeuronNameService.getInstance().getAppendSkeletonId(), null, function() {
           NeuronNameService.getInstance().setAppendSkeletonId(this.checked);
        }));
@@ -319,7 +247,7 @@
       namingOptions.forEach(function(o) {
         this.append(new Option(o.name, o.id));
       }, select);
-      ds.append(createLabeledControl('Neuron label', select));
+      ds.append(CATMAID.DOM.createLabeledControl('Neuron label', select));
 
       // Create 'Add' button and fallback list
       var fallbackList = $('<select/>').addClass('multiline').attr('size', '4')[0];
@@ -367,9 +295,9 @@
           updateFallbackList();
         }
       });
-      ds.append(createLabeledControl('', addButton));
-      ds.append(createLabeledControl('', fallbackList));
-      ds.append(createLabeledControl('', removeButton));
+      ds.append(CATMAID.DOM.createLabeledControl('', addButton));
+      ds.append(CATMAID.DOM.createLabeledControl('', fallbackList));
+      ds.append(CATMAID.DOM.createLabeledControl('', removeButton));
 
       var updateFallbackList = function() {
         $(fallbackList).empty();
@@ -395,7 +323,30 @@
 
 
       // Overlay settings
-      ds = addSettingsContainer(container, "Tracing Overlay");
+      ds = CATMAID.DOM.addSettingsContainer(container, "Tracing Overlay");
+
+
+      // Active node radius display.
+      var atnRadiusEnabled = project.getStackViewers().every(function(sv) {
+        var overlay = SkeletonAnnotations.getSVGOverlay(sv.getId());
+        return overlay ? overlay.showActiveNodeRadius : true;
+      });
+      var atnRadiusCb = CATMAID.DOM.createCheckboxSetting(
+          "Display radius for active node",
+          atnRadiusEnabled,
+          "Show a radius circle around the active node if its radius is set.",
+          function () {
+            var checked = this.checked;
+            project.getStackViewers().every(function(sv) {
+              var overlay = SkeletonAnnotations.getSVGOverlay(sv.getId());
+              if (overlay) {
+                overlay.setActiveNodeRadiusVisibility(checked);
+              }
+            });
+          });
+      ds.append(atnRadiusCb);
+
+
       // Add explanatory text
       ds.append($('<div/>').addClass('setting').append("Choose how nodes, " +
           "edges, connectors, and labels are scaled in the tracing overlay. " +
@@ -404,7 +355,7 @@
           "will not appear correctly in the stack view until you zoom, switch " +
           "sections or pan.)"));
 
-      ds.append(createRadioSetting('overlay-scaling', [
+      ds.append(CATMAID.DOM.createRadioSetting('overlay-scaling', [
           {id: 'overlay-scaling-screen', desc: 'Fixed screen size',
               checked: userprofile.tracing_overlay_screen_scaling},
           {id: 'overlay-scaling-stack', desc: 'Fixed stack size',
@@ -414,7 +365,7 @@
         project.getStackViewers().forEach(function (s) {s.redraw();});
       }).addClass('setting'));
 
-      ds.append(createLabeledControl(
+      ds.append(CATMAID.DOM.createLabeledControl(
           $('<span>Size adjustment: <span id="overlay-scale-value">' +
               (userprofile.tracing_overlay_scale*100).toFixed() + '</span>%</span>'),
           $('<div id="overlay-scaling-slider" />').slider({
@@ -435,7 +386,7 @@
       }).addClass('setting'));
 
 
-      var dsNodeColors = addSettingsContainer(ds, "Skeleton colors", true);
+      var dsNodeColors = CATMAID.DOM.addSettingsContainer(ds, "Skeleton colors", true);
       // Node color settings: Title vs. SkeletonAnnotations field.
       var colors = new Map([
         ['Active node', 'atn_fillcolor'],
@@ -449,31 +400,41 @@
         ['Leaf node', 'leaf_node_color'],
       ]);
 
+      var setColorOfTracingFields = function() {
+        colors.forEach(function(field, label) {
+          var input = colorControls.get(field);
+          var color = $(input).find('input').val();
+          SkeletonAnnotations[field] = color;
+        });
+        // Update all tracing layers
+        project.getStackViewers().forEach(function(sv) {
+          var overlay = SkeletonAnnotations.getSVGOverlay(sv.getId());
+          if (overlay) overlay.recolorAllNodes();
+        });
+      };
+
       var colorControls = new Map();
       colors.forEach(function(field, label) {
-        var input = createInputSetting(label, SkeletonAnnotations[field]);
+        var color = SkeletonAnnotations[field];
+        var input = CATMAID.DOM.createInputSetting(label, color);
         this.append(input);
+        var colorField = $(input).find('input');
+        CATMAID.ColorPicker.enable(colorField, {
+          initialColor: color,
+          onColorChange: setColorOfTracingFields
+        });
         colorControls.set(field, input);
       }, dsNodeColors);
 
       // Allow color confirmation with enter
       dsNodeColors.find('input').on('keyup', function(e) {
         if (13 === e.keyCode) {
-          colors.forEach(function(field, label) {
-            var input = colorControls.get(field);
-            var color = $(input).find('input').val();
-            SkeletonAnnotations[field] = color;
-          });
-          // Update all tracing layers
-          project.getStackViewers().forEach(function(sv) {
-            var overlay = SkeletonAnnotations.getSVGOverlay(sv.getId());
-            if (overlay) overlay.recolorAllNodes();
-          });
+          setColorOfTracingFields();
         }
       });
 
 
-      var dsSkeletonProjection = addSettingsContainer(ds,
+      var dsSkeletonProjection = CATMAID.DOM.addSettingsContainer(ds,
           "Active skeleton projection", true);
 
       // Figure out if all displayed stack viewers have a skeleton projection
@@ -482,7 +443,7 @@
         return !!sv.getLayer('skeletonprojection');
       });
 
-      var skpVisible = createCheckboxSetting("Display projections",
+      var skpVisible = CATMAID.DOM.createCheckboxSetting("Display projections",
           allHaveLayers, "Activating this layer adds upstream and downstream " +
           "projections of the active skeleton to the tracing display.",
           updateSkeletonProjectionDisplay);
@@ -491,6 +452,7 @@
       var skpShading = $('<select/>');
       var skpShadingOptions = [
         {name: 'Plain color', id: 'plain'},
+        {name: 'Skeleton color gradient', id: 'skeletoncolorgradient'},
         {name: 'Z distance', id: 'zdistance'},
         {name: 'Relative Strahler gradient', id: 'relstrahlergradient'},
         {name: 'Relative Strahler cut', id: 'relstrahlercut'},
@@ -503,27 +465,28 @@
       }, skpShading);
       skpShading.on('change', updateSkeletonProjectionDisplay);
 
-      dsSkeletonProjection.append(createLabeledControl('Shading', skpShading));
+      dsSkeletonProjection.append(CATMAID.DOM.createLabeledControl(
+            'Shading', skpShading));
 
       // Set default properties
-      var skpDownstreamColor = createInputSetting("Downstream color",
+      var skpDownstreamColor = CATMAID.DOM.createInputSetting("Downstream color",
           CATMAID.SkeletonProjectionLayer.options.downstreamColor);
-      var skpUpstreamColor = createInputSetting("Upstream color",
+      var skpUpstreamColor = CATMAID.DOM.createInputSetting("Upstream color",
           CATMAID.SkeletonProjectionLayer.options.upstreamColor);
-      var skpShowEdges = createCheckboxSetting("Show edges",
+      var skpShowEdges = CATMAID.DOM.createCheckboxSetting("Show edges",
           CATMAID.SkeletonProjectionLayer.options.showEdges, null,
           updateSkeletonProjectionDisplay);
-      var skpShowNodes = createCheckboxSetting("Show nodes",
+      var skpShowNodes = CATMAID.DOM.createCheckboxSetting("Show nodes",
           CATMAID.SkeletonProjectionLayer.options.showNodes, null,
           updateSkeletonProjectionDisplay);
-      var skpMinStrahler = createInputSetting("Min. Strahler",
+      var skpMinStrahler = CATMAID.DOM.createInputSetting("Min. Strahler",
           CATMAID.SkeletonProjectionLayer.options.strahlerShadingMin);
-      var skpMaxStrahler = createInputSetting("Max. Strahler",
+      var skpMaxStrahler = CATMAID.DOM.createInputSetting("Max. Strahler",
           CATMAID.SkeletonProjectionLayer.options.strahlerShadingMax,
           "For Strahler based shading, the relative min and max Strahler " +
           "number can be set. These numbers are relative to the active Node. " +
           "Nodes not in this range won't be shown. -1 deactivates a condition.");
-      var skpDistanceFalloff = createInputSetting("Distance falloff",
+      var skpDistanceFalloff = CATMAID.DOM.createInputSetting("Distance falloff",
           CATMAID.SkeletonProjectionLayer.options.distanceFalloff,
           "For distance based shading, a fall-off can be set, by which " +
           "opacity is reduced with every layer");
@@ -535,6 +498,15 @@
       dsSkeletonProjection.append(skpMinStrahler);
       dsSkeletonProjection.append(skpMaxStrahler);
       dsSkeletonProjection.append(skpDistanceFalloff);
+
+      // Add color picker to input fields
+      [skpDownstreamColor, skpUpstreamColor].forEach(function(colorOption) {
+        var colorField = $(colorOption).find('input');
+        CATMAID.ColorPicker.enable(colorField, {
+          initialColor: colorField.val(),
+          onColorChange: updateSkeletonProjectionDisplay
+        });
+      });
 
       // Add a spinner to Strahler configuration
       $(skpMinStrahler).add(skpMaxStrahler).find('input').spinner({
@@ -597,7 +569,7 @@
       }
 
       // Reviewer whitelist settings
-      ds = addSettingsContainer(container, "Reviewer Team");
+      ds = CATMAID.DOM.addSettingsContainer(container, "Reviewer Team");
       // Add explanatory text
       ds.append($('<div/>').addClass('setting').append("Choose which users' " +
           "reviews to include when calculating review statistics. You may also " +
@@ -606,11 +578,11 @@
           "reviewers are not informed whether you have added them to your team."));
 
       // Get all available users
-      var users = User.all();
+      var users = CATMAID.User.all();
       var reviewers = Object.keys(users).map(function (userId) { return users[userId]; });
       // Add reviewer options to select box
       var reviewerSelect = $('<select/>');
-      reviewers.sort(User.displayNameCompare).forEach(function (user) {
+      reviewers.sort(CATMAID.User.displayNameCompare).forEach(function (user) {
         this.append(new Option(user.getDisplayName(), user.id));
       }, reviewerSelect);
 
@@ -639,17 +611,17 @@
             .save(refreshWhitelist);
       });
 
-      ds.append(createLabeledControl('Reviewer', reviewerSelect));
-      ds.append(createLabeledControl('Accept after', acceptAfterInput));
-      ds.append(createLabeledControl('', addReviewerButton));
-      ds.append(createLabeledControl('', whitelist));
-      ds.append(createLabeledControl('', removeReviewerButton));
+      ds.append(CATMAID.DOM.createLabeledControl('Reviewer', reviewerSelect));
+      ds.append(CATMAID.DOM.createLabeledControl('Accept after', acceptAfterInput));
+      ds.append(CATMAID.DOM.createLabeledControl('', addReviewerButton));
+      ds.append(CATMAID.DOM.createLabeledControl('', whitelist));
+      ds.append(CATMAID.DOM.createLabeledControl('', removeReviewerButton));
 
       var refreshWhitelist = function () {
         $(whitelist).empty();
         var wlEntries = CATMAID.ReviewSystem.Whitelist.getWhitelist();
         var options = Object.keys(wlEntries).map(function(userId) {
-          var user = User.safe_get(userId);
+          var user = CATMAID.User.safe_get(userId);
           var optionElement = $('<option/>')
               .attr('value', userId)
               .text(user.getDisplayName() + ' (' + wlEntries[userId].toDateString() + ')');
@@ -657,7 +629,7 @@
         });
 
         options.sort(function (a, b) {
-            return User.displayNameCompare(users[a.value], users[b.value]); });
+            return CATMAID.User.displayNameCompare(users[a.value], users[b.value]); });
 
         options.forEach(whitelist.appendChild.bind(whitelist));
       };
@@ -666,14 +638,14 @@
       refreshWhitelist();
 
       // Tracing settings
-      ds = addSettingsContainer(container, "Tracing");
-      ds.append(createCheckboxSetting("Edit radius after node creation",
+      ds = CATMAID.DOM.addSettingsContainer(container, "Tracing");
+      ds.append(CATMAID.DOM.createCheckboxSetting("Edit radius after node creation",
         SkeletonAnnotations.setRadiusAfterNodeCreation, "The visual radius " +
         "editing tool will be shown right after a node has been created.",
         function() {
           SkeletonAnnotations.setRadiusAfterNodeCreation = this.checked;
         }));
-      ds.append(createCheckboxSetting("Create abutting connectors",
+      ds.append(CATMAID.DOM.createCheckboxSetting("Create abutting connectors",
         SkeletonAnnotations.newConnectorType === SkeletonAnnotations.SUBTYPE_ABUTTING_CONNECTOR,
         "Instead of creating synaptic connectors, abutting ones will be created",
         function() {
@@ -683,8 +655,17 @@
             SkeletonAnnotations.newConnectorType = SkeletonAnnotations.SUBTYPE_SYNAPTIC_CONNECTOR;
           }
         }));
+      ds.append(CATMAID.DOM.createCheckboxSetting("Respect suppressed virtual nodes during navigation",
+        SkeletonAnnotations.skipSuppressedVirtualNodes, "When navigating " +
+            "parent/child topology, skip virtual nodes that have been " +
+            "marked as suppressed. " +
+            "This has a marginal impact on performance. Suppressed virtual " +
+            "nodes are always respected during review.",
+        function() {
+          SkeletonAnnotations.skipSuppressedVirtualNodes = this.checked;
+        }));
       ds.append($('<div/>').addClass('setting').text());
-      ds.append(createInputSetting("Default new neuron name",
+      ds.append(CATMAID.DOM.createInputSetting("Default new neuron name",
           SkeletonAnnotations.defaultNewNeuronName,
           "Every occurrence of '{nX}' in the default name with X being a " +
           "number is replaced by a number that is automatically incremented " +
@@ -692,13 +673,57 @@
           function () {
             SkeletonAnnotations.defaultNewNeuronName = $(this).val();
           }));
-    ds.append(createCheckboxSetting("Merge annotations of single-node skeletons without asking",
-      SkeletonAnnotations.quickSingleNodeSkeletonMerge, "If true, no merge dialog " +
-      "will be shown for single-node skeletons with annotations. Instead, all " +
-      "annotations will be merged without asking.",
-      function() {
-        SkeletonAnnotations.quickSingleNodeSkeletonMerge = this.checked;
-      }));
+
+      ds.append(CATMAID.DOM.createCheckboxSetting("Merge annotations of " +
+        "single-node skeletons without asking",
+        SkeletonAnnotations.quickSingleNodeSkeletonMerge, "If true, no merge dialog " +
+        "will be shown for single-node skeletons with annotations. Instead, all " +
+        "annotations will be merged without asking.",
+        function() {
+          SkeletonAnnotations.quickSingleNodeSkeletonMerge = this.checked;
+        }));
+
+      // Auto-select skeleton source created last
+      ds.append(CATMAID.DOM.createCheckboxSetting('Auto-select widget created last as source ' +
+            'for new widgets', CATMAID.skeletonListSources.defaultSelectLastSource,
+            'Many widget support pulling in skeletons from other widgets. With ' +
+            'this option the skeleton source created last, is selected by ' +
+            'default, otherwise the active skeleton is.', function() {
+              CATMAID.skeletonListSources.defaultSelectLastSource = this.checked;
+            }));
+
+      var dsTracingWarnings = CATMAID.DOM.addSettingsContainer(ds,
+          "Warnings", true);
+
+      var twVolumeSelect = CATMAID.DOM.createSelectSetting("New nodes not in " +
+          "volume", {"None": "none"}, "A warning will be shown when new " +
+          "nodes are created outside of the selected volume", function(e) {
+            var volumeID = null;
+
+            // Add new handler if, needed
+            if (-1 !== this.selectedIndex) {
+              var o = this.options[this.selectedIndex];
+              if ("none" !== o.value) {
+                volumeID = o.value;
+              }
+            }
+
+            // Remove existing handler and new one if selected
+            SkeletonAnnotations.setNewNodeVolumeWarning(volumeID);
+          });
+      dsTracingWarnings.append(twVolumeSelect);
+
+      // Get volumes asynchronously
+      requestQueue.register(CATMAID.makeURL(project.id + "/volumes"), "GET",
+            undefined, CATMAID.jsonResponseHandler(function(json) {
+              var currentWarningVolumeID = SkeletonAnnotations.getNewNodeVolumeWarning();
+              var select = twVolumeSelect.find("select")[0];
+              json.forEach(function(volume) {
+                var name = volume.name + " (#" + volume.id + ")";
+                var selected = currentWarningVolumeID == volume.id ? true : undefined;
+                select.options.add(new Option(name, volume.id, selected, selected));
+              });
+            }));
     };
 
 

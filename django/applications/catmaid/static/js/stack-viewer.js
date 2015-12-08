@@ -18,7 +18,7 @@
    * ranges.
    */
   function StackViewer(
-      project,          //!< {Project} reference to the parent project
+      project,          //!< {CATMAID.Project} reference to the parent project
       primaryStack
   ) {
     this._project = project;
@@ -102,7 +102,7 @@
         return true;
       } );
 
-    this.overview = new Overview( this );
+    this.overview = new CATMAID.Overview( this );
     this._view.appendChild( this.overview.getView() );
 
     this.tilelayercontrol = new CATMAID.TilelayerControl( this );

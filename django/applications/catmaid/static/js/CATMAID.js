@@ -158,8 +158,10 @@ window.onbeforeunload = function() {
   CATMAID.jsonResponseHandler = function(success, error, silent)
   {
     return function(status, text, xml) {
-      if (status === 200 && text) {
-        var json = $.parseJSON(text);
+      if (status >= 200 && status <= 204 &&
+          (typeof text === 'string' || text instanceof String)) {
+        // `text` may be empty for no content responses.
+        var json = text.length ? $.parseJSON(text) : {};
         if (json.error) {
           // Call error handler, if any, and force silence if it returned true.
           if (CATMAID.tools.isFn(error)) {
@@ -172,16 +174,33 @@ window.onbeforeunload = function() {
           CATMAID.tools.callIfFn(success, json);
         }
       } else {
+        var e = {
+          error: "An error occured",
+          detail: "The server returned an unexpected status: " + status
+        };
         // Call error handler, if any, and force silence if it returned true.
         if (CATMAID.tools.isFn(error)) {
-          silent = error() || silent;
+          silent = error(e) || silent;
         }
         if (!silent) {
-          CATMAID.error("An error occured", "The server returned an unexpected " +
-              "status: " + status);
+          CATMAID.error(e.msg, e.detail);
         }
       }
     };
+  };
+
+  /**
+   * Queue a request for the given back-end method along with the given data. It
+   * expects a JSON response. A promise is returned. The URL passed in needs to
+   * be relative to the back-end URL.
+   */
+  CATMAID.fetch = function(relativeURL, method, data)
+  {
+    return new Promise(function(resolve, reject) {
+      var url = CATMAID.makeURL(relativeURL);
+      requestQueue.register(url, method, data,
+          CATMAID.jsonResponseHandler(resolve, reject, true));
+    });
   };
 
   /**

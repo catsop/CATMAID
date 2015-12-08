@@ -808,6 +808,8 @@ table.skeleton-table tr td {
 table.skeleton-table tr th.expanding,
 table.skeleton-table tr td.expanding {
   width: auto;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 table.skeleton-table td * {
@@ -825,7 +827,7 @@ table.skeleton-table .ui-icon-close {
 }
 
 table.skeleton-table th input.filter {
-  width: 50%;
+  width: 33%;
   max-width: 10em;
 }
 
@@ -842,11 +844,6 @@ table.skeleton-table td input[type=checkbox] {
 /* Center buttons in selection table */
 table.skeleton-table tr td.centering {
   text-align: center;
-}
-
-/* Center colorwheel in selection table */
-table.skeleton-table div.colorwheel {
-  display: inline;
 }
 
 /* Exception for display problem in datatables*/
@@ -936,4 +933,8 @@ div.selection-table.windowContent {
 
 .dataTables_wrapper {
   min-height: 0;
+}
+
+.cp-app {
+    z-index: 15000;
 }
