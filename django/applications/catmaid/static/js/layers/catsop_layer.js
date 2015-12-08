@@ -233,7 +233,8 @@
   };
 
   CatsopResultsLayer.assemblyColors = {};
-  CatsopResultsLayer.colorizer = new Colorizer();
+  CatsopResultsLayer.colorizer = {};
+  CATMAID.asColorizer(CatsopResultsLayer.colorizer);
 
 
   CatsopResultsLayer.Overlays.Blocks = function (stack, segmentationStackId, scale, solutionId) {
