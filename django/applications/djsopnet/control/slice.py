@@ -106,11 +106,11 @@ def _slicecursor_to_namedtuple(cursor):
                 'conflict_slice_ids': filter(None, rowdict['conflicts_as_a'] + rowdict['conflicts_as_b']),
                 'in_solution': dict([
                     (solution['f1'], solution['f2'])
-                    for solution in json.loads(rowdict['in_solution'])
+                    for solution in rowdict['in_solution']
                 ]),
                 'segment_summaries': [
                     {segment_map[k]: v for k, v in summary.items()}
-                    for summary in json.loads(rowdict['segment_summaries']) if summary['f1']
+                    for summary in rowdict['segment_summaries'] if summary['f1']
                 ]
             })
         if not any(rowdict['in_solution'].keys()):

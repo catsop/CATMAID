@@ -100,7 +100,7 @@ def _segmentcursor_to_namedtuple(cursor):
         rowdict.update({
                 'in_solution': dict([
                     (solution['f1'], solution['f2'])
-                    for solution in json.loads(rowdict['in_solution'])
+                    for solution in rowdict['in_solution']
                 ])
             })
         if not any(rowdict['in_solution'].keys()):
