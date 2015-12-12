@@ -34,7 +34,7 @@ urlpatterns += patterns('djsopnet.control.block',
     (r'^(?P<project_id>\d+)/configuration/(?P<configuration_id>\d+)/setup_blocks$', 'setup_blocks'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/(?P<unit_type>core|block)_at_location$', 'spatial_unit_at_location'),
     (r'^(?P<project_id>\d+)/segmentation/(?P<segmentation_stack_id>\d+)/(?P<unit_type>core|block)s/by_bounding_box$', 'retrieve_spatial_units_by_bounding_box'),
-    (r'^(?P<project_id>\d+)/configuration/(?P<configuration_id>\d+)/block$', 'block_info'),
+    (r'^(?P<project_id>\d+)/configuration/(?P<configuration_id>\d+)/block$', 'get_block_info'),
 )
 
 urlpatterns += patterns('djsopnet.control.segment',

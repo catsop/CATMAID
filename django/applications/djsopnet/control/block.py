@@ -28,10 +28,16 @@ def core_dict(core):
 
 
 def block_info_dict(block_info):
-    bid = {'block_size': [block_info.block_dim_x, block_info.block_dim_y, block_info.block_dim_z],
-           'count': [block_info.num_x, block_info.num_y, block_info.num_z],
-           'core_size': [block_info.core_dim_x, block_info.core_dim_y, block_info.core_dim_z],
-           'scale': block_info.scale}
+    bid = {'block_size': [block_info.block_dim_x,
+                          block_info.block_dim_y,
+                          block_info.block_dim_z],
+           'count':      [block_info.num_x,
+                          block_info.num_y,
+                          block_info.num_z],
+           'core_size':  [block_info.core_dim_x,
+                          block_info.core_dim_y,
+                          block_info.core_dim_z],
+           'scale':       block_info.scale}
     return bid
 
 
@@ -45,7 +51,10 @@ def generate_block_response(block):
 def generate_blocks_response(blocks):
     blocks = blocks or []
     block_dicts = [block_dict(block) for block in blocks]
-    return HttpResponse(json.dumps({'ok': True, 'length': len(block_dicts), 'blocks': block_dicts}))
+    return HttpResponse(json.dumps({'ok': True,
+                                    'length': len(block_dicts),
+                                    'blocks': block_dicts}),
+                        content_type='text/json')
 
 
 def generate_core_response(core):
@@ -107,9 +116,12 @@ def _blockcursor_to_namedtuple(cursor, size):
 
     def blockrow_to_namedtuple(row):
         rowdict = dict(zip(cols, row))
-        coords = [rowdict['coordinate_x'], rowdict['coordinate_y'], rowdict['coordinate_z']]
+        coords = [rowdict['coordinate_x'],
+                  rowdict['coordinate_y'],
+                  rowdict['coordinate_z']]
         rowdict.update({
-                'box': [s*c for s, c in zip(size, coords)] + [s*(c+1) for s,c in zip(size, coords)]
+                'box': [s*c for s, c in zip(size, coords)] +
+                       [s*(c+1) for s, c in zip(size, coords)]
             })
         return BlockTuple(**rowdict)
 
@@ -130,10 +142,10 @@ def location_query(table, segmentation_stack, request):
               AND coordinate_y = %(y)s
               AND coordinate_z = %(z)s
             ''' % {'segstack_id': segmentation_stack.id,
-                'table': table,
-                'x': math.floor(x/size['x']),
-                'y': math.floor(y/size['y']),
-                'z': math.floor(z/size['z'])})
+                   'table': table,
+                   'x': math.floor(x/size['x']),
+                   'y': math.floor(y/size['y']),
+                   'z': math.floor(z/size['z'])})
     if cursor.rowcount == 0:
         return None
     else:
@@ -159,13 +171,13 @@ def bound_query(table, segmentation_stack, request):
               AND coordinate_y <= %(max_y)s
               AND coordinate_z <= %(max_z)s
             ''' % {'segstack_id': segmentation_stack.id,
-                'table': table,
-                'min_x': math.floor(min_x/size['x']),
-                'min_y': math.floor(min_y/size['y']),
-                'min_z': math.floor(min_z/size['z']),
-                'max_x': math.ceil(max_x/size['x']),
-                'max_y': math.ceil(max_y/size['y']),
-                'max_z': math.ceil(max_z/size['z'])})
+                   'table': table,
+                   'min_x': math.floor(min_x/size['x']),
+                   'min_y': math.floor(min_y/size['y']),
+                   'min_z': math.floor(min_z/size['z']),
+                   'max_x': math.ceil(max_x/size['x']),
+                   'max_y': math.ceil(max_y/size['y']),
+                   'max_z': math.ceil(max_z/size['z'])})
     if cursor.rowcount == 0:
         return None
     else:
@@ -193,6 +205,6 @@ def retrieve_spatial_units_by_bounding_box(request, project_id, segmentation_sta
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
-def block_info(request, project_id, configuration_id=None):
+def get_block_info(request, project_id, configuration_id=None):
     block_info = get_object_or_404(BlockInfo, configuration_id=configuration_id)
     return generate_block_info_response(block_info)
