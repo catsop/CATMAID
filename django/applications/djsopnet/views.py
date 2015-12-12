@@ -7,7 +7,6 @@ from django.db import connection
 from django.conf import settings
 
 from catmaid.models import *
-from catmaid.control.stack import get_stack_info
 from catmaid.control.authentication import requires_user_role
 from models import *
 

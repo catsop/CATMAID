@@ -1,9 +1,4 @@
-import json
-import traceback
 from numpy import int64, uint64
-from StringIO import StringIO
-
-from django.http import HttpResponse
 
 
 def safe_split(tosplit, name='data', delim=','):

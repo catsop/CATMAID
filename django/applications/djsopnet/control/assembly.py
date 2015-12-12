@@ -10,7 +10,6 @@ from catmaid.control.authentication import requires_user_role
 from catmaid.control.skeleton import _import_skeleton
 from catmaid.models import UserRole
 from djsopnet.models import SegmentationStack
-from djsopnet.control.block import _blockcursor_to_namedtuple
 
 
 @requires_user_role(UserRole.Annotate)
