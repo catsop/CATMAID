@@ -19,6 +19,8 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import _get_queryset, render
 
+from rest_framework.authtoken import views as auth_views
+from rest_framework.authtoken.serializers import AuthTokenSerializer
 
 from catmaid.models import Project, UserRole, ClassInstance, \
         ClassInstanceClassInstance
@@ -44,6 +46,7 @@ def login_user(request):
                 profile_context['id'] = request.session.session_key
                 profile_context['longname'] = user.get_full_name()
                 profile_context['userid'] = user.id
+                profile_context['username'] = user.username
                 profile_context['is_superuser'] = user.is_superuser
                 return HttpResponse(json.dumps(profile_context))
             else:
@@ -63,6 +66,7 @@ def login_user(request):
             profile_context['id'] = request.session.session_key
             profile_context['longname'] = request.user.get_full_name()
             profile_context['userid'] = request.user.id
+            profile_context['username'] = request.user.username
             profile_context['is_superuser'] = request.user.is_superuser
             return HttpResponse(json.dumps(profile_context))
         else:
@@ -126,7 +130,7 @@ def requires_user_role(roles):
                       "project %d" % (u.first_name + ' ' + u.last_name, u.id, \
                       int(kwargs['project_id']))
                 return HttpResponse(json.dumps({'error': msg,
-                        'permission_error': True}), content_type='text/json')
+                        'permission_error': True}), content_type='application/json')
 
         return wraps(f)(inner_decorator)
     return decorated_with_requires_user_role
@@ -169,7 +173,7 @@ def requires_user_role_for_any_project(roles):
                       % (u.first_name + ' ' + u.last_name, u.id)
                 return HttpResponse(
                         json.dumps({'error': msg, 'permission_error': True}),
-                        content_type='text/json')
+                        content_type='application/json')
 
         return wraps(f)(inner_decorator)
     return decorated_with_requires_user_role_for_any_project
@@ -427,3 +431,23 @@ def register(request):
     return render(request, "catmaid/registration/register.html", {
         'form': form,
     })
+
+
+class ObtainAuthToken(auth_views.ObtainAuthToken):
+    """Generate an authorization token to use for API requests.
+
+    Use your user credentials to generate an authorization token for querying
+    the API. This token is tied to your account and shares your permissions.
+    To use this token set the `Authorization` HTTP header to "Token "
+    concatenated with the token string, e.g.:
+
+        Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
+
+    Requests using token authorization are not required to set cross-site
+    request forgery (CSRF) token headers.
+
+    Requests using this token can do anything your account can do, so
+    **do not distribute this token or check it into source control**.
+    """
+    def get_serializer_class(self):
+        return AuthTokenSerializer

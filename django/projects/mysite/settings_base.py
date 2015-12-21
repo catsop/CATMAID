@@ -30,6 +30,10 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # For API tokens. Disable if not using HTTPS:
+    'catmaid.middleware.AuthenticationHeaderExtensionMiddleware',
+    'catmaid.middleware.CsrfBypassTokenAuthenticationMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'catmaid.middleware.AnonymousAuthenticationMiddleware',
     'catmaid.middleware.AjaxExceptionMiddleware',
@@ -56,6 +60,7 @@ INSTALLED_APPS = (
     'south',
     'pipeline',
     'rest_framework',
+    'rest_framework.authtoken',
     'rest_framework_swagger',
     'custom_rest_swagger_apis',
 )
@@ -106,13 +111,15 @@ LOGIN_URL = '/accounts/login'
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend', # default
     'guardian.backends.ObjectPermissionBackend',
+    # For API tokens. Disable if not using HTTPS:
+    'rest_framework.authentication.TokenAuthentication',
 )
 
-# User-ID of the anonymous (i.e. not-logged-in) user. This is usualld -1.
+# User-ID of the anonymous (i.e. not-logged-in) user. This is usually -1.
 ANONYMOUS_USER_ID = -1
 
 # Project ID of a dummy project that will keep all ontologies and
-# classifications that are shared between multiple projcts (and are
+# classifications that are shared between multiple projects (and are
 # thereby project independent).
 ONTOLOGY_DUMMY_PROJECT_ID = -1
 
@@ -178,7 +185,7 @@ CELERY_IMPORTS = (
 )
 
 # We use django-pipeline to compress and reference JavaScript and CSS files. To
-# make Pipeline integrate with staticfiles (and therefore collectatic calls)
+# make Pipeline integrate with staticfiles (and therefore collecstatic calls)
 # the STATICFILES_STORAGE variable has to be set to:
 STATICFILES_STORAGE = 'pipeline.storage.PipelineCachedStorage'
 
@@ -245,9 +252,10 @@ STATIC_EXTENSION_ROOT = "/tmp"
 STATIC_EXTENSION_FILES = []
 
 REST_FRAMEWORK = {
-    # CSRF is unnecessary because there is no form-based workflow to
-    # distinguish intentional from hijacked requests.
-    'DEFAULT_AUTHENTICATION_CLASSES': ('custom_rest_authentication.CsrfExemptSessionAuthentication',),
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ),
     'VIEW_DESCRIPTION_FUNCTION': 'custom_rest_swagger_googledoc.get_googledocstring'
 }
 
@@ -258,7 +266,7 @@ SWAGGER_SETTINGS = {
                        This is an API for accessing project, stack and
                        annotation data for this CATMAID instance. More
                        information is available at
-                       <a href="http://catmaid.org">catmaid.org</a>.
+                       <a href="http://catmaid.org/page/api.html">catmaid.org</a>.
                        ''',
         'contact': 'catmaid@googlegroups.com',
         'license': 'GPLv3',

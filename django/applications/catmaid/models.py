@@ -608,7 +608,7 @@ class Restriction(models.Model):
 
 class CardinalityRestriction(models.Model):
     """ A restriction that guards the number of class instances
-    reffering explicitely to a relation in the semantic space.
+    explicitly referring to a relation in the semantic space.
     Different types are supported:
 
     0: The exact number of class instances is defined
@@ -802,9 +802,6 @@ class NeuronSearch(forms.Form):
                 result += p[1] + urllib.quote(str(self.cleaned_data[p[0]]))
         return result
 
-class ApiKey(models.Model):
-    description = models.TextField()
-    key = models.CharField(max_length=128)
 
 class Log(UserFocusedModel):
     class Meta:
@@ -929,8 +926,7 @@ def create_user_profile(sender, instance, created, **kwargs):
         profile.user = instance
         profile.save()
 
-# Connect the a User object's post save signal to the profile
-# creation
+# Connect the User model's post save signal to profile creation
 post_save.connect(create_user_profile, sender=User)
 
 def add_user_to_default_groups(sender, instance, created, **kwargs):
@@ -942,8 +938,7 @@ def add_user_to_default_groups(sender, instance, created, **kwargs):
             except Group.DoesNotExist:
                 print("Default group %s does not exist" % group)
 
-# Connect the a User object's post save signal to the profile
-# creation
+# Connect the User model's post save signal to default group assignment
 post_save.connect(add_user_to_default_groups, sender=User)
 
 # Prevent interactive question about wanting a superuser created.  (This code

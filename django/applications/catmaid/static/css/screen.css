@@ -440,6 +440,10 @@ div#classification_graph_object img.roiimage {
   margin-bottom: 2px;
 }
 
+.buttonpanel {
+  clear: both;
+}
+
 .buttonpanel input {
   vertical-align: middle;
 }
@@ -483,6 +487,22 @@ div#classification_graph_object img.roiimage {
   margin-left: 0;
   margin-bottom: 0;
   bottom: -0.2em;
+}
+
+.sourcepanel .extra-button {
+  float: right;
+	font-weight: bold;
+  font-size: larger;
+  margin-top: .5em;
+  margin-right: .5em;
+}
+
+.extra-button a {
+  text-decoration: none;
+}
+
+.extra-button a:hover {
+  text-decoration: underline;
 }
 
 .partner_table {

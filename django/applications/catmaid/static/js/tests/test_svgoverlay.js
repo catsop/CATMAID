@@ -31,9 +31,6 @@ QUnit.test('SVG overlay test', function( assert ) {
         "project", "user_permissions", "django_url"]);
     var orignalCATMAIDFields = mapFields(CATMAID, ["statusBar"]);
 
-    // Override requestQueue that uses fake XHR requests
-    requestQueue = new RequestQueue();
-
     // Set global project to custom mocking object
     project = {
       id: 1,
@@ -138,7 +135,7 @@ QUnit.test('SVG overlay test', function( assert ) {
       delete availableNodes[nodeID]; 
     });
     // Update the tracing layer immediately after queing the deleting
-    SkeletonAnnotations.TracingOverlay.prototype.updateNodeCoordinatesinDB.call(
+    SkeletonAnnotations.TracingOverlay.prototype.updateNodeCoordinatesInDB.call(
         fakeOverlay, function(json) {
           assert.deepEqual(json, {"updated": 1},
               "The node update returns with expected response.");

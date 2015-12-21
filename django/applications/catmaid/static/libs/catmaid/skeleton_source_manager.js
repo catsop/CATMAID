@@ -58,10 +58,31 @@
       this.orderedSources.splice(orderIndex, 1);
     }
     this.updateGUI();
-    Object.keys(this.sources).forEach(function(name) {
-      var s = this.sources[name];
-      if (s.linkTarget === source) delete s.linkTarget;
-    }, this);
+  };
+
+  /**
+   * Get a textual representation of all subscriptions of a source.
+   */
+  SkeletonSourceManager.prototype.getSubscriptionExpression = function(source) {
+    var subscriptions = source.getSourceSubscriptions();
+    if (subscriptions && subscriptions.length > 0) {
+      // Special case where only one final element is part of the expression
+      if (source.ignoreLocal && 1 === subscriptions.length) {
+        return 'Widget skeletons = filtered subscription skeletons';
+      }
+      return 'Widget skeletons = ' + subscriptions.reduce(function(o, s, i) {
+        var name = 'S' + (i + 1);
+        if (0 === i) {
+          var union = CATMAID.SkeletonSource.operations[CATMAID.SkeletonSource.UNION];
+          return source.ignoreLocal ? name : ('(local ' + union + ' ' + name + ')');
+        } else {
+          return '(' + o + ' ' + CATMAID.SkeletonSource.operations[s.op] + ' ' + name + ')';
+        }
+      }, undefined);
+
+    } else {
+      return null;
+    }
   };
 
   var defaultSourceControlOptions = {
@@ -163,7 +184,8 @@
       opSelect.options.add(new Option('Union', CATMAID.SkeletonSource.UNION));
       opSelect.options.add(new Option('Intersection', CATMAID.SkeletonSource.INTERSECTION));
       opSelect.options.add(new Option('Difference', CATMAID.SkeletonSource.DIFFERENCE));
-      selectDefault(opSelect, CATMAID.SkeletonSource.UNION);
+      var defaultValue = (undefined === value) ? CATMAID.SkeletonSource.UNION : value;
+      selectDefault(opSelect, defaultValue);
       return opSelect;
     };
     var opSelect = createOpSelector();
@@ -202,10 +224,19 @@
     }
     var ignoreLocal = document.createElement('label');
     ignoreLocal.appendChild(ignoreLocalCb);
-    ignoreLocal.appendChild(document.createTextNode('Ignore local'));
+    ignoreLocal.appendChild(document.createTextNode('Override existing'));
     ignoreLocal.setAttribute('title', 'If unchecked, subscriptions will be ' +
         'applied starting from the local model set.');
     controls.appendChild(ignoreLocal);
+
+    var helpButton = document.createElement('span');
+    helpButton.setAttribute('class', 'extra-button');
+    controls.appendChild(helpButton);
+    var help = document.createElement('a');
+    help.appendChild(document.createTextNode('?'));
+    help.href = CATMAID.makeDocURL('user_faq.html#faq-source-subscriptions');
+    help.target = '_blank';
+    helpButton.appendChild(help);
 
 
     var listContainer = document.createElement('div');
@@ -224,8 +255,10 @@
     table.style.width = "100%";
     listContainer.appendChild(table);
     var datatable = $(table).DataTable({
-      dom: "t",
+      dom: "ti",
       data: subscriptions,
+      infoCallback: this.getSubscriptionExpression.bind(this, source),
+      autoWidth: false,
       columns: [{
         "width": "10px",
         "render": function(data, type, row, meta) {

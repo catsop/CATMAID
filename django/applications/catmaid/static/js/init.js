@@ -136,6 +136,11 @@ function handle_login(status, text, xml, completionCallback) {
           action: django_url + "user/password_change/",
           title: "Change password",
           note: "",
+        },
+        "user_menu_entry_2": {
+          action: getAuthenticationToken,
+          title: "Get API token",
+          note: ""
         }
       });
 
@@ -164,6 +169,58 @@ function handle_login(status, text, xml, completionCallback) {
       completionCallback();
     }
   }
+}
+
+function getAuthenticationToken() {
+  var dialog = new CATMAID.OptionsDialog('API Authentication Token');
+  dialog.appendMessage('To retrieve your API authentication token, you must ' +
+                       're-enter your password.');
+  var password = dialog.appendField('Password:', 'password', '', true);
+  password.setAttribute('type', 'password');
+
+  dialog.onOK = function () {
+    CATMAID.fetch('/api-token-auth/',
+                  'POST',
+                  {username: username, password: password.value})
+        .then(function (json) {
+          var resultDialog = new CATMAID.OptionsDialog('API Authentication Token');
+          resultDialog.appendHTML('Your API token is');
+          var container = document.createElement('p');
+          var token = document.createElement('input');
+          token.setAttribute('value', json.token);
+          token.setAttribute('readonly', true);
+          token.setAttribute('size', 40);
+          var copyButton = $('<button />')
+              .button({
+                icons: {primary: "ui-icon-clipboard"},
+                label: 'Copy to clipboard',
+                text: false
+              })
+              .click(function () {
+                token.select();
+                document.execCommand('copy');
+              });
+          container.appendChild(token);
+          container.appendChild(copyButton.get(0));
+          resultDialog.dialog.appendChild(container);
+          resultDialog.appendHTML(
+              'This token is tied to your account and shares your ' +
+              'permissions. ' +
+              'Requests using this token can do anything your account can ' +
+              'do, so <b>do not distribute this token or check it into ' +
+              'source control.</b>');
+          resultDialog.appendHTML(
+              'For help using your API token, see the ' +
+              '<a target="_blank" href="' +
+              CATMAID.makeDocURL('api.html#api-token') + '">' +
+              'API use documentation</a> and ' +
+              '<a target="_blank" href="' + CATMAID.makeURL('/apis/') + '">' +
+              'this server\'s API documentation</a>.');
+          resultDialog.show(460, 280, true);
+        });
+  };
+
+  dialog.show(460, 200, true);
 }
 
 /**
@@ -210,6 +267,7 @@ function handle_profile_update(e) {
   try {
     if (e.userprofile) {
       userprofile = new CATMAID.Userprofile(e.userprofile);
+      username = e.username;
     } else {
       throw "The server returned no valid user profile.";
     }
@@ -228,6 +286,9 @@ function handle_profile_update(e) {
     'toolbox_edit', '');
   $('#toolbox_edit').replaceWith(new_edit_actions);
   $('#toolbox_edit').hide();
+
+  // Re-configure CSRF protection to update the CSRF cookie.
+  CATMAID.setupCsrfProtection();
 
   // Update all datastores to reflect the current user before triggering
   // any events. This is necessary so that settings are correct when
@@ -301,7 +362,7 @@ function updateProjects(completionCallback) {
             'title': s.title,
             'comment': s.comment,
             'note': '',
-            'action': openProjectStack.bind(window, p.id, s.id)
+            'action': openProjectStack.bind(window, p.id, s.id, false)
           };
           return o;
         }, {});
@@ -310,7 +371,7 @@ function updateProjects(completionCallback) {
             'title': sg.title,
             'comment': sg.comment,
             'note': '',
-            'action': openStackGroup.bind(window, p.id, sg.id)
+            'action': openStackGroup.bind(window, p.id, sg.id, false)
           };
           return o;
         }, {});
@@ -618,23 +679,22 @@ function handle_openProjectStack( e, stackViewer )
     access is generated. */
     stack_menu.update();
     getStackMenuInfo(project.id, function(stacks) {
-      /* jshint scripturl:true */
       if (stacks.length > 1)
       {
         var stack_menu_content = [];
-        $.each(stacks, function(i, s) {
+        stacks.forEach(function(s) {
           stack_menu_content.push({
-              id : s.id,
-              title : s.title,
-              note : s.note,
-              action : [{
+              id: s.id,
+              title: s.title,
+              note: '',
+              action: [{
                   title: 'Open in new viewer',
                   note: '',
-                  action: ('javascript:openProjectStack(' + s.pid + ',' + s.id + ')')
+                  action: openProjectStack.bind(window, s.pid, s.id, false)
                 },{
                   title: 'Add to focused viewer',
                   note: '',
-                  action: ('javascript:openProjectStack(' + s.pid + ',' + s.id + ', true)')
+                  action: openProjectStack.bind(window, s.pid, s.id, true)
                 }
               ]
             }

@@ -8,8 +8,17 @@
   var ConnectivityMatrixWidget = function() {
     this.widgetID = this.registerInstance();
     this.matrix = new CATMAID.ConnectivityMatrix();
-    this.rowDimension = new CATMAID.BasicSkeletonSource(this.getName() + " Rows");
-    this.colDimension = new CATMAID.BasicSkeletonSource(this.getName() + " Columns");
+    var update = this.update.bind(this);
+    this.rowDimension = new CATMAID.BasicSkeletonSource(this.getName() + " Rows", {
+      handleAddedModels: update,
+      handleChangedModels: update,
+      handleRemovedModels: update
+    });
+    this.colDimension = new CATMAID.BasicSkeletonSource(this.getName() + " Columns", {
+      handleAddedModels: update,
+      handleChangedModels: update,
+      handleRemovedModels: update
+    });
     // Synapse counts are only displayed if they are at least that big
     this.synapseThreshold = 1;
     // Color index for table cell coloring option, default to Greens
@@ -61,6 +70,10 @@
       class: 'connectivity_matrix',
       controlsID: 'connectivity_matrix_controls' + this.widgetID,
       contentID: 'connectivity_matrix' + this.widgetID,
+      subscriptionSource: [
+          [this.colDimension, 'Show and hide controls for post-subscriptions'],
+          [this.rowDimension, 'Show and hide controls for pre-subscriptions']
+      ],
 
       /**
        * Create widget controls.
@@ -727,6 +740,9 @@
       if (!group && skeletonIDs.length > 1) {
         throw new CATMAID.ValueError('Expected either a group or a single skeleton ID');
       }
+
+      // Display dots instead of null/undefined if name unavailable
+      name = name ? name : '...';
 
       // Create element
       var a = document.createElement('a');

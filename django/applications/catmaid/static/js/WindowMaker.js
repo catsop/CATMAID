@@ -8,6 +8,7 @@ var WindowMaker = new function()
    * Only windows that are open are stored. */
   var windows = new Map();
   var self = this;
+  var DOM = CATMAID.DOM;
 
   var createContainer = function(id) {
     var container = document.createElement("div");
@@ -82,63 +83,17 @@ var WindowMaker = new function()
   };
 
   /**
-   * Inject an extra button into the caption of a window. This button allows to
-   * show and hide a windows button panel (a top level element of class
-   * buttonpanel).
+   * A custom source toggle wrapper to not repeat custom title control code. If
+   * source is an array it is assumed that the first element is the actual
+   * source and the second a title.
    */
-  var addButtonDisplayToggle = function(win) {
-    addCaptionButton(win, 'ui-icon ui-icon-gear', function() {
-      var frame = $(this).closest('.sliceView');
-      var panels = $('.buttonpanel', frame);
-      if (panels.length > 0) {
-       // Toggle display of first button panel found
-        var style = 'none' === panels[0].style.display ? 'block' : 'none';
-        panels[0].style.display = style;
-      }
-    });
-  };
-
-  /**
-   * Inject an extra button into the caption of a window. This button allows to
-   * show and hide skeleton source controls for a widget.
-   */
-  var addSourceControlsToggle = function(win, widget) {
-    addCaptionButton(win, 'ui-icon ui-icon-link', function() {
-      // Create controls for the skeleton source widget if not present,
-      // otherwise remove them.
-      var frame = win.getFrame();
-      var panel = frame.querySelector('.sourcepanel');
-      if (panel) {
-        panel.remove();
-      } else {
-        // Create new panel
-        panel = CATMAID.skeletonListSources.createSourceControls(widget);
-        panel.setAttribute('class', 'sourcepanel');
-        // Add as first element after caption and event catcher
-        var eventCatcher = frame.querySelector('.eventCatcher');
-        if (eventCatcher) {
-          // insertBefore will handle the case where there is no next sibling,
-          // the element will be appended to the end.
-          frame.insertBefore(panel, eventCatcher.nextSibling);
-        }
-      }
-    });
-  };
-
-  /**
-   * Inject an extra button into the caption of a window. This button can be
-   * assigned style classes and a click handler.
-   */
-  var addCaptionButton = function(win, iconClass, handler) {
-    var toggle = document.createElement('span');
-    toggle.setAttribute('class', iconClass);
-    toggle.onmousedown = handler;
-
-    var wrapper = document.createElement('span');
-    wrapper.setAttribute('class', 'ui-state-focus windowButton');
-    wrapper.appendChild(toggle);
-
-    $('.stackTitle', win.getFrame()).after(wrapper);
+  var addWidgetSourceToggle = function(win, source) {
+    // Allow custom titles if element is an array
+    if (source instanceof Array) {
+      DOM.addSourceControlsToggle(win, source[0], source[1]);
+    } else {
+      DOM.addSourceControlsToggle(win, source);
+    }
   };
 
   /**
@@ -151,6 +106,18 @@ var WindowMaker = new function()
     var container = win.getFrame();
     container.style.backgroundColor = "#ffffff";
 
+    // Add skeleton source subscription toggle if selected
+    var source = config.subscriptionSource;
+    if (source) {
+      if (source instanceof Array) {
+        source.forEach(function(s) {
+          addWidgetSourceToggle(win, s);
+        });
+      } else {
+        addWidgetSourceToggle(win, s);
+      }
+    }
+
     // Create controls, if requested
     var controls;
     if (config.controlsID && config.createControls) {
@@ -159,7 +126,7 @@ var WindowMaker = new function()
       buttons.setAttribute("class", "buttonpanel");
       config.createControls.call(instance, buttons);
       container.appendChild(buttons);
-      addButtonDisplayToggle(win);
+      DOM.addButtonDisplayToggle(win);
     }
 
     // Create content
@@ -181,7 +148,9 @@ var WindowMaker = new function()
 
   var createSelect = function(id, items, selectedValue) {
     var select = document.createElement('select');
-    select.setAttribute("id", id);
+    if (id) {
+      select.setAttribute("id", id);
+    }
     items.forEach(function(item, i) {
       var option = document.createElement("option");
       var itemType = typeof item;
@@ -204,8 +173,9 @@ var WindowMaker = new function()
     return select;
   };
 
-  var appendSelect = function(div, name, entries, title, value, onChangeFn) {
-    var select = createSelect(div.id + "_" + name, entries, value);
+  var appendSelect = function(div, id, label, entries, title, value, onChangeFn) {
+    id = id ? (div.id + '_' + id) : undefined;
+    var select = createSelect(id, entries, value);
     div.appendChild(select);
     if (title) {
       select.title = title;
@@ -213,11 +183,13 @@ var WindowMaker = new function()
     if (onChangeFn) {
       select.onchange= onChangeFn;
     }
-    var label = document.createElement('label');
-    label.setAttribute('title', title);
-    label.appendChild(document.createTextNode(name));
-    label.appendChild(select);
-    div.appendChild(label);
+    if (label) {
+      var labelElement = document.createElement('label');
+      labelElement.setAttribute('title', title);
+      labelElement.appendChild(document.createTextNode(label));
+      labelElement.appendChild(select);
+      div.appendChild(labelElement);
+    }
     return select;
   };
 
@@ -319,7 +291,7 @@ var WindowMaker = new function()
           case 'numeric':
             return appendNumericField(tab, e.label, e.title, e.value, e.postlabel, e.onchangeFn, e.length);
           case 'select':
-            return appendSelect(tab, e.label, e.entries, e.title, e.value, e.onchangeFn);
+            return appendSelect(tab, e.id, e.label, e.entries, e.title, e.value, e.onchangeFn);
           default: return undefined;
         }
       }
@@ -342,33 +314,6 @@ var WindowMaker = new function()
       o[name] = div;
       return o;
     }, {});
-  };
-
-  /**
-   * Clones the given form into a dynamically created iframe and submits it
-   * there. This can be used to store autocompletion information of a form that
-   * actually isn't submitted (where e.g. an AJAX request is done manually).  A
-   * search term is only added to the autocomplete history if the form is
-   * actually submitted. This, however, triggers a reload (or redirect) of the
-   * current page. To prevent this, an iframe is created where the submit of the
-   * form is done and where a reload doesn't matter. The search term is stored
-   * and the actual search can be executed.
-   * Based on http://stackoverflow.com/questions/8400269.
-   */
-  var submitFormInIFrame = function(form) {
-    // Create a new hidden iframe element as sibling of the form
-    var iframe = document.createElement('iframe');
-    iframe.setAttribute('src', '');
-    iframe.setAttribute('style', 'display:none');
-    form.parentNode.appendChild(iframe);
-    // Submit form in iframe to store autocomplete information
-    var iframeWindow = iframe.contentWindow;
-    iframeWindow.document.body.appendChild(form.cloneNode(true));
-    var frameForm = iframeWindow.document.getElementById(form.id);
-    frameForm.onsubmit = null;
-    frameForm.submit();
-    // Remove the iframe again after the submit (hopefully) run
-    setTimeout(function() { form.parentNode.removeChild(iframe); }, 100);
   };
 
   var createConnectorSelectionWindow = function()
@@ -875,11 +820,7 @@ var WindowMaker = new function()
     var clear = document.createElement('input');
     clear.setAttribute("type", "button");
     clear.setAttribute("value", "Clear");
-    clear.onclick = function() {
-      if (confirm("Do you really want to clear the current selection?")) {
-        ST.clear();
-      }
-    };
+    clear.onclick = ST.clear.bind(ST);
     buttons.appendChild(clear);
 
     var update = document.createElement('input');
@@ -909,7 +850,7 @@ var WindowMaker = new function()
     annotate.onclick = ST.annotate_skeleton_list.bind(ST);
     buttons.appendChild(annotate);
     
-    var c = appendSelect(buttons, 'Color scheme',
+    var c = appendSelect(buttons, null, 'Color scheme ',
         ['CATMAID',
          'category10',
          'category20',
@@ -1137,8 +1078,8 @@ var WindowMaker = new function()
         }
     }
 
-    addSourceControlsToggle(win, ST);
-    addButtonDisplayToggle(win);
+    DOM.addSourceControlsToggle(win, ST);
+    DOM.addButtonDisplayToggle(win);
 
     CATMAID.skeletonListSources.updateGUI();
     ST.init();
@@ -1170,8 +1111,8 @@ var WindowMaker = new function()
     var bar = document.createElement( "div" );
     bar.id = "3d_viewer_buttons";
     bar.setAttribute('class', 'buttonpanel');
-    addSourceControlsToggle(win, WA);
-    addButtonDisplayToggle(win);
+    DOM.addSourceControlsToggle(win, WA);
+    DOM.addButtonDisplayToggle(win);
 
     var tabs = appendTabs(bar, WA.widgetID, ['Main', 'View', 'Shading',
         'Skeleton filters', 'View settings', 'Shading parameters',
@@ -1221,6 +1162,7 @@ var WindowMaker = new function()
           [connectorRestrictions],
           ['Refresh active skeleton', WA.updateActiveSkeleton.bind(WA)],
           ['Orthographic mode', false, function() { WA.updateCameraView(this.checked); }, false],
+          ['Lock view', false, function() { WA.options.lock_view = this.checked;  }, false],
         ]);
 
     // Wait for the 3D viewer to have initialized to get existing views
@@ -1512,6 +1454,8 @@ var WindowMaker = new function()
           ['Export SVG', WA.exportSVG.bind(WA)],
           ['Export catalog SVG', WA.exportCatalogSVG.bind(WA)],
           ['Export skeletons as CSV', WA.exportSkeletonsAsCSV.bind(WA)],
+          ['Export connectors as CSV', WA.exportConnectorsAsCSV.bind(WA)],
+          ['Export synapses as CSV', WA.exportSynapsesAsCSV.bind(WA)],
           ['Export animation', WA.exportAnimation.bind(WA)],
         ]);
 
@@ -1584,10 +1528,14 @@ var WindowMaker = new function()
 
     CATMAID.skeletonListSources.updateGUI();
 
-    // Now that a Selection Table exists, have the 3D viewer subscribe to it
+    // Now that a Selection Table exists, have the 3D viewer subscribe to it and
+    // make it ignore local models. Don't make it selection based, to not reload
+    // skeletons on visibility changes.
     var Subscription = CATMAID.SkeletonSourceSubscription;
-    WA.addSubscription(new Subscription(st.widget, true, true, CATMAID.SkeletonSource.UNION,
-          Subscription.ALL_EVENTS));
+    WA.addSubscription(new Subscription(st.widget, true, false,
+          CATMAID.SkeletonSource.UNION, Subscription.ALL_EVENTS));
+    // Override existing local models if subscriptions are updated
+    WA.ignoreLocal = true;
 
     return {window: win, widget: WA};
   };
@@ -1619,9 +1567,108 @@ var WindowMaker = new function()
     return {window: win, widget: null};
   };
 
+  var createSynapseFractionsWindow = function()
+  {
+    var SF = new CATMAID.SynapseFractions();
+
+    var win = new CMWWindow(SF.getName());
+    DOM.addButtonDisplayToggle(win);
+    var content = win.getFrame();
+    content.style.backgroundColor = '#ffffff';
+
+    var bar = document.createElement('div');
+    bar.setAttribute("id", "synapse_fractions_buttons" + SF.widgetID);
+    bar.setAttribute('class', 'buttonpanel');
+    
+    var tabs = appendTabs(bar, SF.widgetID, ['Main', 'Filter', 'Color', 'Partner groups']);
+
+    var partners_source = CATMAID.skeletonListSources.createPushSelect(SF, "filter");
+    partners_source.onchange = SF.onchangeFilterPartnerSkeletons.bind(SF);
+
+    var modes = createSelect("synapse_fraction_mode" + SF.widgetID, SF.MODES);
+    modes.onchange = SF.onchangeMode.bind(SF, modes);
+
+    appendToTab(tabs['Main'],
+        [[document.createTextNode('From')],
+         [CATMAID.skeletonListSources.createSelect(SF)],
+         ['Append', SF.loadSource.bind(SF)],
+         ['Clear', SF.clear.bind(SF)],
+         ['Refresh', SF.update.bind(SF)],
+         [document.createTextNode(' - ')],
+         [modes],
+         [document.createTextNode(' - ')],
+         ['Export SVG', SF.exportSVG.bind(SF)]]);
+
+    var nf = createNumericField("synapse_threshold" + SF.widgetID, // id
+                                "By synapse threshold: ",             // label
+                                "Below this number, neuron gets added to the 'others' heap", // title
+                                SF.threshold,                            // initial value
+                                undefined,                               // postlabel
+                                SF.onchangeSynapseThreshold.bind(SF),    // onchangeFn
+                                5);                                      // textfield length in number of chars
+
+    var cb = createCheckbox('show others', SF.show_others, SF.toggleOthers.bind(SF));
+
+    appendToTab(tabs['Filter'],
+        [[nf],
+         [document.createTextNode(' - Only in: ')],
+         [partners_source],
+         [cb[0]],
+         [cb[1]]
+        ]);
+
+    var partners_color = CATMAID.skeletonListSources.createPushSelect(SF, "color");
+    partners_color.onchange = SF.onchangeColorPartnerSkeletons.bind(SF);
+
+    var c = createSelect('color-scheme-synapse-fractions' + SF.widgetID,
+        ['category10',
+         'category20',
+         'category20b',
+         'category20c'].concat(Object.keys(colorbrewer)));
+
+    c.selectedIndex = 1;
+    c.onchange = SF.onchangeColorScheme.bind(SF, c);
+
+    appendToTab(tabs['Color'],
+        [[document.createTextNode("Color scheme: ")],
+         [c],
+         [document.createTextNode("Color by: ")],
+         [partners_color]]);
+
+    var partner_group = CATMAID.skeletonListSources.createPushSelect(SF, "group");
+
+    appendToTab(tabs['Partner groups'],
+        [[partner_group],
+         ['Create group', SF.createPartnerGroup.bind(SF)]]);
+
+    content.appendChild(bar);
+
+    $(bar).tabs();
+
+    var container = createContainer("synapse_fractions_widget" + SF.widgetID);
+    container.style.overflow = 'hidden';
+    content.appendChild(container);
+
+    var graph = document.createElement('div');
+    graph.setAttribute("id", "synapse_fractions" + SF.widgetID);
+    graph.style.width = "100%";
+    graph.style.height = "100%";
+    graph.style.backgroundColor = "#ffffff";
+    container.appendChild(graph);
+
+    addListener(win, container, 'synapse_fractions_buttons' + SF.widgetID,
+        SF.destroy.bind(SF), SF.resize.bind(SF));
+
+    addLogic(win);
+
+    CATMAID.skeletonListSources.updateGUI();
+
+    return {window: win, widget: SF};
+  };
+
   var createSynapsePlotWindow = function()
   {
-    var SP = new SynapsePlot();
+    var SP = new CATMAID.SynapsePlot();
 
     var win = new CMWWindow(SP.getName());
     var content = win.getFrame();
@@ -1630,7 +1677,7 @@ var WindowMaker = new function()
     var bar = document.createElement('div');
     bar.setAttribute("id", "synapse_plot_buttons" + SP.widgetID);
     bar.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addButtonDisplayToggle(win);
 
     var tabs = appendTabs(bar, SP.widgetID, ['Main', 'Options']);
 
@@ -1747,7 +1794,8 @@ var WindowMaker = new function()
     var bar = document.createElement('div');
     bar.setAttribute("id", 'compartment_graph_window_buttons' + GG.widgetID);
     bar.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addSourceControlsToggle(win, GG);
+    DOM.addButtonDisplayToggle(win);
 
     var tabs = appendTabs(bar, GG.widgetID, ['Main', 'Grow', 'Graph',
         'Selection', 'Subgraphs', 'Align', 'Export']);
@@ -1757,6 +1805,7 @@ var WindowMaker = new function()
          [CATMAID.skeletonListSources.createSelect(GG)],
          ['Append', GG.loadSource.bind(GG)],
          ['Append as group', GG.appendAsGroup.bind(GG)],
+         ['Remove', GG.removeSource.bind(GG)],
          ['Clear', GG.clear.bind(GG)],
          ['Refresh', GG.update.bind(GG)],
          ['Properties', GG.graph_properties.bind(GG)],
@@ -1780,7 +1829,7 @@ var WindowMaker = new function()
     color.options.add(new Option('circles of hell (downstream)', 'circles_of_hell_downstream'));
     color.onchange = GG._colorize.bind(GG, color);
 
-    var layout = appendSelect(tabs['Graph'], "compartment_layout", GG.layoutStrings);
+    var layout = appendSelect(tabs['Graph'], null, null, GG.layoutStrings);
 
     var edges = document.createElement('select');
     edges.setAttribute('id', 'graph_edge_threshold' + GG.widgetID);
@@ -1915,7 +1964,7 @@ var WindowMaker = new function()
 
   var createCircuitGraphPlot = function() {
 
-    var GP = new CircuitGraphPlot();
+    var GP = new CATMAID.CircuitGraphPlot();
 
     var win = new CMWWindow(GP.getName());
     var content = win.getFrame();
@@ -1924,7 +1973,8 @@ var WindowMaker = new function()
     var buttons = document.createElement('div');
     buttons.setAttribute('id', 'circuit_graph_plot_buttons' + GP.widgetID);
     buttons.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addSourceControlsToggle(win, GP);
+    DOM.addButtonDisplayToggle(win);
 
     buttons.appendChild(document.createTextNode('From'));
     buttons.appendChild(CATMAID.skeletonListSources.createSelect(GP));
@@ -2045,7 +2095,8 @@ var WindowMaker = new function()
     var buttons = document.createElement('div');
     buttons.setAttribute('id', 'morphology_plot_buttons' + MA.widgetID);
     buttons.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addSourceControlsToggle(win, MA);
+    DOM.addButtonDisplayToggle(win);
 
     buttons.appendChild(document.createTextNode('From'));
     buttons.appendChild(CATMAID.skeletonListSources.createSelect(MA));
@@ -2090,7 +2141,7 @@ var WindowMaker = new function()
 
     buttons.appendChild(document.createElement('br'));
 
-    appendSelect(buttons, "function",
+    appendSelect(buttons, "function", null,
         ['Sholl analysis',
          'Radial density of cable',
          'Radial density of branch nodes',
@@ -2106,8 +2157,7 @@ var WindowMaker = new function()
     radius.style.width = "40px";
     buttons.appendChild(radius);
 
-    buttons.appendChild(document.createTextNode(' Center: '));
-    appendSelect(buttons, "center",
+    appendSelect(buttons, "center", ' Center: ',
         ['First branch node',
          'Root node',
          'Active node',
@@ -2147,7 +2197,7 @@ var WindowMaker = new function()
     var buttons = document.createElement('div');
     buttons.setAttribute('id', 'venn_diagram_buttons' + VD.widgetID);
     buttons.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addButtonDisplayToggle(win);
 
     buttons.appendChild(document.createTextNode('From'));
     buttons.appendChild(CATMAID.skeletonListSources.createSelect(VD));
@@ -2267,7 +2317,7 @@ var WindowMaker = new function()
     var contentbutton = document.createElement('div');
     contentbutton.setAttribute("id", 'table_of_skeleton_buttons' + TNT.widgetID);
     contentbutton.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addButtonDisplayToggle(win);
 
     contentbutton.appendChild(document.createTextNode('From'));
     contentbutton.appendChild(CATMAID.skeletonListSources.createSelect(TNT));
@@ -2374,7 +2424,7 @@ var WindowMaker = new function()
     var contentbutton = document.createElement('div');
     contentbutton.setAttribute("id", 'table_of_connector_buttons' + CT.widgetID);
     contentbutton.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addButtonDisplayToggle(win);
 
     var add = document.createElement('input');
     add.setAttribute("type", "button");
@@ -2468,10 +2518,14 @@ var WindowMaker = new function()
 
     div.appendChild(CATMAID.skeletonListSources.createSelect(SA));
 
-    appendSelect(div, "extra" + SA.widgetID, ["No others", "Downstream skeletons", "Upstream skeletons", "Both upstream and downstream"]);
+    appendSelect(div, "extra" + SA.widgetID, ' extra ', [
+        {title: "No others", value: 0},
+        {title: "Downstream skeletons", value: 1},
+        {title: "Upstream skeletons", value: 2},
+        {title: "Both upstream and downstream", value: 3}]);
     var adjacents = [];
     for (var i=0; i<5; ++i) adjacents.push(i);
-    appendSelect(div, "adjacents" + SA.widgetID, adjacents);
+    appendSelect(div, "adjacents" + SA.widgetID, ' adjacents ', adjacents);
 
     var update = document.createElement('input');
     update.setAttribute('type', 'button');
@@ -2524,7 +2578,7 @@ var WindowMaker = new function()
         var contentbutton = document.createElement('div');
         contentbutton.setAttribute("id", 'table_of_log_buttons');
         contentbutton.setAttribute('class', 'buttonpanel');
-        addButtonDisplayToggle(win);
+        DOM.addButtonDisplayToggle(win);
 
         var add = document.createElement('input');
         add.setAttribute("type", "button");
@@ -2649,7 +2703,7 @@ var WindowMaker = new function()
         var bar = document.createElement( "div" );
         bar.id = "review_widget_buttons";
         bar.setAttribute('class', 'buttonpanel');
-        addButtonDisplayToggle(win);
+        DOM.addButtonDisplayToggle(win);
 
         var RS = CATMAID.ReviewSystem;
         RS.init();
@@ -2722,7 +2776,8 @@ var WindowMaker = new function()
         var contentbutton = document.createElement('div');
         contentbutton.setAttribute("class", "buttonpanel");
         contentbutton.setAttribute("id", 'skeleton_connectivity_buttons' + widgetID);
-        addButtonDisplayToggle(win);
+        DOM.addSourceControlsToggle(win, SC);
+        DOM.addButtonDisplayToggle(win);
 
         contentbutton.appendChild(document.createTextNode('From'));
         contentbutton.appendChild(CATMAID.skeletonListSources.createSelect(SC));
@@ -2751,16 +2806,17 @@ var WindowMaker = new function()
         update.onclick = SC.update.bind(SC);
         contentbutton.appendChild(update);
 
-        contentbutton.appendChild(document.createTextNode(' Sync to:'));
-        var link = CATMAID.skeletonListSources.createPushSelect(SC, 'link');
-        link.onchange = SC.syncLink.bind(SC, link);
-        contentbutton.appendChild(link);
-
         var plot = document.createElement('input');
         plot.setAttribute("type", "button");
         plot.setAttribute("value", "Open plot");
         plot.onclick = SC.openPlot.bind(SC);
         contentbutton.appendChild(plot);
+
+        var plot2 = document.createElement('input');
+        plot2.setAttribute("type", "button");
+        plot2.setAttribute("value", "Open partner chart");
+        plot2.onclick = SC.openStackedBarChart.bind(SC);
+        contentbutton.appendChild(plot2);
 
         var layoutToggle = document.createElement('input');
         layoutToggle.setAttribute('id', 'connectivity-layout-toggle-' + widgetID);
@@ -2814,7 +2870,7 @@ var WindowMaker = new function()
     var buttons = document.createElement('div');
     buttons.setAttribute('id', 'connectivity_graph_plot_buttons' + GP.widgetID);
     buttons.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addButtonDisplayToggle(win);
 
     var xml = document.createElement('input');
     xml.setAttribute("type", "button");
@@ -2851,7 +2907,7 @@ var WindowMaker = new function()
         var contentbutton = document.createElement('div');
         contentbutton.setAttribute("id", 'skeleton_adjmatrix_buttons');
         contentbutton.setAttribute('class', 'buttonpanel');
-        addButtonDisplayToggle(win);
+        DOM.addButtonDisplayToggle(win);
 
         var add = document.createElement('input');
         add.setAttribute("type", "button");
@@ -3064,6 +3120,9 @@ var WindowMaker = new function()
     var keysHTML = '<p id="keyShortcutsText">';
     keysHTML += '<a href="' + CATMAID.makeDocURL('/') + '" target="_blank">';
     keysHTML += 'General documentation for CATMAID release ' + CATMAID.getVersionRelease();
+    keysHTML += '</a><br />';
+    keysHTML += '<a href="' + CATMAID.makeChangelogURL() + '" target="_blank">';
+    keysHTML += 'Changelog for CATMAID release ' + CATMAID.getVersionRelease();
     keysHTML += '</a>';
     keysHTML += '<h4>Global Key Help</h4>';
 
@@ -3120,7 +3179,7 @@ var WindowMaker = new function()
           .attr('autocomplete', 'on')
           .on('submit', function(e) {
             // Submit form in iframe to store autocomplete information
-            submitFormInIFrame(document.getElementById('search-form'));
+            DOM.submitFormInIFrame(document.getElementById('search-form'));
             // Do actual search
             CATMAID.TracingTool.search();
             // Cancel submit in this context to not reload the page
@@ -3273,7 +3332,7 @@ var WindowMaker = new function()
     var queryFields = document.createElement('div');
     queryFields.setAttribute('id', 'neuron_annotations_query_fields' + NA.widgetID);
     queryFields.setAttribute('class', 'buttonpanel');
-    addButtonDisplayToggle(win);
+    DOM.addButtonDisplayToggle(win);
 
     // Create the query fields HTML and use {{NA-ID}} as template for the
     // actual NA.widgetID which will be replaced afterwards.
@@ -3340,9 +3399,6 @@ var WindowMaker = new function()
           'class="neuron_annotations_query_footer">' +
         '<input type="button" id="neuron_annotations_annotate{{NA-ID}}" ' +
             'value="Annotate..." />' +
-        '<label id="neuron_annotations_add_to_selection{{NA-ID}}">' +
-          'Sync to: ' +
-        '</label>' +
         '<label>' +
           '<input type="checkbox" id="neuron_search_show_annotations{{NA-ID}}" />' +
           'Show annotations' +
@@ -3401,7 +3457,7 @@ var WindowMaker = new function()
           // Submit form in iframe to make browser save search terms for
           // autocompletion.
           var form = document.getElementById('neuron_query_by_annotations' + NA.widgetID);
-          submitFormInIFrame(form);
+          DOM.submitFormInIFrame(form);
           // Do actual query
           NA.query.call(NA, true);
           event.preventDefault();
@@ -3426,9 +3482,6 @@ var WindowMaker = new function()
 
     $('#neuron_annotations_toggle_neuron_selections_checkbox' + NA.widgetID)[0].onclick =
         NA.toggle_neuron_selections.bind(NA);
-    var select = CATMAID.skeletonListSources.createPushSelect(NA, 'link');
-    select.onchange = NA.syncLink.bind(NA, select);
-    $('#neuron_annotations_add_to_selection' + NA.widgetID).append(select);
 
     // Fill user select boxes
     var $select = $('tr #neuron_query_by_annotator' + NA.widgetID);
@@ -3649,6 +3702,7 @@ var WindowMaker = new function()
     "neuron-dendrogram": createNeuronDendrogram,
     "connectivity-matrix": createConnectivityMatrixWindow,
     "synapse-plot": createSynapsePlotWindow,
+    "synapse-fractions": createSynapseFractionsWindow,
   };
 
   /** If the window for the given name is already showing, just focus it.

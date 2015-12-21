@@ -500,18 +500,81 @@
 
   WebGLApplication.prototype.exportSkeletonsAsCSV = function() {
     var sks = this.space.content.skeletons,
-        rows = ["skeleton_id, treenode_id, parent_treenode_id, x, y, z"];
+        rows = ["neuron, skeleton_id, treenode_id, parent_treenode_id, x, y, z, r"];
     Object.keys(sks).forEach(function(skid) {
-      var vs = sks[skid].getPositions(),
-          arbor = sks[skid].createArbor(),
-          edges = arbor.edges;
-      edges[arbor.root] = '';
+      var sk = sks[skid];
+      if (!sk.visible) return;
+      var vs = sk.getPositions(),
+          arbor = sk.createArbor(),
+          edges = arbor.edges,
+          name = CATMAID.NeuronNameService.getInstance().getName(skid);
+      edges[arbor.root] = ''; // rather than null
       Object.keys(vs).forEach(function(tnid) {
         var v = vs[tnid];
-        rows.push(skid + "," + tnid + "," + edges[tnid]  + "," + v.x + "," + v.y + "," + v.z);
+        var mesh = sk.radiusVolumes[tnid];
+        var r = mesh ? mesh.scale.x : 0; // See createNodeSphere and createCylinder
+        rows.push('"' + name + '", ' + skid + "," + tnid + "," + edges[tnid]  + "," + v.x + "," + v.y + "," + v.z + "," + r);
       });
     });
     saveAs(new Blob([rows.join('\n')], {type : 'text/csv'}), "skeleton_coordinates.csv");
+  };
+
+  /** Will export only those present in the 3D View, as determined by the connector restriction option.
+   * By its generic nature, it will export even connectors whose relations to the skeleton are something
+   * other than pre- or postsynaptic_to. */
+  WebGLApplication.prototype.exportConnectorsAsCSV = function() {
+    var sks = this.space.content.skeletons,
+        rows = ["connector_id, skeleton_id, treenode_id, relation_id"];
+    Object.keys(sks).forEach(function(skid) {
+      var sk = sks[skid];
+      sk.synapticTypes.forEach(function(type) {
+        var vs = (sk.connectoractor ? sk.connectorgeometry : sk.geometry)[type].vertices;
+        for (var i=0; i<vs.length; i+=2) {
+          rows.push([vs[i].node_id, skid, vs[i+1].node_id, type].join(','));
+        }
+      });
+    });
+    saveAs(new Blob([rows.join('\n')], {type : 'text/csv'}), "connectors.csv");
+  };
+
+  WebGLApplication.prototype.exportSynapsesAsCSV = function() {
+    var rows = [["pre_skeleton_id", "pre_treenode_id", "post_skeleton_id", "post_treenode_id"].join(',')];
+    var unique = {};
+    fetchSkeletons(
+        this.getSelectedSkeletons(),
+        function(skid) {
+          return django_url + project.id + '/' + skid + '/0/1/0/compact-arbor';
+        },
+        function(skid) { return {}; }, // POST
+        function(skid, json) {
+          unique[skid] = true;
+          json[1].forEach(function(row) {
+            if (0 === row[6]) {
+              // skid  is pre
+              rows.push([skid, row[0], row[5], row[4]].join(','));
+            } else {
+              // skid is post
+              rows.push([row[5], row[4], skid, row[0]].join(','));
+            }
+            unique[row[5]] = true;
+          });
+        },
+        function(skid) { CATMAID.msg("Error", "Failed to load synapses for: " + skid); },
+        (function() {
+          saveAs(new Blob([rows.join('\n')], {type : 'text/csv'}), "synapses.csv");
+
+          var nns = CATMAID.NeuronNameService.getInstance(),
+              dummy = new THREE.Color(1, 1, 1);
+          nns.registerAll(
+              this,
+              Object.keys(unique).reduce(function(o, skid) { o[skid] = new CATMAID.SkeletonModel(skid, "", dummy); return o; }, {}),
+              function() {
+                var names = Object.keys(unique).map(function(skid) {
+                  return [skid, '"' +  nns.getName(skid) +'"'];
+                });
+                saveAs(new Blob([names.join('\n')], {type: 'text/csv'}), "neuron_name_vs_skeleton_id.csv");
+              });
+        }).bind(this));
   };
 
   /** Return a list of skeleton IDs that have nodes within radius of the active node. */
@@ -714,6 +777,7 @@
     this.follow_active = false;
     this.distance_to_active_node = 5000; // nm
     this.min_synapse_free_cable = 5000; // nm
+    this.lock_view = false;
     this.animation_rotation_axis = "up";
     this.animation_rotation_speed = 0.01;
     this.animation_back_forth = false;
@@ -1981,6 +2045,7 @@
 
   WebGLApplication.prototype.Space.prototype.Content.prototype.loadMeshes = function(space, submit, material) {
     submit(django_url + project.id + "/stack/" + space.stack.id + "/models",
+           'POST',
            {},
            function (models) {
              var ids = Object.keys(models);
@@ -2624,6 +2689,8 @@
      * camera (and target) is moved instead.
      */
     this.MouseWheel = function(ev) {
+      if (this.CATMAID_view.space.options.lock_view) return;
+
       var camera = this.CATMAID_view.camera;
       if ((ev.ctrlKey || ev.altKey) && !camera.inOrthographicMode) {
         // Move the camera and the target in target direction
@@ -2656,11 +2723,13 @@
     this.MouseMove = function(ev) {
       var mouse = this.CATMAID_view.mouse,
           space = this.CATMAID_view.space;
-      mouse.position.x =  ( ev.offsetX / space.canvasWidth  ) * 2 -1;
-      mouse.position.y = -( ev.offsetY / space.canvasHeight ) * 2 +1;
+      if (!space.options.lock_view) {
+        mouse.position.x =  ( ev.offsetX / space.canvasWidth  ) * 2 -1;
+        mouse.position.y = -( ev.offsetY / space.canvasHeight ) * 2 +1;
 
-      if (mouse.is_mouse_down) {
-        space.render();
+        if (mouse.is_mouse_down) {
+          space.render();
+        }
       }
 
       // Use a cross hair cursor if shift is pressed
@@ -2675,6 +2744,7 @@
       var mouse = this.CATMAID_view.mouse,
           controls = this.CATMAID_view.controls,
           space = this.CATMAID_view.space;
+      if (space.options.lock_view) return;
       mouse.is_mouse_down = false;
       controls.enabled = true;
       space.render(); // May need another render on occasions
@@ -2685,7 +2755,9 @@
           space = this.CATMAID_view.space,
           camera = this.CATMAID_view.camera,
           projector = this.CATMAID_view.projector;
-      mouse.is_mouse_down = true;
+      if (!space.options.lock_view) {
+        mouse.is_mouse_down = true;
+      }
       if (!ev.shiftKey) return;
 
       // Try to pick the node by casting a ray

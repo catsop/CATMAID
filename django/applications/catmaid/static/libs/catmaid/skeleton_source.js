@@ -17,6 +17,11 @@
   SkeletonSource.UNION = 'union';
   SkeletonSource.INTERSECTION = 'intersection';
   SkeletonSource.DIFFERENCE = 'difference';
+  SkeletonSource.operations = {};
+  SkeletonSource.operations[SkeletonSource.UNION] = '\u222A';
+  SkeletonSource.operations[SkeletonSource.INTERSECTION] = '\u2229';
+  SkeletonSource.operations[SkeletonSource.DIFFERENCE] = '\u2216';
+
 
   SkeletonSource.prototype = {};
   CATMAID.asEventSource(SkeletonSource.prototype);
@@ -38,6 +43,12 @@
   // source models were updated (e.g. color), alongside an object mapping
   // skeleton IDs to models.
   SkeletonSource.prototype.EVENT_MODELS_CHANGED = "skeleton_source_models_changed";
+  // The EVENT_SUBSCRIPTION_ADDED event is fired once a new subscription was
+  // added to a source.
+  SkeletonSource.prototype.EVENT_SUBSCRIPTION_ADDED = "skeleton_source_subscription_added";
+  // The EVENT_SUBSCRIPTION_REMOVED event is fired once a new subscription was
+  // removed from a source.
+  SkeletonSource.prototype.EVENT_SUBSCRIPTION_REMOVED = "skeleton_source_subscription_removed";
 
   SkeletonSource.prototype.registerSource = function() {
     CATMAID.skeletonListSources.add(this);
@@ -49,6 +60,12 @@
   SkeletonSource.prototype.unregisterSource = function() {
     this.trigger(this.EVENT_SOURCE_REMOVED, this);
     CATMAID.skeletonListSources.remove(this);
+    // Remove all subscriptions
+    if (this.subscriptions) {
+      this.subscriptions.forEach(function(s) {
+        s.unregister();
+      }, this);
+    }
     // Remove all event listeners
     this.clearAllEvents();
   };
@@ -70,6 +87,8 @@
 
     // Do initial update
     this.loadSubscriptions();
+
+    this.trigger(this.EVENT_SUBSCRIPTION_ADDED, this, subscription);
   };
 
   /**
@@ -90,6 +109,8 @@
 
     // Update
     this.loadSubscriptions();
+
+    this.trigger(this.EVENT_SUBSCRIPTION_REMOVED, this, subscription);
   };
 
   /**
@@ -177,19 +198,9 @@
     this.updateModels(models, source_chain);
   };
 
-  SkeletonSource.prototype.syncLink = function(select) {
-    this.linkTarget = CATMAID.skeletonListSources.getSource(select.value);
-    if (this.linkTarget) {
-      this.linkTarget.clear();
-      this.linkTarget.append(this.getSelectedSkeletonModels());
-    }
-  };
-
   SkeletonSource.prototype.triggerChange = function(models) {
     this.trigger(this.EVENT_MODELS_CHANGED, models);
   };
-
-  SkeletonSource.prototype.updateLink = SkeletonSource.prototype.notifyChange;
 
   SkeletonSource.prototype.triggerAdd = function(models) {
     this.trigger(this.EVENT_MODELS_ADDED, models);
@@ -197,27 +208,6 @@
 
   SkeletonSource.prototype.triggerRemove = function(models) {
     this.trigger(this.EVENT_MODELS_REMOVED, models);
-  };
-
-  SkeletonSource.prototype.notifyLink = function(model, source_chain) {
-    if (this.linkTarget) {
-      this.triggerChange(CATMAID.tools.idMap(model));
-      this.linkTarget.updateOneModel(model, source_chain);
-    }
-  };
-
-  SkeletonSource.prototype.clearLink = function(source_chain) {
-    if (this.linkTarget) {
-      if (source_chain && (this in source_chain)) return; // break propagation loop
-      if (!source_chain) source_chain = {};
-      source_chain[this] = this;
-
-      this.linkTarget.clear();
-    }
-  };
-
-  SkeletonSource.prototype.getLinkTarget = function() {
-    return this.linkTarget;
   };
 
   SkeletonSource.prototype.getSelectedSkeletons = function() {
@@ -361,6 +351,11 @@
       models, order) {
     // Update cache
     for (var mId in models) {
+      var m = models[mId];
+      // Only add selected items in selection based sync
+      if (this.selectionBased && !m.selected) {
+        continue;
+      }
       this.modelCache[mId] = models[mId];
     }
 

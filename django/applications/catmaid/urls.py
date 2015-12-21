@@ -1,5 +1,6 @@
 from django.conf.urls import patterns, url
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import TemplateView
 
 # For adding explicit grouping resource endpoints in API documentation.
@@ -21,7 +22,7 @@ wordlist= r'\w+(,\w+)*'
 
 # Add the main index.html page at the root:
 urlpatterns = patterns('',
-    url(r'^$', CatmaidView.as_view(template_name='catmaid/index.html'),
+    url(r'^$', ensure_csrf_cookie(CatmaidView.as_view(template_name='catmaid/index.html')),
         name="home"),
     url(r'^version$', 'catmaid.control.common.get_catmaid_version')
 )
@@ -174,14 +175,10 @@ urlpatterns += patterns('catmaid.control.neuron',
 UrlParser.explicit_root_paths |= set(['{project_id}/nodes'])
 urlpatterns += patterns('catmaid.control.node',
     (r'^(?P<project_id>\d+)/node/(?P<node_id>\d+)/reviewed$', 'update_location_reviewer'),
-    (r'^(?P<project_id>\d+)/node/(?P<node_id>\d+)/confidence/update$', 'update_confidence'),
     (r'^(?P<project_id>\d+)/node/most_recent$', 'most_recent_treenode'),
     (r'^(?P<project_id>\d+)/node/nearest$', 'node_nearest'),
     (r'^(?P<project_id>\d+)/node/update$', 'node_update'),
     (r'^(?P<project_id>\d+)/node/list$', 'node_list_tuples'),
-    (r'^(?P<project_id>\d+)/node/previous_branch_or_root$', 'find_previous_branchnode_or_root'),
-    (r'^(?P<project_id>\d+)/node/next_branch_or_end$', 'find_next_branchnode_or_end'),
-    (r'^(?P<project_id>\d+)/node/children$', 'find_children'),
     (r'^(?P<project_id>\d+)/node/get_location$', 'get_location'),
     (r'^(?P<project_id>\d+)/node/user-info$', 'user_info'),
     (r'^(?P<project_id>\d+)/nodes/find-labels$', 'find_labels'),
@@ -194,8 +191,12 @@ urlpatterns += patterns('catmaid.control.treenode',
     (r'^(?P<project_id>\d+)/treenode/insert$', 'insert_treenode'),
     (r'^(?P<project_id>\d+)/treenode/delete$', 'delete_treenode'),
     (r'^(?P<project_id>\d+)/treenodes/(?P<treenode_id>\d+)/info$', 'treenode_info'),
+    (r'^(?P<project_id>\d+)/treenodes/(?P<treenode_id>\d+)/children$', 'find_children'),
+    (r'^(?P<project_id>\d+)/treenodes/(?P<treenode_id>\d+)/confidence$', 'update_confidence'),
     (r'^(?P<project_id>\d+)/treenode/(?P<treenode_id>\d+)/parent$', 'update_parent'),
     (r'^(?P<project_id>\d+)/treenode/(?P<treenode_id>\d+)/radius$', 'update_radius'),
+    (r'^(?P<project_id>\d+)/treenodes/(?P<treenode_id>\d+)/previous-branch-or-root$', 'find_previous_branchnode_or_root'),
+    (r'^(?P<project_id>\d+)/treenodes/(?P<treenode_id>\d+)/next-branch-or-end$', 'find_next_branchnode_or_end'),
 )
 
 # Suppressed virtual treenode access

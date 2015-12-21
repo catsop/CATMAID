@@ -491,51 +491,51 @@
       actions.push( action );
     };
 
-      this.addAction( new CATMAID.Action({
-          helpText: "Switch to skeleton tracing mode",
-          buttonName: "skeleton",
-          buttonID: 'trace_button_skeleton',
-          keyShortcuts: { ";": [ 186 ] },
-          run: function (e) {
-            SkeletonAnnotations.setTracingMode(SkeletonAnnotations.MODES.SKELETON);
-            return true;
-          }
-      } ) );
-
-      this.addAction( new CATMAID.Action({
-        helpText: "Switch to synapse dropping mode",
-        buttonName: "synapse",
-        buttonID: 'trace_button_synapse',
+    this.addAction( new CATMAID.Action({
+        helpText: "Switch to skeleton tracing mode",
+        buttonName: "skeleton",
+        buttonID: 'trace_button_skeleton',
+        keyShortcuts: { ";": [ 186 ] },
         run: function (e) {
-          if (!mayEdit())
-            return false;
-          SkeletonAnnotations.setTracingMode(SkeletonAnnotations.MODES.SYNAPSE);
+          SkeletonAnnotations.setTracingMode(SkeletonAnnotations.MODES.SKELETON);
           return true;
         }
-      } ) );
+    } ) );
 
-      /** Return a function that attempts to tag the active treenode or connector,
-       * and display an alert when no node is active.
-       */
-      var tagFn = function(tag) {
-        return function(e) {
-          if (!mayEdit()) return false;
-          if (e.altKey || e.ctrlKey || e.metaKey) return false;
-          var modifier = e.shiftKey;
-          if (null === SkeletonAnnotations.getActiveNodeId()) {
-            alert('Must activate a treenode or connector before '
-                + (modifier ? 'removing the tag' : 'tagging with') + ' "' + tag + '"!');
-            return true;
-          }
-          // If any modifier key is pressed, remove the tag
-          if (modifier) {
-            SkeletonAnnotations.Tag.removeATNLabel(tag, activeTracingLayer.svgOverlay);
-          } else {
-            SkeletonAnnotations.Tag.tagATNwithLabel(tag, activeTracingLayer.svgOverlay, false);
-          }
+    this.addAction( new CATMAID.Action({
+      helpText: "Switch to synapse dropping mode",
+      buttonName: "synapse",
+      buttonID: 'trace_button_synapse',
+      run: function (e) {
+        if (!mayEdit())
+          return false;
+        SkeletonAnnotations.setTracingMode(SkeletonAnnotations.MODES.SYNAPSE);
+        return true;
+      }
+    } ) );
+
+    /** Return a function that attempts to tag the active treenode or connector,
+     * and display an alert when no node is active.
+     */
+    var tagFn = function(tag) {
+      return function(e) {
+        if (!mayEdit()) return false;
+        if (e.altKey || e.ctrlKey || e.metaKey) return false;
+        var modifier = e.shiftKey;
+        if (null === SkeletonAnnotations.getActiveNodeId()) {
+          alert('Must activate a treenode or connector before '
+              + (modifier ? 'removing the tag' : 'tagging with') + ' "' + tag + '"!');
           return true;
-        };
+        }
+        // If any modifier key is pressed, remove the tag
+        if (modifier) {
+          SkeletonAnnotations.Tag.removeATNLabel(tag, activeTracingLayer.svgOverlay);
+        } else {
+          SkeletonAnnotations.Tag.tagATNwithLabel(tag, activeTracingLayer.svgOverlay, false);
+        }
+        return true;
       };
+    };
 
     this.addAction( new CATMAID.Action({
       helpText: "Add ends Tag (<kbd>Shift</kbd>: Remove) for the active node",
@@ -1056,10 +1056,18 @@
     }) );
 
     this.addAction( new CATMAID.Action({
-      helpText: "Open the neuron/annotation search widget",
+      helpText: "Open the neuron/annotation search widget (with <kbd>Shift</kbd>: activate next selected neuron in search results after active skeleton)",
       keyShortcuts: { '/': [ 191 ] },
       run: function (e) {
-        WindowMaker.create('neuron-annotations');
+        if (e.shiftKey) {
+          var nextSkid = CATMAID.NeuronAnnotations.prototype.getFirstInstance()
+              .getNextSkeletonIdAfter(SkeletonAnnotations.getActiveSkeletonId());
+          if (nextSkid) {
+            CATMAID.TracingTool.goToNearestInNeuronOrSkeleton('skeleton', nextSkid);
+          }
+        } else {
+          WindowMaker.create('neuron-annotations');
+        }
         return true;
       }
     }) );
@@ -1091,17 +1099,18 @@
     };
 
     this.getMouseHelp = function( e ) {
-      var result = '<p>';
-      result += '<strong>click on a node:</strong> make that node active<br />';
-      result += '<strong>ctrl-click in space:</strong> deselect the active node<br />';
-      result += '<strong>ctrl-shift-click on a node:</strong> delete that node<br />';
-      result += '<strong>ctrl-shift-click on an arrow:</strong> delete that link<br />';
-      result += '<strong>shift-click in space:</strong> create a synapse with the active treenode being presynaptic.<br />';
-      result += '<strong>shift-alt-click in space:</strong> create a synapse with the active treenode as postsynaptic.<br />';
-      result += '<strong>shift-click in space:</strong> create a post-synaptic node (if there was an active connector)<br />';
-      result += '<strong>shift-click on a treenode:</strong> join two skeletons (if there was an active treenode)<br />';
-      result += '<strong>alt-ctrl-click in space:</strong> adds a node along the nearest edge of the active skeleton<br />';
-      result += '</p>';
+      var result = self.prototype.getMouseHelp();
+      result += '<ul>';
+      result += '<li><strong>Click on a node:</strong> make that node active</li>';
+      result += '<li><strong><kbd>Ctrl</kbd>+click in space:</strong> deselect the active node</li>';
+      result += '<li><strong><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+click on a node:</strong> delete that node</li>';
+      result += '<li><strong><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+click on an arrow:</strong> delete that link</li>';
+      result += '<li><strong><kbd>Shift</kbd>+click in space:</strong> create a synapse with the active treenode being presynaptic.</li>';
+      result += '<li><strong><kbd>Shift</kbd>+<kbd>Alt</kbd>+click in space:</strong> create a synapse with the active treenode as postsynaptic.</li>';
+      result += '<li><strong><kbd>Shift</kbd>+click in space:</strong> create a post-synaptic node (if there was an active connector)</li>';
+      result += '<li><strong><kbd>Shift</kbd>+click on a treenode:</strong> join two skeletons (if there was an active treenode)</li>';
+      result += '<li><strong><kbd>Alt</kbd>+<kbd>Ctrl</kbd>+click in space:</strong> adds a node along the nearest edge of the active skeleton</li>';
+      result += '</ul>';
       return result;
     };
 
