@@ -83,7 +83,7 @@
         {},
         CATMAID.jsonResponseHandler((function (json) {
           this.configurations = json;
-          var configurationSelect = $('#catsop-results' + this.widgetID + '_configuration_id');
+          var configurationSelect = $('#catsop-results' + this.widgetID + '_buttons_Graph_configuration_id');
           configurationSelect.empty();
           this.configurations.forEach(function (config) {
             configurationSelect.append($('<option />', {
@@ -96,7 +96,7 @@
   };
 
   CatsopWidget.prototype.activateConfiguration = function () {
-    var selectedConfiguration = $('#catsop-results' + this.widgetID + '_configuration_id option:selected').get(0);
+    var selectedConfiguration = $('#catsop-results' + this.widgetID + '_buttons_Graph_configuration_id option:selected').get(0);
     this.activeConfigurationId = parseInt(selectedConfiguration.value, 10);
     var configuration = this.configurations.filter(function (config) {
       return config.id === this.activeConfigurationId;
@@ -250,7 +250,7 @@
   };
 
   CatsopWidget.prototype.selectGraphValue = function () {
-    var selectedValue = $('#catsop-results' + this.widgetID + '_graph_value option:selected').get(0);
+    var selectedValue = $('#catsop-results' + this.widgetID + '_buttons_Graph_graph_value option:selected').get(0);
     this.graphValue = {
       'Slice Value': function (segment, slice) { return slice.value; },
       'Slice Size': function (segment, slice) { return Math.sqrt(slice.size); },
@@ -662,7 +662,7 @@
   };
 
   CatsopWidget.prototype.activateSolution = function () {
-    var selectedSolution = $('#catsop-results' + this.widgetID + '_solution_id option:selected').get(0);
+    var selectedSolution = $('#catsop-results' + this.widgetID + '_buttons_Solution_solution_id option:selected').get(0);
     this.activeSolutionId = selectedSolution.innerText === 'Union' ? null : selectedSolution.value;
     this.refreshLayers();
   };
@@ -676,7 +676,7 @@
       return ids;
     }, []);
 
-    var solutionSelect = $('#catsop-results' + this.widgetID + '_solution_id');
+    var solutionSelect = $('#catsop-results' + this.widgetID + '_buttons_Solution_solution_id');
     solutionIds.forEach(function (id) {
       solutionSelect.append($('<option>', {value: id}).text(id));
     });

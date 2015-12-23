@@ -3593,16 +3593,22 @@ var WindowMaker = new function()
        ['Recenter', CW.moveToActiveSegment.bind(CW)],
        ['Create Segment for Selected Slices', CW.createSegmentForSlices.bind(CW)],
        ['Load Current Location', CW.loadSegmentsAtLocation.bind(CW)]]);
-    var graphValueSelectLabel = $('<label>Graph value:</label>').get(0);
-    var graphValueSelect = appendSelect(graphValueSelectLabel, '', ['Slice Size', 'Slice Value', 'Segment Cost']);
-    graphValueSelect.id = 'catsop-results' + CW.widgetID + '_graph_value';
-    graphValueSelect.onchange = CW.selectGraphValue.bind(CW);
-    tabs['Graph'].appendChild(graphValueSelectLabel);
-    var configurationSelectLabel = $('<label>Configuration:</label>').get(0);
-    var configurationSelect = appendSelect(configurationSelectLabel, '', []);
-    configurationSelect.id = 'catsop-results' + CW.widgetID + '_configuration_id';
-    configurationSelect.onchange = CW.activateConfiguration.bind(CW);
-    tabs['Graph'].appendChild(configurationSelectLabel);
+    appendSelect(
+        tabs['Graph'],
+        'graph_value',
+        'Graph value:',
+        ['Slice Size', 'Slice Value', 'Segment Cost'],
+        'Metric to use for graph edge weight',
+        'Slice Size',
+        CW.selectGraphValue.bind(CW));
+    appendSelect(
+        tabs['Graph'],
+        'configuration_id',
+        'Configuration:',
+        [],
+        'Segmentation configuration ID to display',
+        undefined,
+        CW.activateConfiguration.bind(CW));
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
@@ -3621,11 +3627,14 @@ var WindowMaker = new function()
     appendToTab(tabs['Solution'],
       [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)],
        ['Solve Current Core', CW.solveAtLocation.bind(CW)]]);
-    var solutionSelectLabel = $('<label>Solution:</label>').get(0);
-    var solutionSelect = appendSelect(solutionSelectLabel, '', ['Union']);
-    solutionSelect.id = 'catsop-results' + CW.widgetID + '_solution_id';
-    solutionSelect.onchange = CW.activateSolution.bind(CW);
-    tabs['Solution'].appendChild(solutionSelectLabel);
+    appendSelect(
+        tabs['Solution'],
+        'solution_id',
+        'Solution:',
+        ['Union'],
+        'Solution ID to display',
+        'Union',
+        CW.activateSolution.bind(CW));
 
     appendToTab(tabs['Overlays'],
       Object.keys(CATMAID.CatsopResultsLayer.Overlays).map(function (overlay) {
