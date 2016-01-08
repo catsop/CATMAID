@@ -40,14 +40,14 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
 
 def generate_slice_response(slice):
     if slice:
-        return HttpResponse(json.dumps(slice_dict(slice)), content_type='text/json')
+        return HttpResponse(json.dumps(slice_dict(slice)), content_type='application/json')
     else:
-        return HttpResponse(json.dumps({'hash': 'nope'}), content_type='text/json')
+        return HttpResponse(json.dumps({'hash': 'nope'}), content_type='application/json')
 
 
 def generate_slices_response(slices, with_conflicts=False, with_solutions=False):
     slice_list = [slice_dict(slice, with_conflicts, with_solutions) for slice in slices]
-    return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok' : True, 'slices' : slice_list}), content_type='application/json')
 
 
 # --- Slices ---

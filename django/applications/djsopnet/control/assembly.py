@@ -26,7 +26,7 @@ def map_assembly_equivalence_to_skeleton(request, project_id, segmentation_stack
     ids = _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id)
     ids['ok'] = True
 
-    return HttpResponse(json.dumps(ids), content_type='text/json')
+    return HttpResponse(json.dumps(ids), content_type='application/json')
 
 def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equivalence_id, min_nodes=2):
     segstack = SegmentationStack.objects.get(id=segmentation_stack_id)

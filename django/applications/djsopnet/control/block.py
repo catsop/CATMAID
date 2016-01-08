@@ -43,9 +43,9 @@ def block_info_dict(block_info):
 
 def generate_block_response(block):
     if block:
-        return HttpResponse(json.dumps(block_dict(block)), content_type='text/json')
+        return HttpResponse(json.dumps(block_dict(block)), content_type='application/json')
     else:
-        return HttpResponse(json.dumps({'id': None}), content_type='text/json')
+        return HttpResponse(json.dumps({'id': None}), content_type='application/json')
 
 
 def generate_blocks_response(blocks):
@@ -54,14 +54,14 @@ def generate_blocks_response(blocks):
     return HttpResponse(json.dumps({'ok': True,
                                     'length': len(block_dicts),
                                     'blocks': block_dicts}),
-                        content_type='text/json')
+                        content_type='application/json')
 
 
 def generate_core_response(core):
     if core:
-        return HttpResponse(json.dumps(core_dict(core)), content_type='text/json')
+        return HttpResponse(json.dumps(core_dict(core)), content_type='application/json')
     else:
-        return HttpResponse(json.dumps({'id': None}), content_type='text/json')
+        return HttpResponse(json.dumps({'id': None}), content_type='application/json')
 
 
 def generate_cores_response(cores):
@@ -71,7 +71,7 @@ def generate_cores_response(cores):
 
 
 def generate_block_info_response(block_info):
-    return HttpResponse(json.dumps(block_info_dict(block_info)), content_type='text/json')
+    return HttpResponse(json.dumps(block_info_dict(block_info)), content_type='application/json')
 
 
 # --- Blocks and Cores ---
@@ -92,16 +92,16 @@ def setup_blocks(request, project_id, configuration_id):
         corehib = int(request.GET.get('core_dim_y'))
         coredib = int(request.GET.get('core_dim_z'))
     except TypeError:
-        return HttpResponse(json.dumps({'ok': False, 'reason': 'malformed'}), content_type='text/json')
+        return HttpResponse(json.dumps({'ok': False, 'reason': 'malformed'}), content_type='application/json')
 
     try:
         BlockInfo.update_or_create(configuration_id, scale,
                                    width, height, depth,
                                    corewib, corehib, coredib)
     except ValueError as e:
-        return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), content_type='text/json')
+        return HttpResponse(json.dumps({'ok': False, 'reason' : str(e)}), content_type='application/json')
 
-    return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok': True}), content_type='application/json')
 
 
 def _blockcursor_to_namedtuple(cursor, size):

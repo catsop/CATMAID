@@ -32,14 +32,14 @@ def segment_dict(segment, with_solution=False):
 
 def generate_segment_response(segment):
     if segment:
-        return HttpResponse(json.dumps(segment_dict(segment)), content_type='text/json')
+        return HttpResponse(json.dumps(segment_dict(segment)), content_type='application/json')
     else:
-        return HttpResponse(json.dumps({'id': None}), content_type='text/json')
+        return HttpResponse(json.dumps({'id': None}), content_type='application/json')
 
 
 def generate_segments_response(segments, with_solutions=False):
     segment_list = [segment_dict(segment, with_solutions) for segment in segments]
-    return HttpResponse(json.dumps({'ok': True, 'segments': segment_list}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok': True, 'segments': segment_list}), content_type='application/json')
 
 
 def generate_features_response(features):
@@ -48,7 +48,7 @@ def generate_features_response(features):
         segment_hash = id_to_hash(feature.segment_id)
         feature_values = feature.features
         features_dicts.append({'hash': segment_hash, 'fv': feature_values})
-    return HttpResponse(json.dumps({'ok': True, 'features': features_dicts}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok': True, 'features': features_dicts}), content_type='application/json')
 
 
 # --- Segments ---
@@ -199,7 +199,7 @@ def retrieve_segment_and_conflicts(request, project_id, segmentation_stack_id):
 
     segment_list = [segment_dict(segment, with_solution=True) for segment in segments]
     slices_list = [slice_dict(slice, with_conflicts=True, with_solution=True) for slice in slices]
-    return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok': True, 'segments': segment_list, 'slices': slices_list}), content_type='application/json')
 
 
 def set_feature_names(request, project_id=None, stack_id=None):
@@ -212,25 +212,25 @@ def set_feature_names(request, project_id=None, stack_id=None):
 
         existing_names = get_feature_names(s, p)
         if existing_names == names:
-            return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
+            return HttpResponse(json.dumps({'ok': True}), content_type='application/json')
         else:
             return HttpResponse(json.dumps({'ok': False,
                                             'reason' : 'tried to set different feature names'}),
-                                content_type='text/json')
+                                content_type='application/json')
     except FeatureInfo.DoesNotExist:
         if setup_feature_names(names, s, p):
-            return HttpResponse(json.dumps({'ok': True}), content_type='text/json')
+            return HttpResponse(json.dumps({'ok': True}), content_type='application/json')
         else:
             return HttpResponse(json.dumps({'ok': False,
                                             'reason' : 'something went horribly, horribly awry'}),
-                                content_type='text/json')
+                                content_type='application/json')
 
 
 def retrieve_feature_names(request, project_id=None, stack_id=None):
     s = get_object_or_404(Stack, pk=stack_id)
     p = get_object_or_404(Project, pk=project_id)
     names = get_feature_names(s, p)
-    return HttpResponse(json.dumps({'names': names}), content_type='text/json')
+    return HttpResponse(json.dumps({'names': names}), content_type='application/json')
 
 
 def get_segment_features(request, project_id=None, stack_id=None):
@@ -250,7 +250,7 @@ def retrieve_segment_solutions(request, project_id=None, stack_id=None):
                        'solution': solution.solution} for solution in solutions]
 
     return HttpResponse(json.dumps({'ok': True, 'solutions': solution_dicts}),
-                        content_type='text/json')
+                        content_type='application/json')
 
 
 def retrieve_block_ids_by_segments(request, project_id=None, stack_id=None):
@@ -263,7 +263,7 @@ def retrieve_block_ids_by_segments(request, project_id=None, stack_id=None):
     blocks = {br.block for br in block_relations}
     block_ids = [block.id for block in blocks]
 
-    return HttpResponse(json.dumps({'ok': True, 'block_ids': block_ids}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok': True, 'block_ids': block_ids}), content_type='application/json')
 
 
 @requires_user_role(UserRole.Annotate)
@@ -527,7 +527,7 @@ def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
 
     return HttpResponse(json.dumps({'constraint_id': constraint_id,
                                     'conflicting_constraint_ids': conflicting_constraint_ids}),
-                        content_type='text/json')
+                        content_type='application/json')
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -544,4 +544,4 @@ def retrieve_user_constraints_by_blocks(request, project_id=None, stack_id=None)
         ''' % ','.join(map(str, block_ids)))
     constraints = cursor.fetchall()
 
-    return HttpResponse(json.dumps({'ok': True, 'constraints': constraints}), content_type='text/json')
+    return HttpResponse(json.dumps({'ok': True, 'constraints': constraints}), content_type='application/json')

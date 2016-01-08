@@ -37,7 +37,7 @@ def segmentation_configurations(request, project_id, stack_id):
         configs = [r[0] for r in cursor.fetchall()]
         if len(configs) == 0:
             raise Http404('No segmentation is configured involving this project and stack.')
-        return HttpResponse(json.dumps(configs), content_type='text/json')
+        return HttpResponse(json.dumps(configs), content_type='application/json')
 
     return HttpResponseNotAllowed(['GET'])
 
