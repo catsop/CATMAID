@@ -550,7 +550,7 @@
     this.moveToSlice(rowIndex);
     var slice = this.sliceRows[rowIndex];
     this.layers.base.forEach(function (layer) {
-      layer.addSlices([slice, ['active']]);
+      layer.addSlices([[slice, ['active']]]);
     });
 
     requestQueue.register(django_url + 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
@@ -563,7 +563,7 @@
             var conflictSetSlices = conflictSet
                 .map(self.getSliceRowByHash.bind(self))
                 .filter(function (s) {return s !== undefined && s.hash !== slice.hash;})
-                .map(function (s) {return [s.hash, ['conflict']];});
+                .map(function (s) {return [s, ['conflict']];});
             self.layers.base.forEach(function (layer) {
               layer.addSlices(conflictSetSlices);
             });
