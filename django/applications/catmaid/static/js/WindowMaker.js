@@ -3652,7 +3652,7 @@ var WindowMaker = new function()
 
     CW.init(container);
 
-    return win;
+    return {window: win, widget: CW};
   };
 
   var createSettingsWindow = function()
