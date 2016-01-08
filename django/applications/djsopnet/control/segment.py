@@ -367,6 +367,37 @@ def _create_segment_for_slices(segmentation_stack_id, slice_ids, section_sup):
     return segment
 
 
+@requires_user_role([UserRole.Annotate, UserRole.Browse])
+def retrieve_constraints(request, project_id, segmentation_stack_id):
+
+    segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
+
+    segment_ids = ','.join([str(hash_to_id(x)) for x in safe_split(request.POST.get('hash'), 'segment hashes')])
+
+    cursor = connection.cursor()
+    cursor.execute('''
+            SELECT
+                c.id,
+                c.relation,
+                c.value,
+                ARRAY_TO_JSON(ARRAY_AGG(ROW(csr2.segment_id, csr2.coefficient)))
+            FROM segstack_%(segstack_id)s.solution_constraint c
+            JOIN segstack_%(segstack_id)s.constraint_segment_relation csr1
+              ON (csr1.constraint_id = c.id)
+            JOIN segstack_%(segstack_id)s.constraint_segment_relation csr2
+              ON (csr2.constraint_id = c.id)
+            WHERE csr1.segment_id IN (%(segment_ids)s)
+            GROUP BY c.id
+            ''' % {'segstack_id': segstack.id,
+                   'segment_ids': segment_ids})
+    constraints = [{'id': row[0],
+                    'relation': row[1],
+                    'value': row[2],
+                    'segments': [(id_to_hash(seg['f1']), seg['f2']) for seg in row[3]]} for row in cursor.fetchall()]
+
+    return HttpResponse(json.dumps(constraints), content_type='application/json')
+
+
 @requires_user_role(UserRole.Annotate)
 def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)

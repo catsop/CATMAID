@@ -26,6 +26,10 @@
 	fill: #F0F;
 }
 
+.segment-graph .segment-node.constrained.in_solution rect {
+	fill: #FD0;
+}
+
 .segment-graph .slice-node rect {
 	fill: #000;
 	fill-opacity: 1;

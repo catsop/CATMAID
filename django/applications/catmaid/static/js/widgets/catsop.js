@@ -515,6 +515,31 @@
 
     this.seggraph = seggraph;
     this.node = node;
+
+    // Find any constrained segments and indicate.
+    requestQueue.register(django_url+ 'sopnet/' + project.id + '/segmentation/' + this.activeSegmentationStackId +
+            '/segments/constraints',
+        'POST',
+        {hash: this.segmentRows.filter(function (seg) {
+                    return seg.section === activeSegment.section;
+                  }).map(function (s) {
+                    return s.hash;
+                  }).join(',')},
+        CATMAID.jsonResponseHandler(function (json) {
+          json.forEach(function (constraint) {
+            var description = 'C' + constraint.id + ': ' +
+                              constraint.value + ' ' + constraint.relation + ' ' +
+                              constraint.segments.map(function (s) {
+                                return s[0] + '*' + s[1];
+                              });
+            constraint.segments.forEach(function (s) {
+              var hash = s[0];
+              d3.selectAll($('[class~="seg-hash-' + hash + '"]')).classed('constrained', true);
+              d3.selectAll($('.segment-node[class~="seg-hash-' + hash + '"] rect title'))
+                  .text(function () { return $(this).text() + '\n' + description; });
+            });
+          });
+        }));
   };
 
   CatsopWidget.prototype.activateSlice = function (rowIndex) {
@@ -616,9 +641,7 @@
         [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'segment', hash, 'constrain'].join('/'),
         'POST',
         {},
-        CATMAID.jsonResponseHandler((function (json) {
-          d3.selectAll($('[class~="seg-hash-' + hash + '"]')).classed('constrained', true);
-        }).bind(this)));
+        CATMAID.jsonResponseHandler(this.updateSegments.bind(this)));
   };
 
   CatsopWidget.prototype.solveAtLocation = function () {
