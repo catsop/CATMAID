@@ -403,11 +403,73 @@ def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
     segstack = get_object_or_404(SegmentationStack, pk=segmentation_stack_id)
 
     segment_id = hash_to_id(segment_hash)
+    delete_conflicts = 'true' == request.POST.get('delete_conflicts', 'false')
 
     cursor = connection.cursor()
     cursor.execute('SELECT 1 FROM segstack_%s.segment WHERE id = %s LIMIT 1' % (segstack.id, segment_id))
     if cursor.rowcount == 0:
         raise Http404('No segment exists with hash: %s id: %s' % (segment_hash, segment_id))
+
+    # Check if constraints exist on any segments in conflict with this
+    # constraint. To be conservative, do not attempt to interpret the form of
+    # any conflicting constraints (i.e., treat them all as conflicts, even
+    # if the constraint may be compatible).
+    cursor.execute('''
+            SELECT DISTINCT csr.constraint_id
+            FROM segstack_{segstack_id}.constraint_segment_relation csr
+            JOIN segstack_{segstack_id}.segment_slice ss1
+              ON (ss1.segment_id = csr.segment_id)
+            JOIN segstack_{segstack_id}.slice_conflict sc
+              ON (sc.slice_a_id = ss1.slice_id OR sc.slice_b_id = ss1.slice_id)
+            JOIN segstack_{segstack_id}.segment_slice ss2
+              ON ((ss2.slice_id = sc.slice_a_id OR ss2.slice_id = sc.slice_b_id)
+                  AND ss2.segment_id <> ss1.segment_id)
+            WHERE ss2.segment_id = %s
+            '''.format(segstack_id=segstack.id), (segment_id,))
+    conflicting_constraint_ids = [row[0] for row in cursor.fetchall()]
+    conflicting_constraint_ids_str = ','.join(map(str, conflicting_constraint_ids))
+
+    if conflicting_constraint_ids:
+        if delete_conflicts:
+            # Verify that all conflicting constraints are simple,
+            # single-segment fixed assignments.
+            cursor.execute('''
+                SELECT
+                    c.id,
+                    c.relation,
+                    c.value,
+                    COUNT(csr.*) AS segment_count,
+                    SUM(ABS(csr.coefficient)) AS segment_abs_sum
+                FROM segstack_%(segstack_id)s.solution_constraint c
+                JOIN segstack_%(segstack_id)s.constraint_segment_relation csr
+                  ON (csr.constraint_id = c.id)
+                WHERE c.id IN (%(conflicting_constraint_ids)s)
+                GROUP BY c.id
+                HAVING
+                  c.relation <> 'Equal'::constraintrelation
+                  OR c.value <> 1
+                  OR COUNT(csr.*) <> 1
+                  OR SUM(ABS(csr.coefficient)) <> 1
+                ''' % {'segstack_id': segstack.id,
+                       'conflicting_constraint_ids': conflicting_constraint_ids_str})
+            non_trivial_conflicts = cursor.rowcount
+            if not non_trivial_conflicts == 0:
+                non_trivial_conflict_ids = [row[0] for row in cursor.fetchall()]
+                raise ValidationError('Can not delete conflicting non-trivial constraints: %s' % ','.join(map(str, non_trivial_conflict_ids)))
+
+            cursor.execute('''
+                DELETE FROM segstack_%(segstack_id)s.block_constraint_relation bcr
+                  WHERE bcr.constraint_id IN (%(conflicting_constraint_ids)s);
+                DELETE FROM segstack_%(segstack_id)s.correction c
+                  WHERE c.constraint_id IN (%(conflicting_constraint_ids)s);
+                DELETE FROM segstack_%(segstack_id)s.constraint_segment_relation csr
+                  WHERE csr.constraint_id IN (%(conflicting_constraint_ids)s);
+                DELETE FROM segstack_%(segstack_id)s.solution_constraint c
+                  WHERE c.id IN (%(conflicting_constraint_ids)s);
+                ''' % {'segstack_id': segstack.id,
+                       'conflicting_constraint_ids': conflicting_constraint_ids_str})
+        else:
+            raise ValidationError('Conflicting constraints exist: %s' % conflicting_constraint_ids_str)
 
     cursor.execute('''
             WITH solconstraint AS (
@@ -463,7 +525,9 @@ def constrain_segment(request, project_id, segmentation_stack_id, segment_hash):
                 AS conflict
         ''' % {'segstack_id': segstack.id, 'segment_id': segment_id, 'constraint_id': constraint_id})
 
-    return HttpResponse(json.dumps({'ok': True, 'constraint_id': constraint_id}), content_type='text/json')
+    return HttpResponse(json.dumps({'constraint_id': constraint_id,
+                                    'conflicting_constraint_ids': conflicting_constraint_ids}),
+                        content_type='text/json')
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])

@@ -638,9 +638,11 @@
 
   CatsopWidget.prototype.constrainSegment = function (hash) {
     requestQueue.register(
-        [django_url + 'sopnet', project.id, 'segmentation', this.activeSegmentationStackId, 'segment', hash, 'constrain'].join('/'),
+        django_url + 'sopnet/' + project.id +
+          '/segmentation/' + this.activeSegmentationStackId +
+          '/segment/' + hash + '/constrain',
         'POST',
-        {},
+        {delete_conflicts: true},
         CATMAID.jsonResponseHandler(this.updateSegments.bind(this)));
   };
 
