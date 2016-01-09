@@ -26,13 +26,19 @@ def segmentation_configurations(request, project_id, stack_id):
         cursor = connection.cursor()
         cursor.execute('''
                 SELECT row_to_json(config) FROM (
-                SELECT sc.id AS id, json_agg(ss.*) AS stacks FROM segmentation_configuration sc
-                JOIN segmentation_stack ss ON ss.configuration_id = sc.id
-                WHERE sc.project_id = %s
-                  AND EXISTS (
-                    SELECT 1 FROM segmentation_stack sse
-                    WHERE sse.configuration_id = sc.id AND sse.project_stack_id = %s)
-                GROUP BY sc.id) config
+                    SELECT
+                        sc.id AS id,
+                        json_agg(ss.*) AS stacks
+                    FROM segmentation_configuration sc
+                    JOIN segmentation_stack ss
+                      ON ss.configuration_id = sc.id
+                    WHERE sc.project_id = %s
+                      AND EXISTS (
+                        SELECT 1 FROM segmentation_stack sse
+                        WHERE sse.configuration_id = sc.id
+                          AND sse.project_stack_id = %s)
+                    GROUP BY sc.id
+                    ORDER BY sc.id ASC) config
                 ''', [project_id, ps.id])
         configs = [r[0] for r in cursor.fetchall()]
         if len(configs) == 0:
