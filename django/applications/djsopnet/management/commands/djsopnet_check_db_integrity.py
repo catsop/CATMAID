@@ -1,3 +1,5 @@
+import sys
+
 from django.core.management.base import NoArgsCommand
 from django.db import connection
 from djsopnet.models import SegmentationStack
@@ -7,12 +9,17 @@ class Command(NoArgsCommand):
 
     def handle_noargs(self, **options):
         segstack_ids = SegmentationStack.objects.all().values_list('id', flat=True)
+        failed = False
 
         for segstack_id in segstack_ids:
-            self.check_segmentation_stack(segstack_id)
+            failed = failed or self.check_segmentation_stack(segstack_id)
+
+        if failed:
+          sys.exit(1)
 
     def check_segmentation_stack(self, segmentation_stack_id):
         self.stdout.write('Checking integrity of segmentation stack %s' % segmentation_stack_id)
+        failed = False
 
         cursor = connection.cursor()
         cursor.execute('SET search_path TO segstack_%s,public;' % segmentation_stack_id)
@@ -39,7 +46,8 @@ class Command(NoArgsCommand):
         if row[0] == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
+            failed = True
+            self.stderr.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
 
         self.stdout.write('Check that no segment is in more than one assembly in the same solution...')
         cursor = connection.cursor()
@@ -61,7 +69,8 @@ class Command(NoArgsCommand):
         if cursor.rowcount == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+            failed = True
+            self.stderr.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
         self.stdout.write('Check that no slice is in more than one assembly in the same solution...')
         cursor = connection.cursor()
@@ -87,7 +96,8 @@ class Command(NoArgsCommand):
         if cursor.rowcount == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+            failed = True
+            self.stderr.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
         self.stdout.write('Check that no slice is in more than two segments in the same solution...')
         cursor = connection.cursor()
@@ -114,7 +124,8 @@ class Command(NoArgsCommand):
         if cursor.rowcount == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+            failed = True
+            self.stderr.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
         self.stdout.write('Check that no segment contains conflicting slices...')
         cursor = connection.cursor()
@@ -130,7 +141,8 @@ class Command(NoArgsCommand):
         if row[0] == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
+            failed = True
+            self.stderr.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
 
         self.stdout.write('Check that all slices have exactly two end segments...')
         cursor = connection.cursor()
@@ -146,7 +158,8 @@ class Command(NoArgsCommand):
         if cursor.rowcount == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+            failed = True
+            self.stderr.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
         self.stdout.write('Check that all segments have the correct number of slices...')
         cursor = connection.cursor()
@@ -161,6 +174,9 @@ class Command(NoArgsCommand):
         if cursor.rowcount == 0:
             self.stdout.write('OK')
         else:
-            self.stdout.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
+            failed = True
+            self.stderr.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
         cursor.execute('RESET search_path;')
+
+        return failed

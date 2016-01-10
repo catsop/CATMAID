@@ -1,6 +1,7 @@
 import csv
 import filecmp
 from optparse import make_option
+import sys
 import tempfile
 
 from django.core.management.base import BaseCommand, CommandError
@@ -50,7 +51,8 @@ class Command(BaseCommand):
                     if filecmp.cmp(dumpfile.name, csvfile.name, False):
                         self.stdout.write('Regression test OK: database and standard file are identical')
                     else:
-                        self.stdout.write('Regression test FAILED: database and standard file differ')
+                        self.stderr.write('Regression test FAILED: database and standard file differ')
+                        sys.exit(1)
 
     def dumpdb(self, file):
         filewriter = csv.writer(file, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
