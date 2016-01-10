@@ -1,11 +1,11 @@
-from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
-from django.db import connection
-
 import csv
 import filecmp
 from optparse import make_option
 import tempfile
+
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connection
+
 
 class Command(BaseCommand):
     args = '<segmentation_stack_id>'
