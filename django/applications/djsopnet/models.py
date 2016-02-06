@@ -1,5 +1,4 @@
 import logging
-import math
 import os
 import re
 
@@ -219,12 +218,13 @@ class BlockInfo(models.Model):
 
     def core_range(self, start=None, end=None):
         """Generator yielding all core coordinates."""
+        def int_ceil(num, den): return ((num - 1) // den) + 1
         if not start:
             start = (0, 0, 0)
         if not end:
-            end = (math.ceil(self.num_x/self.core_dim_x),
-                   math.ceil(self.num_y/self.core_dim_y),
-                   math.ceil(self.num_z/self.core_dim_z))
+            end = (int_ceil(self.num_x, self.core_dim_x),
+                   int_ceil(self.num_y, self.core_dim_y),
+                   int_ceil(self.num_z, self.core_dim_z))
         for i in xrange(start[0], end[0]):
             for j in xrange(start[1], end[1]):
                 for k in xrange(start[2], end[2]):
