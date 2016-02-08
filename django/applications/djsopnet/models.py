@@ -16,6 +16,12 @@ from djsopnet.fields import *
 
 logger = logging.getLogger(__name__)
 
+
+def int_ceil(num, den):
+    """Utility for the integer ceiling of the quotient of two integers."""
+    return ((num - 1) // den) + 1
+
+
 class SegmentationConfiguration(models.Model):
     class Meta:
         db_table = 'segmentation_configuration'
@@ -196,7 +202,6 @@ class BlockInfo(models.Model):
                             type='Raw').project_stack.stack
 
             # The number of blocks is the ceiling of the stack size divided by block dimension
-            def int_ceil(num, den): return ((num - 1) // den) + 1
             self.num_x = int_ceil(stack.dimension.x, self.block_dim_x * 2**self.scale)
             self.num_y = int_ceil(stack.dimension.y, self.block_dim_y * 2**self.scale)
             self.num_z = int_ceil(stack.dimension.z, self.block_dim_z)
@@ -218,7 +223,6 @@ class BlockInfo(models.Model):
 
     def core_range(self, start=None, end=None):
         """Generator yielding all core coordinates."""
-        def int_ceil(num, den): return ((num - 1) // den) + 1
         if not start:
             start = (0, 0, 0)
         if not end:
