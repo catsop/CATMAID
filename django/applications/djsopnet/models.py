@@ -68,6 +68,8 @@ class SegmentationConfiguration(models.Model):
         bi = self.block_info
         conf = pysopnet.ProjectConfiguration()
         conf.setBackendType(pysopnet.BackendType.PostgreSql)
+        min_width = float('inf')
+        min_height = float('inf')
         min_depth = float('inf')
 
         for segstack in self.segmentationstack_set.all():
@@ -79,6 +81,8 @@ class SegmentationConfiguration(models.Model):
             stack_desc.width = stack.dimension.x
             stack_desc.height = stack.dimension.y
             stack_desc.depth = stack.dimension.z
+            min_width = min(stack_desc.width, min_width)
+            min_height = min(stack_desc.height, min_height)
             min_depth = min(stack_desc.depth, min_depth)
             stack.resX = stack.resolution.x
             stack.resY = stack.resolution.y
@@ -95,8 +99,9 @@ class SegmentationConfiguration(models.Model):
 
         conf.setComponentDirectory(settings.SOPNET_COMPONENT_DIR)
         conf.setBlockSize(pysopnet.point3(bi.block_dim_x, bi.block_dim_y, bi.block_dim_z))
-        conf.setVolumeSize(pysopnet.point3(bi.block_dim_x*bi.num_x,
-                bi.block_dim_y*bi.num_y,
+        conf.setVolumeSize(pysopnet.point3(
+                min(bi.block_dim_x*bi.num_x, min_width),
+                min(bi.block_dim_y*bi.num_y, min_height),
                 min(bi.block_dim_z*bi.num_z, min_depth)))
         conf.setCoreSize(pysopnet.point3(bi.core_dim_x, bi.core_dim_y, bi.core_dim_z))
         conf.setPostgreSqlDatabase(settings.SOPNET_DATABASE['NAME'])
