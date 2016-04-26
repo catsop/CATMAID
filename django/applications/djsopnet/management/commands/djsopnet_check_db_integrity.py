@@ -147,12 +147,11 @@ class Command(NoArgsCommand):
         self.stdout.write('Check that all slices have exactly two end segments...')
         cursor = connection.cursor()
         cursor.execute('''
-                SELECT sl.id, sl.section, count(seg.id) AS num_ends
+                SELECT ss.slice_id, count(seg.id) AS num_ends
                 FROM segment_slice ss
-                JOIN slice sl ON sl.id = ss.slice_id
                 JOIN segment seg ON seg.id = ss.segment_id
                 WHERE seg.type = 0
-                GROUP BY sl.id
+                GROUP BY ss.slice_id
                 HAVING count(seg.id) <> 2
                 ''')
         if cursor.rowcount == 0:
