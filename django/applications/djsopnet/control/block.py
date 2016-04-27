@@ -51,9 +51,7 @@ def generate_block_response(block):
 def generate_blocks_response(blocks):
     blocks = blocks or []
     block_dicts = [block_dict(block) for block in blocks]
-    return HttpResponse(json.dumps({'ok': True,
-                                    'length': len(block_dicts),
-                                    'blocks': block_dicts}),
+    return HttpResponse(json.dumps({'blocks': block_dicts}),
                         content_type='application/json')
 
 
@@ -67,7 +65,8 @@ def generate_core_response(core):
 def generate_cores_response(cores):
     cores = cores or []
     core_dicts = [core_dict(core) for core in cores]
-    return HttpResponse(json.dumps({'length': len(core_dicts), 'cores' : core_dicts}))
+    return HttpResponse(json.dumps({'cores': core_dicts}),
+                        content_type='application/json')
 
 
 def generate_block_info_response(block_info):
