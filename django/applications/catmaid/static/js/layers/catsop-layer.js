@@ -244,6 +244,7 @@
     this.regions = {};
     this.regionType = 'blocks';
     this.flagStyles = {
+      default:  {visible: true, color: 0xFF0000},
       slices:   {visible: true, color: 0xFFFF00},
       segments: {visible: true, color: 0x00FF00}
     };
@@ -269,7 +270,7 @@
         style.visible = style.visible || self.flagStyles[flag].visible;
         style.color = self.flagStyles[flag].color;
         return style;
-      }, {visible: false, color: 0x000000});
+      }, $.extend({}, self.flagStyles.default));
 
       region.graphics.visible = region.text.visible =
           style.visible && region.z <= this.stackViewer.z && region.z + region.depth > this.stackViewer.z;
@@ -368,6 +369,7 @@
 
     this.regionType = 'cores';
     this.flagStyles = {
+      default:   {visible: true, color: 0xFF0000},
       solutions: {visible: true, color: 0x00FF00}
     };
   };
