@@ -39,7 +39,7 @@ for blockSize in blockSizes:
     st.core_height = 1
     st.core_depth = 1
     st.clear_database(clear_slices=True, clear_segments=True, clear_solutions=True)
-    st.setup_sopnet(log_level=ps.LogLevel.Debug)
+    st.setup_sopnet(log_level=ps.LogLevel.User)
     st.log("Starting blockwise Sopnet")
 
     config = st.get_configuration()
