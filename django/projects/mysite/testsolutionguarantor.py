@@ -32,7 +32,11 @@ jobs = []
 def fill_core(x, y, z):
 	request = ps.point3(x, y, z)
 	print "Issuing first request for core (%s,%s,%s)" % (x, y, z)
-	missing = solutionGuarantor.fill(request, solutionGuarantorParameters, config)
+	missing = []
+	try:
+		missing = solutionGuarantor.fill(request, solutionGuarantorParameters, config)
+	except (RuntimeError):
+		print "Core (%s,%s,%s) failed." % (x, y, z)
 
 	if len(missing) > 0:
 		raise Exception("There are (at least) the following segments missing: " + ', '.join(map(str, missing)))
