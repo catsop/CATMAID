@@ -3,6 +3,7 @@ import os
 os.environ["DJANGO_SETTINGS_MODULE"] = "settings"
 
 from django.conf import settings
+from django.db import connection
 
 from djsopnet.models import BlockInfo
 from tests.testsopnet import SopnetTest
@@ -18,6 +19,12 @@ st = SopnetTest()
 st.clear_database(clear_slices=True, clear_segments=False)
 st.setup_sopnet(log_level=ps.LogLevel.User)
 st.log("Starting blockwise Sopnet")
+
+def vacuum_db():
+    cursor = connection.cursor()
+    cursor.execute('VACUUM ANALYZE;')
+
+vacuum_db()
 
 config = st.get_configuration()
 
