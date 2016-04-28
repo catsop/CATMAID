@@ -124,7 +124,7 @@ class SegmentationStack(models.Model):
     def __unicode__(self):
         return u'Segstack %s: %s' % (self.pk, self.project_stack)
 
-    def clear_schema(self, delete_slices=True, delete_segments=True, delete_solutions=True):
+    def clear_schema(self, delete_slices=True, delete_segments=True, delete_solutions=True, delete_assembly_relationships=False):
         """Deletes segmentation data from the segstack-specific schema."""
         delete_config = delete_slices and delete_segments
 
@@ -142,6 +142,11 @@ class SegmentationStack(models.Model):
             cursor.execute('TRUNCATE TABLE segstack_%s.assembly_equivalence CASCADE;' % self.id)
             cursor.execute('TRUNCATE TABLE segstack_%s.solution CASCADE;' % self.id)
             cursor.execute('UPDATE segstack_%s.core SET solution_set_flag = FALSE;' % self.id)
+
+        if delete_assembly_relationships:
+            cursor.execute('UPDATE segstack_%s.assembly SET equivalence_id = NULL;' % self.id)
+            cursor.execute('DELETE FROM segstack_%s.assembly_equivalence;' % self.id)
+            cursor.execute('TRUNCATE TABLE segstack_%s.assembly_relation;' % self.id)
 
         if delete_config:
             cursor.execute('TRUNCATE TABLE segstack_%s.block CASCADE;' % self.id)

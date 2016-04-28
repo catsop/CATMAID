@@ -24,6 +24,10 @@ if PARALLEL_JOBS:
 st = SopnetTest()
 sc = SegmentationConfiguration.objects.get(pk=st.segmentation_configuration_id)
 segstack = sc.segmentationstack_set.get(type='Membrane')
+segstack.clear_schema(delete_slices=False,
+					  delete_segments=False,
+					  delete_solutions=False,
+					  delete_assembly_relationships=True)
 bi = sc.block_info
 block_size = bi.size_for_unit('block')
 
