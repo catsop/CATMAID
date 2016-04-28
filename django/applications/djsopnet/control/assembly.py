@@ -230,7 +230,15 @@ def generate_conflicting_assemblies_between_cores(segstack_id, core_a_id, core_b
     """
     # Find conflicts and concurrency-safe upsert to assembly relations.
     conflict_query = """
-        SELECT DISTINCT sola1.assembly_id, sola2.assembly_id, 'Conflict'::assemblyrelation
+        WITH core_b_segment_ids AS (
+            SELECT aseg.segment_id AS segment_id, aseg.assembly_id AS assembly_id
+            FROM segstack_%(segstack_id)s.solution_precedence sp
+            JOIN segstack_%(segstack_id)s.solution_assembly sola
+              ON sola.solution_id = sp.solution_id
+            JOIN segstack_%(segstack_id)s.assembly_segment aseg
+              ON aseg.assembly_id = sola.assembly_id
+            WHERE sp.core_id = %(core_b_id)s)
+        SELECT DISTINCT sola1.assembly_id, cbaseg.assembly_id, 'Conflict'::assemblyrelation
         FROM segstack_%(segstack_id)s.solution_precedence sp1
         JOIN segstack_%(segstack_id)s.solution_assembly sola1
           ON sola1.solution_id = sp1.solution_id
@@ -245,12 +253,9 @@ def generate_conflicting_assemblies_between_cores(segstack_id, core_a_id, core_b
             OR (ss1.slice_id = ss2.slice_id
                 AND ss1.segment_id <> ss2.segment_id
                 AND ss1.direction = ss2.direction)) /* Exclusive segments */
-        JOIN segstack_%(segstack_id)s.assembly_segment aseg2
-          ON aseg2.segment_id = ss2.segment_id
-        JOIN segstack_%(segstack_id)s.solution_assembly sola2
-          ON sola2.assembly_id = aseg2.assembly_id
-        JOIN segstack_%(segstack_id)s.solution_precedence sp2 ON sp2.solution_id = sola2.solution_id
-        WHERE sp1.core_id = %(core_a_id)s AND sp2.core_id = %(core_b_id)s;
+        JOIN core_b_segment_ids cbaseg
+          ON ss2.segment_id = cbaseg.segment_id
+        WHERE sp1.core_id = %(core_a_id)s;
         """ % {'segstack_id': segstack_id, 'core_a_id': core_a_id, 'core_b_id': core_b_id}
     _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id, 'Conflict', conflict_query)
 
