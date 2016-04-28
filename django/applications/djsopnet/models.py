@@ -258,9 +258,9 @@ class BlockInfo(models.Model):
                     '''.format(segstack.id), (self.num_x, self.num_y, self.num_z))
 
             # Create new Cores, round up if number of blocks is not divisible by core size
-            nzc = (self.num_z + self.core_dim_z - 1)/self.core_dim_z
-            nyc = (self.num_y + self.core_dim_y - 1)/self.core_dim_y
-            nxc = (self.num_x + self.core_dim_x - 1)/self.core_dim_x
+            nzc = int_ceil(self.num_z, self.core_dim_z)
+            nyc = int_ceil(self.num_y, self.core_dim_y)
+            nxc = int_ceil(self.num_x, self.core_dim_x)
             cursor.execute('''
                     INSERT INTO segstack_{0}.core
                       (solution_set_flag, coordinate_x, coordinate_y, coordinate_z)
