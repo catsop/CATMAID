@@ -174,7 +174,7 @@ def generate_assembly_equivalences(segmentation_stack_id):
           AS v (skeleton_id), generate_series(1, %(num_equivalences)s)
         RETURNING segstack_%(segstack_id)s.assembly_equivalence.id
         ''' % {'segstack_id': segmentation_stack_id, 'num_equivalences': len(equivalence_ccs)})
-    equivalences = cursor.fetchall();
+    equivalences = cursor.fetchall()
     equivalence_ids = [equivalences[idx][0] for idx in equivalence_map]
 
     # Bulk assign equivalences to assemblies.
