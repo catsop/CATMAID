@@ -99,7 +99,7 @@ def map_assembly_equivalence_to_arborescence(segmentation_stack_id, equivalence_
     # Create an undirected graph of slices, connected by segments.
     g = nx.Graph()
     for segment in segments:
-        slices = json.loads(segment[1])
+        slices = segment[1]
         for slice in slices:
             g.add_node(slice['f1'], { # TODO: Does not handle orientation.
                     'x': slice['f2']*zoom*stack.resolution.x + ps.translation.x,
@@ -150,7 +150,7 @@ def generate_assembly_equivalences(segmentation_stack_id):
     g = nx.Graph()
     for assembly in assemblies:
         g.add_node(assembly[0])
-        for compatibility in json.loads(assembly[1]):
+        for compatibility in assembly[1]:
             if compatibility is not None:
                 g.add_edge(assembly[0], compatibility)
 
