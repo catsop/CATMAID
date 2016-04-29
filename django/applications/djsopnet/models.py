@@ -268,6 +268,27 @@ class BlockInfo(models.Model):
                 for k in xrange(start[2], end[2]):
                     yield (i, j, k)
 
+    def unit_ids_from_coordinates(self, table, coords, segmentation_stack_id):
+        """Get block/core IDs from coordinates for a segmentation stack."""
+        if not table == 'block' and not table == 'core':
+            raise ValueError('%s is not a blockwise unit' % table)
+        if len(coords) == 0:
+            return []
+        coord_tuples = ','.join(['(%s, %s, %s)' % tuple(map(int, coord)) for coord in coords])
+        cursor = connection.cursor()
+        cursor.execute('''
+            WITH coords AS (VALUES %(coord_tuples)s)
+            SELECT u.id
+            FROM coords AS c (x, y, z)
+            JOIN segstack_%(segstack_id)s.%(table)s u ON (
+                u.coordinate_x = c.x AND
+                u.coordinate_y = c.y AND
+                u.coordinate_z = c.z);
+            ''' % {'coord_tuples': coord_tuples,
+                   'segstack_id': int(segmentation_stack_id),
+                   'table': table})
+        return [row[0] for row in cursor.fetchall()]
+
     def setup_blocks(self):
         """Creates blocks and cores in each segmentation stack schema."""
         cursor = connection.cursor()
