@@ -244,6 +244,30 @@ class BlockInfo(models.Model):
                 for k in xrange(start[2], end[2]):
                     yield (i, j, k)
 
+    def core_interface_block_range(self, core_a, core_b):
+        """Generator for all block coordinates in `core_a` adjacent to `core_b`.
+        """
+        delta = (core_b[0] - core_a[0],
+                 core_b[1] - core_a[1],
+                 core_b[2] - core_a[2])
+        normal = map(abs, delta)
+        if not sum(normal) == 1:
+            raise ValueError('Cores are not adjacent')
+        delta = map(max, delta, (0, 0, 0))
+
+        start = ((core_a[0] + delta[0]) * self.core_dim_x - delta[0],
+                 (core_a[1] + delta[1]) * self.core_dim_y - delta[1],
+                 (core_a[2] + delta[2]) * self.core_dim_z - delta[2])
+        start = map(max, start, (0, 0, 0))
+        end = (start[0] + (1 - normal[0]) * self.core_dim_x + normal[0],
+               start[1] + (1 - normal[1]) * self.core_dim_y + normal[1],
+               start[2] + (1 - normal[2]) * self.core_dim_z + normal[2])
+        end = map(min, end, (self.num_x, self.num_y, self.num_z))
+        for i in xrange(start[0], end[0]):
+            for j in xrange(start[1], end[1]):
+                for k in xrange(start[2], end[2]):
+                    yield (i, j, k)
+
     def setup_blocks(self):
         """Creates blocks and cores in each segmentation stack schema."""
         cursor = connection.cursor()
