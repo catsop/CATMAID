@@ -353,8 +353,6 @@ def _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id,
         INSERT INTO %(tmp_table_name)s (assembly_a_id, assembly_b_id, relation)
         %(relationship_query)s
 
-        LOCK TABLE segstack_%(segstack_id)s.assembly_relation IN EXCLUSIVE MODE;
-
         WITH core_assemblies AS (
             SELECT a.id AS assembly_id
             FROM segstack_%(segstack_id)s.assembly a
@@ -367,7 +365,8 @@ def _generate_assembly_relation_between_cores(segstack_id, core_a_id, core_b_id,
         INSERT INTO segstack_%(segstack_id)s.assembly_relation
           (assembly_a_id, assembly_b_id, relation)
         SELECT t.assembly_a_id, t.assembly_b_id, t.relation
-        FROM %(tmp_table_name)s AS t;
+        FROM %(tmp_table_name)s AS t
+        ON CONFLICT DO NOTHING;
 
         COMMIT;
         """ % {'segstack_id': segstack_id,
