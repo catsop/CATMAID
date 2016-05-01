@@ -262,7 +262,8 @@ def generate_conflicting_assemblies_between_cores(segstack_id, core_a_id, core_b
 def generate_continuing_assemblies_between_cores(segstack_id, core_a_id, core_b_id):
     """Create relations for continuing precedent assemblies between cores.
 
-    A continuation is defined to be a shared slice.
+    A continuation is defined to be the existence of a slice that is shared
+    by segments from different directions.
     """
     # Find continuations and concurrency-safe upsert to assembly relations.
     continuation_query = """
@@ -272,9 +273,12 @@ def generate_continuing_assemblies_between_cores(segstack_id, core_a_id, core_b_
           ON sola1.solution_id = sp1.solution_id
         JOIN segstack_%(segstack_id)s.assembly_segment aseg1
           ON aseg1.assembly_id = sola1.assembly_id
-        JOIN segstack_%(segstack_id)s.segment_slice ss1 ON ss1.segment_id = aseg1.segment_id
+        JOIN segstack_%(segstack_id)s.segment_slice ss1
+          ON ss1.segment_id = aseg1.segment_id
         JOIN segstack_%(segstack_id)s.segment_slice ss2
-          ON (ss2.slice_id = ss1.slice_id AND ss2.segment_id <> ss1.segment_id)
+          ON (ss2.slice_id = ss1.slice_id
+              AND ss2.segment_id <> ss1.segment_id
+              AND ss2.direction <> ss1.direction)
         JOIN segstack_%(segstack_id)s.assembly_segment aseg2
           ON aseg2.segment_id = ss2.segment_id
         JOIN segstack_%(segstack_id)s.solution_assembly sola2
