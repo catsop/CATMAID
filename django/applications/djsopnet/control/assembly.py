@@ -132,16 +132,25 @@ def generate_assembly_equivalences(segmentation_stack_id):
     cursor.execute("""
         SELECT
           sola.assembly_id,
-          ARRAY_TO_JSON(ARRAY_CAT(
-              ARRAY_AGG(DISTINCT ar.assembly_a_id),
-              ARRAY_AGG(DISTINCT ar.assembly_b_id)))
+          ar.assembly_b_id
         FROM segstack_%(segstack_id)s.solution_precedence sp
         JOIN segstack_%(segstack_id)s.solution_assembly sola
           ON sola.solution_id = sp.solution_id
         LEFT JOIN segstack_%(segstack_id)s.assembly_relation ar
-          ON (ar.assembly_a_id = sola.assembly_id OR ar.assembly_b_id = sola.assembly_id)
+          ON ar.assembly_a_id = sola.assembly_id
             AND ar.relation = 'Compatible'
-        GROUP BY sola.assembly_id
+
+        UNION ALL
+
+        SELECT
+          sola.assembly_id,
+          ar.assembly_a_id
+        FROM segstack_%(segstack_id)s.solution_precedence sp
+        JOIN segstack_%(segstack_id)s.solution_assembly sola
+          ON sola.solution_id = sp.solution_id
+        LEFT JOIN segstack_%(segstack_id)s.assembly_relation ar
+          ON ar.assembly_b_id = sola.assembly_id
+            AND ar.relation = 'Compatible'
         """ % {'segstack_id': segmentation_stack_id})
     assemblies = cursor.fetchall()
 
@@ -150,9 +159,8 @@ def generate_assembly_equivalences(segmentation_stack_id):
     g = nx.Graph()
     for assembly in assemblies:
         g.add_node(assembly[0])
-        for compatibility in assembly[1]:
-            if compatibility is not None:
-                g.add_edge(assembly[0], compatibility)
+        if assembly[1] is not None:
+            g.add_edge(assembly[0], assembly[1])
 
     equivalence_ccs = nx.connected_components(g)
     equivalence_map = []
