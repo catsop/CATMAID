@@ -199,6 +199,8 @@ CREATE TABLE assembly (
   OIDS=FALSE
 );
 
+CREATE INDEX assembly_equivalence_id ON assembly USING btree (equivalence_id);
+
 CREATE TABLE assembly_relation (
   id serial PRIMARY KEY,
   assembly_a_id integer NOT NULL REFERENCES assembly(id) DEFERRABLE INITIALLY IMMEDIATE,
