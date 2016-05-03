@@ -21,6 +21,10 @@ PARALLEL_JOBS = getattr(settings, 'SOPNET_TEST_PARALLEL_JOBS', {'ASSEMBLY': Fals
 if PARALLEL_JOBS:
 	from joblib import Parallel, delayed
 
+# Threshold for number of segments an assembly equivalence must have to be
+# mapped to a skeleton.
+MAPPING_SEGMENTS_THRESHOLD = 20
+
 st = SopnetTest()
 sc = SegmentationConfiguration.objects.get(pk=st.segmentation_configuration_id)
 segstack = sc.segmentationstack_set.get(type='Membrane')
@@ -90,8 +94,18 @@ def map_skeleton(equivalence_id):
 
 global_cursor = connection.cursor()
 global_cursor.execute('''
-	SELECT id FROM segstack_%s.assembly_equivalence WHERE skeleton_id IS NULL
-	''' % segstack.id)
+		SELECT
+		  e.id,
+		  COUNT(aseg.segment_id)
+		FROM segstack_%(segstack_id)s.assembly_equivalence e
+		JOIN segstack_%(segstack_id)s.assembly a
+		  ON a.equivalence_id = e.id
+		JOIN segstack_%(segstack_id)s.assembly_segment aseg
+		  ON aseg.assembly_id = a.id
+		WHERE e.skeleton_id IS NULL
+		GROUP BY e.id
+		HAVING COUNT(aseg.segment_id) > %(segments_threshold)s
+	''' % {'segstack_id': segstack.id, 'segments_threshold': MAPPING_SEGMENTS_THRESHOLD})
 equivalence_ids = [r[0] for r in global_cursor.fetchall()]
 
 jobs = []
