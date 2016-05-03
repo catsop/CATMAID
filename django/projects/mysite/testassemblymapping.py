@@ -49,19 +49,16 @@ def core_compatibility(i, j, k):
 	c = _blockcursor_to_namedtuple(cursor, block_size)[0]
 	if c.solution_set_flag:
 		print 'Generating compatibility for core %s (%s, %s, %s)' % (c.id, i, j, k)
-		for (di, dj, dk) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
-			if i+di < bi.num_x/bi.core_dim_x and \
-			   j+dj < bi.num_y/bi.core_dim_y and \
-			   k+dk < bi.num_z/bi.core_dim_z:
-				cursor.execute('''
-					SELECT * FROM segstack_%s.core
-					WHERE coordinate_x = %s
-					  AND coordinate_y = %s
-					  AND coordinate_z = %s
-					''' % (segstack.id, i+di, j+dj, k+dk))
-				nbr = _blockcursor_to_namedtuple(cursor, block_size)[0]
-				if nbr.solution_set_flag:
-					generate_compatible_assemblies_between_cores(segstack.id, c.id, nbr.id)
+		for (ni, nj, nk) in bi.core_neighbor_range((i, j, k)):
+			cursor.execute('''
+				SELECT * FROM segstack_%s.core
+				WHERE coordinate_x = %s
+				  AND coordinate_y = %s
+				  AND coordinate_z = %s
+				''' % (segstack.id, ni, nj, nk))
+			nbr = _blockcursor_to_namedtuple(cursor, block_size)[0]
+			if nbr.solution_set_flag:
+				generate_compatible_assemblies_between_cores(segstack.id, c.id, nbr.id)
 
 for core_coord in bi.core_range():
 	if PARALLEL_JOBS:

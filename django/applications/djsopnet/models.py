@@ -231,18 +231,35 @@ class BlockInfo(models.Model):
                 for k in xrange(start[2], end[2]):
                     yield (i, j, k)
 
+    def core_extents(self):
+        """Returns the number of cores in each dimension."""
+        return (int_ceil(self.num_x, self.core_dim_x),
+                int_ceil(self.num_y, self.core_dim_y),
+                int_ceil(self.num_z, self.core_dim_z))
+
     def core_range(self, start=None, end=None):
         """Generator yielding all core coordinates."""
         if not start:
             start = (0, 0, 0)
         if not end:
-            end = (int_ceil(self.num_x, self.core_dim_x),
-                   int_ceil(self.num_y, self.core_dim_y),
-                   int_ceil(self.num_z, self.core_dim_z))
+            end = self.core_extents()
         for i in xrange(start[0], end[0]):
             for j in xrange(start[1], end[1]):
                 for k in xrange(start[2], end[2]):
                     yield (i, j, k)
+
+    def core_neighbor_range(self, coords, half=True):
+        """Generator yielding 6-neighbors to a core."""
+        i, j, k = coords
+        end = self.core_extents()
+        deltas = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
+        if not half:
+            deltas.extend([(-1, 0, 0), (0, -1, 0), (0, 0, -1)])
+        for (di, dj, dk) in deltas:
+            if i + di < end[0] and \
+               j + dj < end[1] and \
+               k + dk < end[2]:
+                yield (i + di, j + dj, k + dk)
 
     def core_interface_block_range(self, core_a, core_b):
         """Generator for all block coordinates in `core_a` adjacent to `core_b`.
@@ -308,9 +325,7 @@ class BlockInfo(models.Model):
                     '''.format(segstack.id), (self.num_x, self.num_y, self.num_z))
 
             # Create new Cores, round up if number of blocks is not divisible by core size
-            nzc = int_ceil(self.num_z, self.core_dim_z)
-            nyc = int_ceil(self.num_y, self.core_dim_y)
-            nxc = int_ceil(self.num_x, self.core_dim_x)
+            nxc, nyc, nzc = self.core_extents()
             cursor.execute('''
                     INSERT INTO segstack_{0}.core
                       (solution_set_flag, coordinate_x, coordinate_y, coordinate_z)
