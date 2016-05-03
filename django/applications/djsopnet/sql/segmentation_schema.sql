@@ -188,6 +188,8 @@ CREATE TABLE assembly_equivalence (
   OIDS=FALSE
 );
 
+CREATE INDEX assembly_equivalence_skeleton_id ON assembly_equivalence USING btree (skeleton_id);
+
 CREATE TABLE assembly (
   id serial PRIMARY KEY,
   equivalence_id integer REFERENCES assembly_equivalence(id) DEFERRABLE INITIALLY IMMEDIATE,
