@@ -16,7 +16,7 @@ if PARALLEL_JOBS:
 # Setup Sopnet environment
 st = SopnetTest()
 st.clear_database(clear_slices=False, clear_segments=False, clear_solutions=True)
-st.setup_sopnet(log_level=ps.LogLevel.Debug)
+st.setup_sopnet()
 st.log("Starting blockwise Sopnet")
 
 config = st.get_configuration()
