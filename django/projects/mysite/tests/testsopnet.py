@@ -41,7 +41,7 @@ def create_testdata():
 
 class SopnetTest(object):
 	def param(self, name, override):
-		if override:
+		if override is not None:
 			return override
 		elif hasattr(settings, name):
 			return getattr(settings, name)
