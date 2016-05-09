@@ -40,7 +40,12 @@ indirect_block_z = direct_block_z | \
 		set([z - 1 for z in direct_block_z]) | \
 		set([z + 1 for z in direct_block_z])
 
-indirect_core_z = frozenset([math.floor(z/bi.core_dim_z) for z in indirect_block_z])
+CORE_PADDING = 1
+pad_indirect_block_z = indirect_block_z | \
+		set([z - CORE_PADDING for z in indirect_block_z]) | \
+		set([z + CORE_PADDING for z in indirect_block_z])
+
+indirect_core_z = frozenset([math.floor(z/bi.core_dim_z) for z in pad_indirect_block_z])
 
 jobs = []
 
