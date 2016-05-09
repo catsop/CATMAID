@@ -161,29 +161,30 @@ if PARALLEL_JOBS:
 def clear_orphan_segments():
 	cursor = connection.cursor()
 	cursor.execute('''
-		SELECT s.id FROM segstack_%(segstack_id)s.segment s
-		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.segment_block_relation sbr
-		  WHERE sbr.segment_id = s.id);
-		''' % {'segstack_id': segstack.id,})
-	segment_ids = [row[0] for row in cursor.fetchall()]
-
-	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
 
-		DELETE FROM segstack_%(segstack_id)s.segment_features
-		WHERE segment_id = ANY(ARRAY[%(segment_ids)s]::bigint[]);
+		CREATE TEMP TABLE orphan_segments ON COMMIT DROP AS
+		SELECT DISTINCT s.id AS id FROM segstack_%(segstack_id)s.segment s
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM segstack_%(segstack_id)s.segment_block_relation sbr
+		  WHERE sbr.segment_id = s.id);
+		CREATE UNIQUE INDEX orphan_segments_idx ON orphan_segments (id);
 
-		DELETE FROM segstack_%(segstack_id)s.segment_slice
-		WHERE segment_id = ANY(ARRAY[%(segment_ids)s]::bigint[]);
+		DELETE FROM segstack_%(segstack_id)s.segment_features sf
+		USING orphan_segments os
+		WHERE sf.segment_id = os.id;
 
-		DELETE FROM segstack_%(segstack_id)s.segment
-		WHERE id = ANY(ARRAY[%(segment_ids)s]::bigint[]);
+		DELETE FROM segstack_%(segstack_id)s.segment_slice ss
+		USING orphan_segments os
+		WHERE ss.segment_id = os.id;
+
+		DELETE FROM segstack_%(segstack_id)s.segment s
+		USING orphan_segments os
+		WHERE s.id = os.id;
 
 		COMMIT;
-		''' % {'segstack_id': segstack.id,
-				'segment_ids': ','.join(map(str, segment_ids))})
+		''' % {'segstack_id': segstack.id})
 
 print 'Clearing orphan segments'
 clear_orphan_segments()
@@ -233,40 +234,33 @@ if PARALLEL_JOBS:
 def clear_orphan_conflicts():
 	cursor = connection.cursor()
 	cursor.execute('''
-		SELECT sc.id FROM segstack_%(segstack_id)s.slice_conflict sc
-		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.block_conflict_relation bcr
-		  WHERE bcr.slice_conflict_id = sc.id);
-		''' % {'segstack_id': segstack.id,})
-	conflict_ids = [row[0] for row in cursor.fetchall()]
-
-	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
 
-		DELETE FROM segstack_%(segstack_id)s.conflict_clique_edge
-		WHERE slice_conflict_id = ANY(ARRAY[%(conflict_ids)s]::bigint[]);
+		CREATE TEMP TABLE orphan_conflicts ON COMMIT DROP AS
+		SELECT sc.id AS id FROM segstack_%(segstack_id)s.slice_conflict sc
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM segstack_%(segstack_id)s.block_conflict_relation bcr
+		  WHERE bcr.slice_conflict_id = sc.id);
+		CREATE UNIQUE INDEX orphan_conflicts_idx ON orphan_conflicts (id);
 
-		DELETE FROM segstack_%(segstack_id)s.slice_conflict
-		WHERE id = ANY(ARRAY[%(conflict_ids)s]::bigint[]);
+		DELETE FROM segstack_%(segstack_id)s.conflict_clique_edge cce
+		USING orphan_conflicts oc
+		WHERE cce.slice_conflict_id = oc.id;
+
+		DELETE FROM segstack_%(segstack_id)s.slice_conflict sc
+		USING orphan_conflicts oc
+		WHERE sc.id = oc.id;
 
 		COMMIT;
-		''' % {'segstack_id': segstack.id,
-				'conflict_ids': ','.join(map(str, conflict_ids))})
+		''' % {'segstack_id': segstack.id})
 
 	cursor.execute('''
-		SELECT cc.id FROM segstack_%(segstack_id)s.conflict_clique cc
+		DELETE FROM segstack_%(segstack_id)s.conflict_clique cc
 		WHERE NOT EXISTS (
 		  SELECT 1 FROM segstack_%(segstack_id)s.conflict_clique_edge cce
 		  WHERE cce.conflict_clique_id = cc.id);
-		''' % {'segstack_id': segstack.id,})
-	clique_ids = [row[0] for row in cursor.fetchall()]
-
-	cursor.execute('''
-		DELETE FROM segstack_%(segstack_id)s.conflict_clique
-		WHERE id = ANY(ARRAY[%(clique_ids)s]::bigint[]);
-		''' % {'segstack_id': segstack.id,
-				'clique_ids': ','.join(map(str, clique_ids))})
+		''' % {'segstack_id': segstack.id})
 
 print 'Clearing orphan conflicts...'
 clear_orphan_conflicts()
@@ -275,29 +269,30 @@ clear_orphan_conflicts()
 def clear_orphan_slices():
 	cursor = connection.cursor()
 	cursor.execute('''
-		SELECT s.id FROM segstack_%(segstack_id)s.slice s
-		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.slice_block_relation sbr
-		  WHERE sbr.slice_id = s.id);
-		''' % {'segstack_id': segstack.id,})
-	slice_ids = [row[0] for row in cursor.fetchall()]
-
-	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
 
-		DELETE FROM segstack_%(segstack_id)s.treenode_slice
-		WHERE slice_id = ANY(ARRAY[%(slice_ids)s]::bigint[]);
+		CREATE TEMP TABLE orphan_slices ON COMMIT DROP AS
+		SELECT s.id AS id FROM segstack_%(segstack_id)s.slice s
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM segstack_%(segstack_id)s.slice_block_relation sbr
+		  WHERE sbr.slice_id = s.id);
+		CREATE UNIQUE INDEX orphan_slices_idx ON orphan_slices (id);
 
-		DELETE FROM segstack_%(segstack_id)s.slice_component
-		WHERE slice_id = ANY(ARRAY[%(slice_ids)s]::bigint[]);
+		DELETE FROM segstack_%(segstack_id)s.treenode_slice ts
+		USING orphan_slices os
+		WHERE ts.slice_id = os.id;
 
-		DELETE FROM segstack_%(segstack_id)s.slice
-		WHERE id = ANY(ARRAY[%(slice_ids)s]::bigint[]);
+		DELETE FROM segstack_%(segstack_id)s.slice_component sc
+		USING orphan_slices os
+		WHERE sc.slice_id = os.id;
+
+		DELETE FROM segstack_%(segstack_id)s.slice s
+		USING orphan_slices os
+		WHERE s.id = os.id;
 
 		COMMIT;
-		''' % {'segstack_id': segstack.id,
-				'slice_ids': ','.join(map(str, slice_ids))})
+		''' % {'segstack_id': segstack.id})
 
 print 'Clearing orphan slices...'
 clear_orphan_slices()
