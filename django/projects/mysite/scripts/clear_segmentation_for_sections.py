@@ -241,11 +241,16 @@ def clear_orphan_conflicts():
 	conflict_ids = [row[0] for row in cursor.fetchall()]
 
 	cursor.execute('''
+		BEGIN;
+		SET CONSTRAINTS ALL DEFERRED;
+
 		DELETE FROM segstack_%(segstack_id)s.conflict_clique_edge
 		WHERE slice_conflict_id = ANY(ARRAY[%(conflict_ids)s]::bigint[]);
 
 		DELETE FROM segstack_%(segstack_id)s.slice_conflict
 		WHERE id = ANY(ARRAY[%(conflict_ids)s]::bigint[]);
+
+		COMMIT;
 		''' % {'segstack_id': segstack.id,
 				'conflict_ids': ','.join(map(str, conflict_ids))})
 
@@ -278,6 +283,9 @@ def clear_orphan_slices():
 	slice_ids = [row[0] for row in cursor.fetchall()]
 
 	cursor.execute('''
+		BEGIN;
+		SET CONSTRAINTS ALL DEFERRED;
+
 		DELETE FROM segstack_%(segstack_id)s.treenode_slice
 		WHERE slice_id = ANY(ARRAY[%(slice_ids)s]::bigint[]);
 
@@ -286,6 +294,8 @@ def clear_orphan_slices():
 
 		DELETE FROM segstack_%(segstack_id)s.slice
 		WHERE id = ANY(ARRAY[%(slice_ids)s]::bigint[]);
+
+		COMMIT;
 		''' % {'segstack_id': segstack.id,
 				'slice_ids': ','.join(map(str, slice_ids))})
 
