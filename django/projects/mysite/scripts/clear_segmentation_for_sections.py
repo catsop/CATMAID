@@ -83,6 +83,9 @@ def clear_core_solutions(z):
 	assembly_ids = [row[0] for row in cursor.fetchall()]
 
 	cursor.execute('''
+		BEGIN;
+		SET CONSTRAINTS ALL DEFERRED;
+
 		DELETE FROM segstack_%(segstack_id)s.solution_assembly
 		WHERE solution_id = ANY(ARRAY[%(solution_ids)s]::integer[]);
 
@@ -101,6 +104,8 @@ def clear_core_solutions(z):
 		UPDATE segstack_%(segstack_id)s.core
 		SET solution_set_flag = FALSE
 		WHERE id = ANY(ARRAY[%(core_ids)s]::integer[]);
+
+		COMMIT;
 		''' % {'segstack_id': segstack.id,
 				'core_ids': ','.join(map(str, core_ids)),
 				'solution_ids': ','.join(map(str, solution_ids)),
@@ -164,6 +169,9 @@ def clear_orphan_segments():
 	segment_ids = [row[0] for row in cursor.fetchall()]
 
 	cursor.execute('''
+		BEGIN;
+		SET CONSTRAINTS ALL DEFERRED;
+
 		DELETE FROM segstack_%(segstack_id)s.segment_features
 		WHERE segment_id = ANY(ARRAY[%(segment_ids)s]::bigint[]);
 
@@ -172,6 +180,8 @@ def clear_orphan_segments():
 
 		DELETE FROM segstack_%(segstack_id)s.segment
 		WHERE id = ANY(ARRAY[%(segment_ids)s]::bigint[]);
+
+		COMMIT;
 		''' % {'segstack_id': segstack.id,
 				'segment_ids': ','.join(map(str, segment_ids))})
 
@@ -189,6 +199,9 @@ def clear_block_slices(z):
 	block_ids = [row[0] for row in cursor.fetchall()]
 
 	cursor.execute('''
+		BEGIN;
+		SET CONSTRAINTS ALL DEFERRED;
+
 		DELETE FROM segstack_%(segstack_id)s.slice_block_relation
 		WHERE block_id = ANY(ARRAY[%(block_ids)s]::integer[]);
 
@@ -198,6 +211,8 @@ def clear_block_slices(z):
 		UPDATE segstack_%(segstack_id)s.block
 		SET slices_flag = FALSE
 		WHERE id = ANY(ARRAY[%(block_ids)s]::integer[]);
+
+		COMMIT;
 		''' % {'segstack_id': segstack.id,
 				'block_ids': ','.join(map(str, block_ids))})
 
