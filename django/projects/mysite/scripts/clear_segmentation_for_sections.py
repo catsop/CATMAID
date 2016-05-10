@@ -34,6 +34,13 @@ MARKED_SECTIONS = frozenset([
 	453, 454, 455, 456,])
 	# 11, 13])
 
+def get_block_zs_for_section(z):
+	if z == 0:
+		return [0]
+	if (z % bi.block_dim_z) == 0:
+		return [int(z / bi.block_dim_z) - 1, int(z / bi.block_dim_z)]
+	return [int(math.floor(z/bi.block_dim_z))]
+
 direct_block_z = frozenset([int(math.floor(z/block_size['z'])) for z in MARKED_SECTIONS])
 
 indirect_block_z = direct_block_z | \
@@ -161,8 +168,7 @@ if PARALLEL_JOBS:
 def clear_orphan_segments(z):
 	cursor = connection.cursor()
 
-	block_z_cnt = int(math.floor(z/bi.block_dim_z))
-	block_zs = [block_z_cnt - 1, block_z_cnt, block_z_cnt + 1]
+	block_zs = get_block_zs_for_section(z)
 	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
@@ -259,8 +265,7 @@ if PARALLEL_JOBS:
 def clear_orphan_conflicts(z):
 	cursor = connection.cursor()
 
-	block_z_cnt = int(math.floor(z/bi.block_dim_z))
-	block_zs = [block_z_cnt - 1, block_z_cnt, block_z_cnt + 1]
+	block_zs = get_block_zs_for_section(z)
 	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
@@ -325,8 +330,7 @@ if PARALLEL_JOBS:
 def clear_orphan_slices(z):
 	cursor = connection.cursor()
 
-	block_z_cnt = int(math.floor(z/bi.block_dim_z))
-	block_zs = [block_z_cnt - 1, block_z_cnt, block_z_cnt + 1]
+	block_zs = get_block_zs_for_section(z)
 	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
