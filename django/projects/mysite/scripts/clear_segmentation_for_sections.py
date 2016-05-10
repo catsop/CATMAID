@@ -34,7 +34,7 @@ MARKED_SECTIONS = frozenset([
 	453, 454, 455, 456,])
 	# 11, 13])
 
-direct_block_z = frozenset([math.floor(z/block_size['z']) for z in MARKED_SECTIONS])
+direct_block_z = frozenset([int(math.floor(z/block_size['z'])) for z in MARKED_SECTIONS])
 
 indirect_block_z = direct_block_z | \
 		set([z - 1 for z in direct_block_z]) | \
@@ -45,7 +45,7 @@ pad_indirect_block_z = indirect_block_z | \
 		set([z - CORE_PADDING for z in indirect_block_z]) | \
 		set([z + CORE_PADDING for z in indirect_block_z])
 
-indirect_core_z = frozenset([math.floor(z/bi.core_dim_z) for z in pad_indirect_block_z])
+indirect_core_z = frozenset([int(math.floor(z/bi.core_dim_z)) for z in pad_indirect_block_z])
 
 jobs = []
 
@@ -157,37 +157,62 @@ if PARALLEL_JOBS:
 
 	jobs = []
 
-# Delete any segments and related records if not related to a block.
-def clear_orphan_segments():
+# Delete any segments and related records in a z-section if not related to a block.
+def clear_orphan_segments(z):
 	cursor = connection.cursor()
+
+	block_z_cnt = int(math.floor(z/bi.block_dim_z))
+	block_zs = [block_z_cnt - 1, block_z_cnt, block_z_cnt + 1]
 	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
 
-		CREATE TEMP TABLE orphan_segments ON COMMIT DROP AS
-		SELECT DISTINCT s.id AS id FROM segstack_%(segstack_id)s.segment s
+		CREATE TEMP TABLE orphan_segments_%(z)s ON COMMIT DROP AS
+		WITH candidate_segments AS (
+			SELECT DISTINCT s.id AS id FROM segstack_%(segstack_id)s.segment s
+			WHERE s.section_sup = %(z)s),
+		candidate_sbr AS (
+			SELECT DISTINCT sbr.segment_id
+			FROM segstack_%(segstack_id)s.segment_block_relation sbr,
+				segstack_%(segstack_id)s.block b
+			WHERE sbr.block_id = b.id AND b.coordinate_z IN (%(block_zs)s))
+		SELECT cs.id AS id FROM candidate_segments cs
 		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.segment_block_relation sbr
-		  WHERE sbr.segment_id = s.id);
-		CREATE UNIQUE INDEX orphan_segments_idx ON orphan_segments (id);
+			SELECT 1 FROM candidate_sbr sbr
+			WHERE sbr.segment_id = cs.id);
+		CREATE UNIQUE INDEX orphan_segments_%(z)s_idx ON orphan_segments_%(z)s (id);
 
 		DELETE FROM segstack_%(segstack_id)s.segment_features sf
-		USING orphan_segments os
+		USING orphan_segments_%(z)s os
 		WHERE sf.segment_id = os.id;
 
 		DELETE FROM segstack_%(segstack_id)s.segment_slice ss
-		USING orphan_segments os
+		USING orphan_segments_%(z)s os
 		WHERE ss.segment_id = os.id;
 
 		DELETE FROM segstack_%(segstack_id)s.segment s
-		USING orphan_segments os
+		USING orphan_segments_%(z)s os
 		WHERE s.id = os.id;
 
 		COMMIT;
-		''' % {'segstack_id': segstack.id})
+		''' % {'segstack_id': segstack.id, 'z': z, 'block_zs': ','.join(map(str, block_zs))})
 
-print 'Clearing orphan segments'
-clear_orphan_segments()
+print 'Clearing orphan segments...'
+indirect_section_z = set([])
+for block_z in indirect_block_z:
+	indirect_section_z |= set(xrange(block_z*bi.block_dim_z, (block_z + 1)*bi.block_dim_z + 1))
+
+for section_z in indirect_section_z:
+	if PARALLEL_JOBS:
+		connection.close()
+		jobs.append(delayed(clear_orphan_segments)(section_z,))
+	else:
+		clear_orphan_segments(section_z)
+
+if PARALLEL_JOBS:
+	Parallel(n_jobs=PARALLEL_JOBS)(jobs)
+
+	jobs = []
 
 
 # Delete slice-block-relations for all blocks in a z-index.
@@ -231,68 +256,120 @@ if PARALLEL_JOBS:
 	jobs = []
 
 # Delete any conflicts and related records if not related to a block.
-def clear_orphan_conflicts():
+def clear_orphan_conflicts(z):
 	cursor = connection.cursor()
+
+	block_z_cnt = int(math.floor(z/bi.block_dim_z))
+	block_zs = [block_z_cnt - 1, block_z_cnt, block_z_cnt + 1]
 	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
 
-		CREATE TEMP TABLE orphan_conflicts ON COMMIT DROP AS
-		SELECT sc.id AS id FROM segstack_%(segstack_id)s.slice_conflict sc
+		CREATE TEMP TABLE orphan_conflicts_%(z)s ON COMMIT DROP AS
+		WITH candidate_conflicts AS (
+			SELECT DISTINCT sc.id AS id
+			FROM segstack_%(segstack_id)s.slice_conflict sc,
+				segstack_%(segstack_id)s.slice s
+			WHERE sc.slice_a_id = s.id AND s.section = %(z)s),
+		candidate_bcr AS (
+			SELECT DISTINCT bcr.slice_conflict_id
+			FROM segstack_%(segstack_id)s.block_conflict_relation bcr,
+				segstack_%(segstack_id)s.block b
+			WHERE bcr.block_id = b.id AND b.coordinate_z IN (%(block_zs)s))
+		SELECT DISTINCT cc.id AS id FROM candidate_conflicts cc
 		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.block_conflict_relation bcr
-		  WHERE bcr.slice_conflict_id = sc.id);
-		CREATE UNIQUE INDEX orphan_conflicts_idx ON orphan_conflicts (id);
+			SELECT 1 FROM candidate_bcr bcr
+			WHERE bcr.slice_conflict_id = cc.id);
+		CREATE UNIQUE INDEX orphan_conflicts_%(z)s_idx ON orphan_conflicts_%(z)s (id);
+
+		CREATE TEMP TABLE orphan_clique_%(z)s ON COMMIT DROP AS
+		SELECT DISTINCT cce.conflict_clique_id AS id
+		FROM segstack_%(segstack_id)s.conflict_clique_edge cce,
+			orphan_conflicts_%(z)s oc
+		WHERE cce.slice_conflict_id = oc.id;
+		CREATE UNIQUE INDEX orphan_clique_%(z)s_idx ON orphan_clique_%(z)s (id);
 
 		DELETE FROM segstack_%(segstack_id)s.conflict_clique_edge cce
-		USING orphan_conflicts oc
-		WHERE cce.slice_conflict_id = oc.id;
+		USING orphan_clique_%(z)s oc
+		WHERE cce.conflict_clique_id = oc.id;
+
+		DELETE FROM segstack_%(segstack_id)s.conflict_clique cc
+		USING orphan_clique_%(z)s oc
+		WHERE cc.id = oc.id;
 
 		DELETE FROM segstack_%(segstack_id)s.slice_conflict sc
-		USING orphan_conflicts oc
+		USING orphan_conflicts_%(z)s oc
 		WHERE sc.id = oc.id;
 
 		COMMIT;
-		''' % {'segstack_id': segstack.id})
-
-	cursor.execute('''
-		DELETE FROM segstack_%(segstack_id)s.conflict_clique cc
-		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.conflict_clique_edge cce
-		  WHERE cce.conflict_clique_id = cc.id);
-		''' % {'segstack_id': segstack.id})
+		''' % {'segstack_id': segstack.id, 'z': z, 'block_zs': ','.join(map(str, block_zs))})
 
 print 'Clearing orphan conflicts...'
-clear_orphan_conflicts()
+direct_section_z = set([])
+for block_z in direct_block_z:
+	direct_section_z |= set(xrange(block_z*bi.block_dim_z, (block_z + 1)*bi.block_dim_z + 1))
+
+for section_z in direct_section_z:
+	if PARALLEL_JOBS:
+		connection.close()
+		jobs.append(delayed(clear_orphan_conflicts)(section_z,))
+	else:
+		clear_orphan_conflicts(section_z)
+
+if PARALLEL_JOBS:
+	Parallel(n_jobs=PARALLEL_JOBS)(jobs)
+
+	jobs = []
 
 # Delete any slice and related records if not related to a block.
-def clear_orphan_slices():
+def clear_orphan_slices(z):
 	cursor = connection.cursor()
+
+	block_z_cnt = int(math.floor(z/bi.block_dim_z))
+	block_zs = [block_z_cnt - 1, block_z_cnt, block_z_cnt + 1]
 	cursor.execute('''
 		BEGIN;
 		SET CONSTRAINTS ALL DEFERRED;
 
-		CREATE TEMP TABLE orphan_slices ON COMMIT DROP AS
-		SELECT s.id AS id FROM segstack_%(segstack_id)s.slice s
+		CREATE TEMP TABLE orphan_slices_%(z)s ON COMMIT DROP AS
+		WITH candidate_slices AS (
+			SELECT DISTINCT s.id AS id FROM segstack_%(segstack_id)s.slice s
+			WHERE s.section = %(z)s),
+		candidate_sbr AS (
+			SELECT DISTINCT sbr.slice_id
+			FROM segstack_%(segstack_id)s.slice_block_relation sbr,
+				segstack_%(segstack_id)s.block b
+			WHERE sbr.block_id = b.id AND b.coordinate_z IN (%(block_zs)s))
+		SELECT cs.id AS id FROM candidate_slices cs
 		WHERE NOT EXISTS (
-		  SELECT 1 FROM segstack_%(segstack_id)s.slice_block_relation sbr
-		  WHERE sbr.slice_id = s.id);
-		CREATE UNIQUE INDEX orphan_slices_idx ON orphan_slices (id);
+			SELECT 1 FROM candidate_sbr sbr
+			WHERE sbr.slice_id = cs.id);
+		CREATE UNIQUE INDEX orphan_slices_%(z)s_idx ON orphan_slices_%(z)s (id);
 
 		DELETE FROM segstack_%(segstack_id)s.treenode_slice ts
-		USING orphan_slices os
+		USING orphan_slices_%(z)s os
 		WHERE ts.slice_id = os.id;
 
 		DELETE FROM segstack_%(segstack_id)s.slice_component sc
-		USING orphan_slices os
+		USING orphan_slices_%(z)s os
 		WHERE sc.slice_id = os.id;
 
 		DELETE FROM segstack_%(segstack_id)s.slice s
-		USING orphan_slices os
+		USING orphan_slices_%(z)s os
 		WHERE s.id = os.id;
 
 		COMMIT;
-		''' % {'segstack_id': segstack.id})
+		''' % {'segstack_id': segstack.id, 'z': z, 'block_zs': ','.join(map(str, block_zs))})
 
 print 'Clearing orphan slices...'
-clear_orphan_slices()
+for section_z in direct_section_z:
+	if PARALLEL_JOBS:
+		connection.close()
+		jobs.append(delayed(clear_orphan_slices)(section_z,))
+	else:
+		clear_orphan_slices(section_z)
+
+if PARALLEL_JOBS:
+	Parallel(n_jobs=PARALLEL_JOBS)(jobs)
+
+	jobs = []
