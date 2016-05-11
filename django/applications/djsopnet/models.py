@@ -144,7 +144,7 @@ class SegmentationStack(models.Model):
             cursor.execute('UPDATE segstack_%s.core SET solution_set_flag = FALSE;' % self.id)
 
         if delete_assembly_relationships:
-            cursor.execute('UPDATE segstack_%s.assembly SET equivalence_id = NULL;' % self.id)
+            cursor.execute('UPDATE segstack_%s.assembly SET equivalence_id = NULL WHERE equivalence_id IS NOT NULL;' % self.id)
             cursor.execute('DELETE FROM segstack_%s.assembly_equivalence;' % self.id)
             cursor.execute('TRUNCATE TABLE segstack_%s.assembly_relation;' % self.id)
 
