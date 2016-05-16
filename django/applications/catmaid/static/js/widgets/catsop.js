@@ -66,6 +66,10 @@
     this.graphValue = null;
   };
 
+  CatsopWidget.sliceMaskUrl = function (segmentationStackId, hash) {
+    return django_url + 'sopnet/' + project.id + '/segmentation/' + segmentationStackId + '/slices/mask/' + hash + '.png';
+  };
+
   CatsopWidget.prototype = {};
   $.extend(CatsopWidget.prototype, new InstanceRegistry());
 
@@ -357,8 +361,8 @@
         .attr("class", function (d) {
           return [
             'link',
-            'slice-hash-' + (typeof d.source.mask === 'undefined' ? d.target.hash : d.source.hash),
-            'seg-hash-' + (typeof d.source.mask !== 'undefined' ? d.target.hash : d.source.hash)
+            'slice-hash-' + (typeof d.source.value === 'undefined' ? d.target.hash : d.source.hash),
+            'seg-hash-' + (typeof d.source.value !== 'undefined' ? d.target.hash : d.source.hash)
           ].join(' ');})
         .attr("d", path)
         .style("stroke-width", function(d) { return Math.max(1, d.dy); })
@@ -380,8 +384,8 @@
         .attr("class", "node")
         .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
 
-    var segmentNodes = node.filter(function (d) { return typeof d.mask === 'undefined'; });
-    var sliceNodes = node.filter(function (d) { return typeof d.mask !== 'undefined'; });
+    var segmentNodes = node.filter(function (d) { return typeof d.value === 'undefined'; });
+    var sliceNodes = node.filter(function (d) { return typeof d.value !== 'undefined'; });
 
     // Segment nodes
     segmentNodes
@@ -478,7 +482,7 @@
           return Math.max(0,
                 ((seggraph.nodeWidths()[0] - SLICE_IMAGE_PAD*2) - this.attributes.width.value) / 2)
               + SLICE_IMAGE_PAD; })
-        .attr("xlink:href", function (d) { return d.mask; })
+        .attr("xlink:href", function (d) { return CatsopWidget.sliceMaskUrl(self.activeSegmentationStackId, d.hash); })
       .append("title")
         .text(function (d) { return d.name + "\n" + d.size + " pixels, value: " + d.value; });
     sliceNodes
@@ -620,7 +624,7 @@
     }
 
     var hashes = this.node
-        .filter(function (d) { return typeof d.mask !== 'undefined' && this.classList.contains('active'); })
+        .filter(function (d) { return typeof d.value !== 'undefined' && this.classList.contains('active'); })
         .data()
         .map(function (d) { return d.hash; });
 

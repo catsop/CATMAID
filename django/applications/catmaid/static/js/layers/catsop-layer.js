@@ -84,6 +84,10 @@
   CatsopResultsLayer.Slices.prototype = Object.create(CatsopResultsLayer.prototype);
   CatsopResultsLayer.Slices.prototype.constructor = CatsopResultsLayer.Slices;
 
+  CatsopResultsLayer.Slices.prototype.maskUrl = function (slice) {
+    return CATMAID.CatsopWidget.sliceMaskUrl(this.segmentationStackId, slice.hash);
+  };
+
   CatsopResultsLayer.Slices.prototype.redraw = function (completionCallback) {
     var self = this;
 
@@ -114,8 +118,8 @@
 
   CatsopResultsLayer.Slices.prototype.addSlices = function (slices) {
     var sliceUrls = slices.map(function (slice) {
-      return slice[0].mask;
-    });
+      return this.maskUrl(slice[0]);
+    }, this);
 
     CATMAID.PixiContext.GlobalTextureManager.load(sliceUrls, (function () {
       slices.forEach(function (s) { this.addSlice(s[0], s[1]); }, this);
@@ -130,8 +134,8 @@
       return slice;
     }
 
-    var sprite = new PIXI.Sprite.fromImage(slice.mask);
-    CATMAID.PixiContext.GlobalTextureManager.inc(slice.mask);
+    var sprite = new PIXI.Sprite.fromImage(this.maskUrl(slice));
+    CATMAID.PixiContext.GlobalTextureManager.inc(this.maskUrl(slice));
     sprite.texture.once('update', this.redraw.bind(this));
     sprite.x = slice.box[0];
     sprite.y = slice.box[1];

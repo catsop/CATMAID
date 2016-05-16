@@ -1,11 +1,10 @@
 import json
-import os
 from collections import namedtuple
-from pgmagick import Image
+from pgmagick import Blob, Image
 
 from django.conf import settings
 from django.db import connection
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.templatetags.static import static
 
@@ -22,7 +21,6 @@ def slice_dict(slice, with_conflicts=False, with_solution=False):
           'ctr': [slice.ctr_x, slice.ctr_y],
           'value': slice.value,
           'size': slice.size,
-          'mask': static('slicemasks/' + str(slice.id) + '.png'),
           'segment_summaries': slice.segment_summaries}
 
     for summary in sd['segment_summaries']:
@@ -51,6 +49,22 @@ def generate_slices_response(slices, with_conflicts=False, with_solutions=False)
 
 
 # --- Slices ---
+
+def slice_mask(request, project_id, segmentation_stack_id, slice_hash):
+    slice_id = hash_to_id(slice_hash) # Also effectively sanitizes slice_hash.
+    segmentation_stack_id = int(segmentation_stack_id)
+
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT component FROM segstack_{0}.slice_component
+        WHERE slice_id = %s
+        '''.format(segmentation_stack_id), (slice_id,))
+
+    if not cursor.rowcount == 1:
+        raise Http404
+
+    return StreamingHttpResponse(cursor.fetchone()[0], content_type='image/png')
+
 
 def _slice_select_query(segmentation_stack_id, slice_id_query):
     """Build a querystring to select slices and relationships given an ID query.
@@ -191,8 +205,10 @@ def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
     zoom = 2**(-bi.scale)
     cursor = connection.cursor()
     cursor.execute('''
-            SELECT s.id, s.min_x, s.min_y
+            SELECT s.id, s.min_x, s.min_y, sc.component
               FROM segstack_%(segstack_id)s.slice s
+              JOIN segstack_%(segstack_id)s.slice_component sc
+                ON sc.slice_id = s.id
               WHERE s.section = %(z)s
                 AND s.min_x <= %(x)s
                 AND s.max_x >= %(x)s
@@ -204,12 +220,9 @@ def _slice_ids_intersecting_point(segmentation_stack_id, x, y, z):
     # Check masks of the candidate slices to check for intersection
     candidates = cursor.fetchall()
     slice_ids = []
-    for [slice_id, min_x, min_y] in candidates:
-        gray_mask_file = os.path.join(settings.SOPNET_COMPONENT_DIR, str(slice_id) + '.png')
-        if not os.path.isfile(gray_mask_file):
-            raise Http404
-
-        gray_mask = Image(gray_mask_file)
+    for [slice_id, min_x, min_y, mask] in candidates:
+        blob = Blob(bytes(mask))
+        gray_mask = Image(blob)
         pixel = gray_mask.pixelColor(int(x - min_x), int(y - min_y))
         if pixel.intensity() > 0:
             slice_ids.append(slice_id)
