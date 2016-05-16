@@ -119,7 +119,7 @@
     "fields": {
       "comment": null,
       "num_zoom_levels": -1,
-      "image_base": "http://neurocity.janelia.org/catsop/data/catsop_test_raw/",
+      "image_base": "https://neurocity.janelia.org/catsop/data/catsop_test_raw/",
       "title": "Catsop Test Raw",
       "tile_width": 1024,
       "tile_height": 1024,
@@ -137,7 +137,7 @@
     "fields": {
       "comment": null,
       "num_zoom_levels": -1,
-      "image_base": "http://neurocity.janelia.org/catsop/data/catsop_test_raw/",
+      "image_base": "https://neurocity.janelia.org/catsop/data/catsop_test_raw/",
       "title": "Catsop Test Membrane",
       "tile_width": 1024,
       "tile_height": 1024,

@@ -16,7 +16,7 @@ import pysopnet as ps
 def create_testdata():
 	# Create test stack for raw data
 	sr, created = Stack.objects.get_or_create(title="Catsop Test Raw",
-		defaults={'image_base':'http://neurocity.janelia.org/catsop/data/catsop_test_raw/',
+		defaults={'image_base':'https://neurocity.janelia.org/catsop/data/catsop_test_raw/',
 			'resolution':Double3D(4.0, 4.0, 4.0),
 			'dimension':Integer3D(1024, 1024, 20),
 			'tile_height':1024,
@@ -25,7 +25,7 @@ def create_testdata():
 
 	# Create test stack for membrane data
 	sm, created = Stack.objects.get_or_create(title="Catsop Test Membrane",
-		defaults={'image_base':'http://neurocity.janelia.org/catsop/data/catsop_test_membrane/',
+		defaults={'image_base':'https://neurocity.janelia.org/catsop/data/catsop_test_membrane/',
 			'resolution':Double3D(4.0, 4.0, 4.0),
 			'dimension':Integer3D(1024, 1024, 20),
 			'tile_height':1024,
