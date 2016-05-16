@@ -22,6 +22,11 @@ CREATE TABLE slice
     (LIKE segstack_template.slice INCLUDING INDEXES)
     INHERITS (segstack_template.slice);
 
+CREATE TABLE slice_component
+    (LIKE segstack_template.slice_component INCLUDING INDEXES,
+      FOREIGN KEY (slice_id) REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE)
+    INHERITS (segstack_template.slice_component);
+
 CREATE TABLE slice_block_relation
     (LIKE segstack_template.slice_block_relation INCLUDING INDEXES,
       FOREIGN KEY (slice_id) REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,

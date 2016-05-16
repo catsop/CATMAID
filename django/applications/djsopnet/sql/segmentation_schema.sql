@@ -70,6 +70,14 @@ CREATE INDEX slice_min_x ON slice USING btree (min_x);
 CREATE INDEX slice_min_y ON slice USING btree (min_y);
 CREATE INDEX slice_section ON slice USING btree (section);
 
+CREATE TABLE slice_component (
+  slice_id bigint PRIMARY KEY REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
+  component bytea NOT NULL,
+  CHECK (false) NO INHERIT -- prevent any rows populating this table
+) WITH (
+  OIDS=FALSE
+);
+
 CREATE TABLE slice_block_relation (
   block_id integer NOT NULL REFERENCES block(id) DEFERRABLE INITIALLY IMMEDIATE,
   slice_id bigint NOT NULL REFERENCES slice(id) DEFERRABLE INITIALLY IMMEDIATE,
