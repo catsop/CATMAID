@@ -190,12 +190,13 @@ def generate_assembly_equivalences(segmentation_stack_id):
     # wrong with the query, apart from not being stupid enough for Django's
     # cursor wrapper. Disable the debug wrapper and it will work correctly.
     cursor.execute('''
-        UPDATE segstack_%(segstack_id)s.assembly
+        UPDATE segstack_{0}.assembly
         SET equivalence_id = equivalence_map.equivalence_id
-        FROM (VALUES %(equivalence_map)s) AS equivalence_map (equivalence_id, assembly_id)
-        WHERE segstack_%(segstack_id)s.assembly.id = equivalence_map.assembly_id
-        ''' % {'segstack_id': segmentation_stack_id,
-            'equivalence_map': ','.join(['(%s,%s)' % x for x in zip(equivalence_ids, assembly_ids)])})
+        FROM UNNEST(%(equivalence_ids)s, %(assembly_ids)s) AS equivalence_map (equivalence_id, assembly_id)
+        WHERE segstack_{0}.assembly.id = equivalence_map.assembly_id
+        '''.format(segmentation_stack_id),
+            {'equivalence_ids': equivalence_ids,
+             'assembly_ids': assembly_ids})
 
 def generate_compatible_assemblies_between_cores(segstack_id, core_a_id, core_b_id, run_prerequisites=True):
     """Create relations for compatible precedent assemblies between cores.
