@@ -165,7 +165,9 @@ def generate_assembly_equivalences(segmentation_stack_id):
     equivalence_ccs = nx.connected_components(g)
     equivalence_map = []
     assembly_ids = []
+    num_ccs = 0
     for idx, equivalence_cc in enumerate(equivalence_ccs):
+        num_ccs = num_ccs + 1
         for assembly in equivalence_cc:
             equivalence_map.append(idx)
             assembly_ids.append(assembly)
@@ -181,7 +183,7 @@ def generate_assembly_equivalences(segmentation_stack_id):
         FROM (VALUES (NULL::integer))
           AS v (skeleton_id), generate_series(1, %(num_equivalences)s)
         RETURNING segstack_%(segstack_id)s.assembly_equivalence.id
-        ''' % {'segstack_id': segmentation_stack_id, 'num_equivalences': len(equivalence_ccs)})
+        ''' % {'segstack_id': segmentation_stack_id, 'num_equivalences': num_ccs})
     equivalences = cursor.fetchall()
     equivalence_ids = [equivalences[idx][0] for idx in equivalence_map]
 
