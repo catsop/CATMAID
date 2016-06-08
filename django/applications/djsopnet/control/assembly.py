@@ -171,7 +171,7 @@ def generate_assembly_equivalences(segmentation_stack_id):
             assembly_ids.append(assembly)
 
     # If no equivalences exist, do nothing.
-    if not len(equivalence_map) == 0:
+    if not equivalence_map:
         return
 
     # Bulk create the number of assembly equivalences needed.
