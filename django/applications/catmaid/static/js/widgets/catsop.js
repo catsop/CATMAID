@@ -18,6 +18,7 @@
     this.blockInfo = {};
     this.configurations = [];
     this.activeConfigurationId = null;
+    this.activeStackType = 'Membrane';
     this.activeSegmentationStackId = null;
     this.sliceRows = [];
     this.sliceColumns = {
@@ -102,12 +103,13 @@
   CatsopWidget.prototype.activateConfiguration = function () {
     var selectedConfiguration = $('#catsop-results' + this.widgetID + '_buttons_Graph_configuration_id option:selected').get(0);
     this.activeConfigurationId = parseInt(selectedConfiguration.value, 10);
+    this.activeStackType = $('#catsop-results' + this.widgetID + '_buttons_Graph_stack_type option:selected').get(0).value;
     var configuration = this.configurations.filter(function (config) {
       return config.id === this.activeConfigurationId;
     }, this)[0];
     this.activeSegmentationStackId = configuration.stacks.filter(function (config) {
-      return config.type === 'Membrane';
-    })[0].id;
+      return config.type === this.activeStackType;
+    }, this)[0].id;
 
     requestQueue.register(
         django_url + 'sopnet/' + project.id + '/configuration/' + this.activeConfigurationId + '/block',

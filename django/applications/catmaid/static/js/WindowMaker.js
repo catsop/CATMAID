@@ -3609,6 +3609,14 @@ var WindowMaker = new function()
         'Segmentation configuration ID to display',
         undefined,
         CW.activateConfiguration.bind(CW));
+    appendSelect(
+        tabs['Graph'],
+        'stack_type',
+        'Stack:',
+        ['Membrane', 'GroundTruth'],
+        'Stack type for segmentation',
+        'Membrane',
+        CW.activateConfiguration.bind(CW));
 
     appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
