@@ -1,14 +1,22 @@
 import sys
 
-from django.core.management.base import NoArgsCommand
+from django.core.management.base import BaseCommand
 from django.db import connection
 from djsopnet.models import SegmentationStack
 
-class Command(NoArgsCommand):
-    help = "Tests the integrity of the segmentation database with several sanity checks"
+class Command(BaseCommand):
+    args = '[segmentation_stack_id]'
+    help = '''
+        Tests the integrity of the segmentation database with several
+        sanity checks. By default checks all segmentation stacks, but
+        a list of segmentation stack IDs can be provided.
+        '''
 
-    def handle_noargs(self, **options):
-        segstack_ids = SegmentationStack.objects.all().values_list('id', flat=True)
+    def handle(self, *args, **options):
+        if args:
+            segstack_ids = [int(x) for x in args]
+        else:
+            segstack_ids = SegmentationStack.objects.all().values_list('id', flat=True)
         failed = False
 
         for segstack_id in segstack_ids:
@@ -19,6 +27,7 @@ class Command(NoArgsCommand):
 
     def check_segmentation_stack(self, segmentation_stack_id):
         self.stdout.write('Checking integrity of segmentation stack %s' % segmentation_stack_id)
+        segstack = SegmentationStack.objects.get(pk=segmentation_stack_id)
         failed = False
 
         cursor = connection.cursor()
@@ -100,6 +109,8 @@ class Command(NoArgsCommand):
             self.stderr.write('FAILED: found %s rows (should be 0)' % cursor.rowcount)
 
         self.stdout.write('Check that no slice is in more than two segments in the same solution...')
+        if segstack.type == 'GroundTruth':
+            self.stdout.write('NOTE: this is expected to fail for ground truth stacks')
         cursor = connection.cursor()
         cursor.execute('''
                 SELECT s.id, count(*)
@@ -145,6 +156,8 @@ class Command(NoArgsCommand):
             self.stderr.write('FAILED: found %s conflicting rows (should be 0)' % row[0])
 
         self.stdout.write('Check that all slices have exactly two end segments...')
+        if segstack.type == 'GroundTruth':
+            self.stdout.write('NOTE: this is expected to fail for ground truth stacks')
         cursor = connection.cursor()
         cursor.execute('''
                 SELECT ss.slice_id, count(seg.id) AS num_ends
