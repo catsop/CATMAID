@@ -32,7 +32,7 @@ class SegmentationConfiguration(models.Model):
         return u'%s (%s)' % (self.project, self.pk)
 
     @staticmethod
-    def create(project_id, raw_stack_id, membrane_stack_id, feature_weights_file=None):
+    def create(project_id, raw_stack_id, membrane_stack_id, ground_truth_stack_id=None, feature_weights_file=None):
         """Creates a configuration, segmentation stacks and feature infos."""
         p = Project.objects.get(pk=project_id)
         sr = Stack.objects.get(pk=raw_stack_id)
@@ -61,6 +61,17 @@ class SegmentationConfiguration(models.Model):
             feature_names = [unnamed_feature.id for i in range(len(feature_weights))]
             fi.name_ids = feature_names
             fi.save()
+
+        if ground_truth_stack_id:
+            sgt = Stack.objects.get(pk=ground_truth_stack_id)
+
+            psgt, created = ProjectStack.objects.get_or_create(project=p, stack=sgt)
+
+            ssgt, created = SegmentationStack.objects.get_or_create(
+                    configuration=sc, project_stack=psgt, type='GroundTruth')
+
+            gtfi, created = FeatureInfo.objects.get_or_create(segmentation_stack=ssgt,
+                    defaults={'size':0, 'name_ids':[], 'weights':[]})
 
         return sc
 
