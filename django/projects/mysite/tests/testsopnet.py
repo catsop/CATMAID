@@ -67,7 +67,7 @@ class SopnetTest(object):
 	def log(self, msg):
 		print("[Test script] %s" % msg)
 
-	def clear_database(self, clear_slices=True, clear_segments=True, clear_solutions=True):
+	def clear_database(self, clear_slices=True, clear_segments=True, clear_solutions=True, stack_types=['Raw', 'Membrane', 'GroundTruth']):
 		if clear_slices:
 			self.log("Clearing slices")
 		if clear_segments:
@@ -76,7 +76,8 @@ class SopnetTest(object):
 			self.log("Clearing solution")
 
 		for segstack in SegmentationStack.objects.filter(configuration_id=self.segmentation_configuration_id):
-			segstack.clear_schema(clear_slices, clear_segments, clear_solutions)
+			if segstack.type in stack_types:
+				segstack.clear_schema(clear_slices, clear_segments, clear_solutions)
 
 	def setup_sopnet(self, log_level=None):
 		self.log("Setting up blocks for segmentation stacks")
