@@ -60,14 +60,12 @@ class Command(BaseCommand):
         cursor = connection.cursor()
         cursor.execute('''
             SELECT sf.segment_id, sf.features
-            FROM segstack_%(segstack_id)s.segment seg
-            JOIN segstack_%(segstack_id)s.segment_features sf ON (sf.segment_id = seg.id)
+            FROM segstack_%(segstack_id)s.segment_features sf
             ORDER BY sf.segment_id ASC
             ''' % {'segstack_id': self.segstack_id})
         for row in cursor.fetchall():
             filewriter.writerow(row)
 
-        cursor = connection.cursor()
         cursor.execute('''
             SELECT aseg.segment_id
             FROM segstack_%(segstack_id)s.solution_precedence sp
