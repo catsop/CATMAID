@@ -121,6 +121,7 @@ def _slicecursor_to_namedtuple(cursor):
                 'in_solution': dict([
                     (solution['f1'], solution['f2'])
                     for solution in rowdict['in_solution']
+                    if solution['f1'] is not None
                 ]),
                 'segment_summaries': [
                     {segment_map[k]: v for k, v in summary.items()}
