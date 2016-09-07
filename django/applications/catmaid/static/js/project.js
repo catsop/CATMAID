@@ -42,6 +42,7 @@
 
       stackViewers.push( stackViewer );
 
+      var rootWindow = CATMAID.rootWindow;
       if ( rootWindow.getChild() === null ) {
         rootWindow.replaceChild( stackViewer.getWindow() );
       } else {
@@ -244,9 +245,6 @@
       document.getElementById("toolbox_edit").style.display = "block";
       document.getElementById( "content" ).style.display = "none";
       document.body.appendChild( view );
-      CATMAID.ui.registerEvent( "onresize", resize );
-
-      document.onkeydown = onkeydown;
     };
 
     /**
@@ -259,16 +257,14 @@
 
       //! Close all windows. There is no need to explicitely call close()
       //! on the root window as this done by the last child.
-      rootWindow.closeAllChildren();
+      CATMAID.rootWindow.closeAllChildren();
 
-      CATMAID.ui.removeEvent( "onresize", resize );
       try
       {
         document.body.removeChild( view );
       }
       catch ( error ) {}
       self.id = 0;
-      document.onkeydown = null;
       document.getElementById( "content" ).style.display = "block";
       document.getElementById( "stackmenu_box" ).style.display = "none";
       document.getElementById( "stack_menu" ).style.display = "none";
@@ -286,42 +282,6 @@
     };
 
     /**
-     * This is a helper function for the moveTo() API function. It moves each
-     * stack in <stacks> to the physical location given. It passes itself as
-     * callback to the moveTo() API function of each stack. This is done to give
-     * each stack the chance to wait for asynchronous calls to be finished before
-     * the next stack is moved. After the last stack has been moved, the actual
-     * <completionCallback> is executed. Using a loop to call moveTo() for each
-     * stack wouldn't allow to account for asynchronous calls during moving a
-     * stack.
-     */
-    this.moveToInStacks = function(zp, yp, xp, sp, stackViewers,
-        completionCallback) {
-      var stackToMove;
-      if (stackViewers.length === 0) {
-        // FIXME: do we need a callback for tool.redraw as well?
-        if ( tool && tool.redraw )
-          tool.redraw();
-        this.trigger(Project.EVENT_LOCATION_CHANGED, this.coordinates.x,
-          this.coordinates.y, this.coordinates.z);
-        if (typeof completionCallback !== "undefined") {
-          completionCallback();
-        }
-      } else {
-        // Move current stack and continue with next one (or the completion
-        // callback) as a continuation of the moveTo() call on the current stack.
-        stackToMove = stackViewers.shift();
-        stackToMove.moveTo( zp,
-                yp,
-                xp,
-                sp,
-                function () {
-                  self.moveToInStacks( zp, yp, xp, sp, stackViewers, completionCallback );
-                });
-      }
-    };
-
-    /**
      * move all stacks to the physical coordinates, except sp, sp is a
      * stack specific scale level that cannot be traced back to where it
      * came from, so we just pass it through.
@@ -332,46 +292,27 @@
      * move might imply (e.g. requesting more treenodes for the tracing tool).
      */
     this.moveTo = function(zp, yp, xp, sp, completionCallback) {
-      var stacksToMove = [];
       self.coordinates.x = xp;
       self.coordinates.y = yp;
       self.coordinates.z = zp;
 
+      var movePromises = stackViewers.map(function (sv) {
+        return sv.navigateWithProject ?
+          new Promise(function (resolve, reject) {
+            sv.moveTo(zp, yp, xp, sp, resolve);
+          }) :
+          Promise.resolve();
+      });
 
-      for ( var i = 0; i < stackViewers.length; ++i )
-      {
-        if ( stackViewers[ i ].navigateWithProject ) stacksToMove.push( stackViewers[ i ] );
-      }
-
-      // Call recursive moving function which executes the completion callback as
-      // a continuation after the last stack has been moved.
-      self.moveToInStacks( zp, yp, xp, sp, stacksToMove, completionCallback );
-    };
-
-
-    this.moveToProjectInStacks = function(zp, yp, xp, res, stackViewers,
-        completionCallback) {
-      var stackToMove;
-      if (stackViewers.length === 0) {
-        // FIXME: do we need a callback for tool.redraw as well?
-        if ( tool && tool.redraw )
+      Promise.all(movePromises).then(function () {
+        if (tool && tool.redraw)
           tool.redraw();
-        // Emit location change event and call callback
-        this.trigger(Project.EVENT_LOCATION_CHANGED, this.coordinates.x,
-          this.coordinates.y, this.coordinates.z);
+        self.trigger(Project.EVENT_LOCATION_CHANGED, self.coordinates.x,
+          self.coordinates.y, self.coordinates.z);
         if (typeof completionCallback !== "undefined") {
           completionCallback();
         }
-      } else {
-        stackToMove = stackViewers.shift();
-        stackToMove.moveToProject( zp,
-                yp,
-                xp,
-                res,
-                function () {
-                  self.moveToProjectInStacks( zp, yp, xp, res, stackViewers, completionCallback );
-                });
-      }
+      });
     };
 
     /**
@@ -379,18 +320,27 @@
      * in units per pixels
      */
     this.moveToProject = function(zp, yp, xp, res, completionCallback) {
-      var stacksToMove = [];
       self.coordinates.x = xp;
       self.coordinates.y = yp;
       self.coordinates.z = zp;
 
+      var movePromises = stackViewers.map(function (sv) {
+        return sv.navigateWithProject ?
+          new Promise(function (resolve, reject) {
+            sv.moveToProject(zp, yp, xp, res, resolve);
+          }) :
+          Promise.resolve();
+      });
 
-      for ( var i = 0; i < stackViewers.length; ++i )
-      {
-        if ( stackViewers[ i ].navigateWithProject ) stacksToMove.push( stackViewers[ i ] );
-      }
-
-      self.moveToProjectInStacks( zp, yp, xp, res, stacksToMove, completionCallback );
+      Promise.all(movePromises).then(function () {
+        if (tool && tool.redraw)
+          tool.redraw();
+        self.trigger(Project.EVENT_LOCATION_CHANGED, self.coordinates.x,
+          self.coordinates.y, self.coordinates.z);
+        if (typeof completionCallback !== "undefined") {
+          completionCallback();
+        }
+      });
     };
 
     this.updateTool = function() {
@@ -445,86 +395,6 @@
       }
     };
 
-    var onkeydown = function( e )
-    {
-      var projectKeyPress;
-      var key;
-      var shift;
-      var alt;
-      var ctrl;
-      var meta;
-      var keyAction;
-
-      /* The code here used to modify 'e' and pass it
-         on, but Firefox no longer allows this.  So, create
-         a fake event object instead, and pass that down. */
-      var fakeEvent = {};
-
-      if ( e )
-      {
-        if ( e.keyCode ) {
-          key = e.keyCode;
-        } else if ( e.charCode ) {
-          key = e.charCode;
-        } else {
-          key = e.which;
-        }
-        fakeEvent.keyCode = key;
-        fakeEvent.shiftKey = e.shiftKey;
-        fakeEvent.altKey = e.altKey;
-        fakeEvent.ctrlKey = e.ctrlKey;
-        fakeEvent.metaKey = e.metaKey;
-        shift = e.shiftKey;
-        alt = e.altKey;
-        ctrl = e.ctrlKey;
-        meta = e.metaKey;
-      }
-      else if ( event && event.keyCode )
-      {
-        fakeEvent.keyCode = event.keyCode;
-        fakeEvent.shiftKey = event.shiftKey;
-        fakeEvent.altKey = event.altKey;
-        fakeEvent.ctrlKey = event.ctrlKey;
-        fakeEvent.metaKey = event.metaKey;
-        shift = event.shiftKey;
-        alt = event.altKey;
-        ctrl = event.ctrlKey;
-        meta = event.metaKey;
-      }
-      fakeEvent.target = CATMAID.UI.getTargetElement(e || event);
-      var n = fakeEvent.target.nodeName.toLowerCase();
-      var fromATextField = fakeEvent.target.getAttribute('contenteditable');
-      if (n === "input") {
-        var inputType = fakeEvent.target.type.toLowerCase();
-        if (inputType !== 'checkbox' && inputType !== 'button') {
-          fromATextField = true;
-        }
-      }
-      if (meta) {
-        // Don't intercept command-key events on Mac.
-        return true;
-      }
-      if (!(fromATextField || n == "textarea" || n == "area"))
-      {
-        /* Note that there are two different
-           conventions for return values here: the
-           handleKeyPress() methods return true if the
-           event has been dealt with (i.e. it should
-           not be propagated) but the onkeydown
-           function should only return true if the
-           event should carry on for default
-           processing. */
-        if (tool && tool.handleKeyPress(fakeEvent)) {
-          return false;
-        } else {
-          projectKeyPress = self.handleKeyPress(fakeEvent);
-          return ! projectKeyPress;
-        }
-      } else {
-        return true;
-      }
-    };
-
     /**
      * Get project ID.
      */
@@ -537,7 +407,7 @@
 
     var tool = null;
 
-    var view = rootWindow.getFrame();
+    var view = CATMAID.rootWindow.getFrame();
     view.className = "projectView";
 
     this.coordinates = {

@@ -52,11 +52,20 @@
     this._tool = null;
     this._layers = new Map();
     this._layerOrder = [];
+    /**
+     * Whether redraws in this stack viewer should be blocking, that is,
+     * whether layers that have asynchronous redraws must wait for redraw to
+     * be complete before invoking callbacks. Note that layers can choose to
+     * be blocking even if this is false (e.g., the tracing overlay).
+     * @type {Boolean}
+     */
+    this.blockingRedraws = false;
 
     //-------------------------------------------------------------------------
 
     this._stackWindow = new CMWWindow( primaryStack.title );
     this._view = this._stackWindow.getFrame();
+    this._view.classList.add('stackViewer');
     this._layersView = document.createElement("div");
     this._view.appendChild(this._layersView);
 
@@ -105,12 +114,12 @@
     this.overview = new CATMAID.Overview( this );
     this._view.appendChild( this.overview.getView() );
 
-    this.tilelayercontrol = new CATMAID.TileLayerControl( this );
-    $(this.tilelayercontrol.getView()).hide();
-    this._view.appendChild( this.tilelayercontrol.getView() );
+    this.layercontrol = new CATMAID.LayerControl( this );
+    $(this.layercontrol.getView()).hide();
+    this._view.appendChild( this.layercontrol.getView() );
 
     // Ask for confirmation before closing the stack via the close button
-    $(this._view).find('.stackClose').get(0).onmousedown = function (e) {
+    $(this._stackWindow.getFrame()).find('.stackClose').get(0).onmousedown = function (e) {
       if (self._project.getStackViewers().length > 1 || confirm('Closing this window will exit the project. Proceed?'))
         self._stackWindow.close(e);
       else e.stopPropagation();
@@ -131,7 +140,7 @@
         event.cancelBubble = true;
       if ( e && e.stopPropagation )
         e.stopPropagation();
-      var state = $(this).siblings('.TileLayerControl').toggle().is(':visible');
+      var state = $(this).siblings('.LayerControl').toggle().is(':visible');
       $(this).attr('class', state ? 'stackControlToggle' : 'stackControlToggle_hidden');
     };
     this._view.appendChild( controlToggle );
@@ -229,10 +238,9 @@
   StackViewer.prototype.screenPosition = function () {
     var width = this.viewWidth / this.scale;
     var height = this.viewHeight / this.scale;
-    var l =
-    {
-      top : Math.floor( this.y - height / 2 ),
-      left : Math.floor( this.x - width / 2 )
+    var l = {
+      top: this.y - height / 2,
+      left: this.x - width / 2
     };
     return l;
   };
@@ -255,8 +263,8 @@
    * Scaled stack coordinates of the current view's top left corner for the given
    * stack.
    *
-   * @param  {Stack} stack  Target stack for the scaled view coordinates.
-   * @return {xc, yc, z, s} Top left view scaled coordinates in the target stack.
+   * @param  {Stack} stack    Target stack for the scaled view coordinates.
+   * @return {{xc, yc, z, s}} Top left view scaled coordinates in the target stack.
    */
   StackViewer.prototype.scaledPositionInStack = function (stack) {
     if (stack.id === this.primaryStack.id) {
@@ -283,7 +291,7 @@
    * Write the limiting coordinates of the current stack view's bounding box
    * into stackBox.  Faster than creating a new box.
    *
-   *  @param stackBox {min {x, y, z}, max{x, y, z}}
+   *  @param stackBox {{min: {x, y, z}, max: {x, y, z}}}
    */
   StackViewer.prototype.stackViewBox = function (stackBox) {
     var w2 = this.viewWidth / this.scale / 2;
@@ -304,7 +312,7 @@
   /**
    * Create the bounding box of the current stack view.
    *
-   *  @return {min {x, y, z}, max{x, y, z}}
+   *  @return {{min: {x, y, z}, max: {x, y, z}}}
    */
   StackViewer.prototype.createStackViewBox = function () {
     return this.stackViewBox({min: {}, max: {}});
@@ -316,7 +324,7 @@
    * plus some excess padding space into stackBox.  Faster than creating a
    * new box.
    *
-   *  @param stackBox {min {x, y, z}, max{x, y, z}}
+   *  @param stackBox {{min: {x, y, z}, max: {x, y, z}}}
    *  @param padScreenX x-padding in screen coordinates
    *  @param padScreenY y-padding in screen coordinates
    *  @param padScreenZ z-padding in screen coordinates (==stack coordinates as z is not scaled)
@@ -381,16 +389,7 @@
         continue;
       }
       ++ semaphore;
-      layer.redraw(onAnyCompletion);
-    }
-
-    allQueued = true;
-    /* Also check at the end, in case none of these
-       redraws invovled an AJAX call: */
-    if (semaphore === 0) {
-      if (typeof completionCallback !== "undefined") {
-        completionCallback();
-      }
+      layer.redraw(onAnyCompletion, this.blockingRedraws);
     }
 
     this.old_z = this.z;
@@ -400,6 +399,15 @@
     this.old_scale = this.scale;
     this.old_yc = this.yc;
     this.old_xc = this.xc;
+
+    allQueued = true;
+    /* Also check at the end, in case none of these
+       redraws invovled an AJAX call: */
+    if (semaphore === 0) {
+      if (typeof completionCallback !== "undefined") {
+        completionCallback();
+      }
+    }
   };
 
   /**
@@ -426,7 +434,7 @@
 
   /**
    * Get offset translation.
-   * @return {[number]} Offset translation as [x, y, z].
+   * @return {number[]} Offset translation as [x, y, z].
    */
   StackViewer.prototype.getOffset = function () {
     return this._offset.slice(); // Clone array.
@@ -434,7 +442,7 @@
 
   /**
    * Set offset translation and update UI as necessary.
-   * @param {[number]} offset Translation as [x, y, z].
+   * @param {number[]} offset Translation as [x, y, z].
    */
   StackViewer.prototype.setOffset = function (offset) {
     this._offset = offset;
@@ -526,7 +534,7 @@
   /**
    * move to pixel coordinates
    */
-  StackViewer.prototype.moveToPixel = function (zs, ys, xs, ss) {
+  StackViewer.prototype.moveToPixel = function (zs, ys, xs, ss, completionCallback) {
     if (this.navigateWithProject) {
       zs -= this._offset[2];
       ys -= this._offset[1];
@@ -535,21 +543,23 @@
         this.primaryStack.stackToProjectZ( zs, ys, xs ),
         this.primaryStack.stackToProjectY( zs, ys, xs ),
         this.primaryStack.stackToProjectX( zs, ys, xs ),
-        this.primaryStack.stackToProjectSX( ss ));
+        this.primaryStack.stackToProjectSX( ss ),
+        completionCallback);
     } else {
       this.moveTo(
         this.primaryStack.stackToProjectZ( zs, ys, xs ),
         this.primaryStack.stackToProjectY( zs, ys, xs ),
         this.primaryStack.stackToProjectX( zs, ys, xs ),
-        ss);
+        ss,
+        completionCallback);
     }
 
     return true;
   };
 
   StackViewer.prototype.resize = function () {
-    var width = this.viewWidth = this._stackWindow.getFrame().offsetWidth;
-    var height = this.viewHeight = this._stackWindow.getFrame().offsetHeight;
+    var width = this.viewWidth = this._view.offsetWidth;
+    var height = this.viewHeight = this._view.offsetHeight;
 
     this._layers.forEach(function (layer) {
       layer.resize(width, height);
@@ -593,7 +603,7 @@
 
   /**
    * Get an array of layer keys in their rendering order (back to front).
-   * @return {[]} An array of layer keys.
+   * @return {string[]} An array of layer keys.
    */
   StackViewer.prototype.getLayerOrder = function () {
     return this._layerOrder;
@@ -611,7 +621,7 @@
       this._layers.get(key).unregister();
     this._layers.set(key, layer);
     if (this._layerOrder.indexOf(key) === -1) this._layerOrder.push(key);
-    this.tilelayercontrol.refresh();
+    this.layercontrol.refresh();
   };
 
   /**
@@ -644,7 +654,7 @@
         }
       }
 
-      this.tilelayercontrol.refresh();
+      this.layercontrol.refresh();
       return layer;
     }
     else
@@ -693,7 +703,7 @@
       layerA.notifyReorder(layerB);
 
     this._layerOrder.splice(newIndex, 0, this._layerOrder.splice(currIndex, 1)[0]);
-    this.tilelayercontrol.refresh();
+    this.layercontrol.refresh();
   };
 
   /**
@@ -740,6 +750,20 @@
   StackViewer.prototype.showReferenceLines = function (show) {
     this._vert.style.visibility = show ? "visible" : "hidden";
     this._horr.style.visibility = show ? "visible" : "hidden";
+  };
+
+  /**
+   * Pulsate reference lines using jQuery UI
+   */
+  StackViewer.prototype.pulseateReferenceLines = function (times, delay) {
+    var visible = this._vert.style.visibility === "visible";
+    var halfDelay = delay * 0.5;
+    this.showReferenceLines(true);
+    var refLines = $(this._vert).add(this._horr);
+    for (var i=0; i<times; ++i) {
+      refLines = refLines.fadeOut(halfDelay).fadeIn(halfDelay);
+    }
+    refLines = refLines.fadeOut(delay);
   };
 
   StackViewer.Settings = new CATMAID.Settings(

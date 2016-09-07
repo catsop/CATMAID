@@ -183,10 +183,7 @@
         "bServerSide": false, // Enable sorting locally, and prevent sorting from calling the fnServerData to reload the table -- an expensive and undesirable operation.
         "bAutoWidth": false,
         "iDisplayLength": -1,
-        "aLengthMenu": [
-        [-1, 10, 100, 200],
-        ["All", 10, 100, 200]
-        ],
+        "aLengthMenu": [CATMAID.pageLengthOptions, CATMAID.pageLengthLabels],
         //"aLengthChange": false,
         "bJQueryUI": true,
         "aoColumns": this.labels.map((function() { return this; }).bind({bSearchable: true, bSortable: true}))
@@ -221,7 +218,8 @@
 
   SkeletonMeasurementsTable.prototype.exportCSV = function() {
     if (!this.table) return;
-    var csv = this.labels.join(',') + '\n' + this.table.fnGetData().map(function(row) {
+    var skeletonRows = this.table._('tr', {"filter":"applied"});
+    var csv = this.labels.join(',') + '\n' + skeletonRows.map(function(row) {
       return $(row[0]).text() + ',' + row.slice(1).join(',');
     }).join('\n'),
         blob = new Blob([csv], {type: 'text/plain'});

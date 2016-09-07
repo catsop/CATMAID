@@ -1,20 +1,23 @@
 import sys
 
+import progressbar
+
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 from catmaid.models import Project
 
 class Command(BaseCommand):
-    args = '<project_id> <project_id> ...'
     help = '''
         Tests the integrity of the specified projects with several sanity checks
         '''
 
+    def add_arguments(self, parser):
+        parser.add_argument('--project_id', nargs='*', type=int, default=[])
+
     def handle(self, *args, **options):
-        if not len(args):
+        project_ids = options['project_id']
+        if not len(project_ids):
             project_ids = Project.objects.all().values_list('id', flat=True)
-        else:
-            project_ids = map(int, args)
 
         passed = True
         for project_id in project_ids:
@@ -69,30 +72,34 @@ class Command(BaseCommand):
                 WHERE project_id = %s
                 ''', (project_id,))
         skeleton_ids = cursor.fetchall()
+        if len(skeleton_ids):
+            self.stdout.write('')
         test_passed = True
-        for skeleton_id in skeleton_ids:
-            cursor.execute('''
-                    WITH RECURSIVE nodes (id) AS (
-                      SELECT t.id
-                      FROM treenode t
-                      WHERE t.parent_id IS NULL
-                        AND t.skeleton_id = %s
-                      UNION ALL
-                      SELECT t.id
-                      FROM treenode t
-                      JOIN nodes p ON t.parent_id = p.id)
-                    SELECT t.id, t.skeleton_id
-                    FROM treenode t
-                    WHERE t.skeleton_id = %s
-                      AND NOT EXISTS (SELECT n.id FROM nodes n WHERE n.id = t.id);
-                    ''', (skeleton_id, skeleton_id))
-            if cursor.rowcount:
-                if test_passed:
-                    self.stdout.write('')
-                test_passed = False
-                project_passed = False
-                row = cursor.fetchone()
-                self.stdout.write('FAILED: node %s is skeleton %s has no path to root' % row)
+        with progressbar.ProgressBar(max_value=len(skeleton_ids), redirect_stdout=True) as pbar:
+            for i, skeleton_id in enumerate(skeleton_ids):
+                pbar.update(i)
+                cursor.execute('''
+                        WITH RECURSIVE nodes (id) AS (
+                          SELECT t.id
+                          FROM treenode t
+                          WHERE t.parent_id IS NULL
+                            AND t.skeleton_id = %s
+                          UNION ALL
+                          SELECT t.id
+                          FROM treenode t
+                          JOIN nodes p ON t.parent_id = p.id)
+                        SELECT t.id, t.skeleton_id
+                        FROM treenode t
+                        WHERE t.skeleton_id = %s
+                          AND NOT EXISTS (SELECT n.id FROM nodes n WHERE n.id = t.id);
+                        ''', (skeleton_id, skeleton_id))
+                if cursor.rowcount:
+                    if test_passed:
+                        self.stdout.write('')
+                    test_passed = False
+                    project_passed = False
+                    row = cursor.fetchone()
+                    self.stdout.write('FAILED: node %s in skeleton %s has no path to root' % row)
         if test_passed:
             self.stdout.write('OK')
 

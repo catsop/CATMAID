@@ -12,6 +12,15 @@
   var DOM = {};
 
   /**
+   * Remove all elements from a parent element.
+   */
+  DOM.removeAllChildren = function(element) {
+    while (element.lastChild) {
+      element.removeChild(element.lastChild);
+    }
+  };
+
+  /**
    * Helper function to create a collapsible settings container.
    */
   DOM.addSettingsContainer = function(parent, name, closed)
@@ -97,6 +106,22 @@
   };
 
   /**
+   * Helper function to create a number input field with label.
+   */
+  DOM.createNumericInputSetting = function(name, val, step, helptext, handler)
+  {
+    var input = $('<input/>').attr('type', 'number')
+      .attr('min', '0')
+      .attr('step', undefined === step ? 1 : step)
+      .addClass("ui-corner-all").val(val);
+    if (handler) {
+      input.change(handler);
+    }
+
+    return CATMAID.DOM.createLabeledControl(name, input, helptext);
+  };
+
+  /**
    * Helper function to create a set of radio buttons.
    */
   DOM.createRadioSetting = function(name, values, helptext, handler)
@@ -114,16 +139,36 @@
   /**
    * Helper function to create a select element with options.
    */
-  DOM.createSelectSetting = function(name, options, helptext, handler)
+  DOM.createSelectSetting = function(name, options, helptext, handler, defaultValue)
   {
-    var select = $('<select />');
+    var select = document.createElement('select');
     for (var o in options) {
-      select.append(new Option(o, options[o]));
+      var value = options[o];
+      var selected = (defaultValue === value);
+      var option = new Option(o, value, selected, selected);
+      select.add(option);
     }
     if (handler) {
-      select.on('change', handler);
+      select.onchange = handler;
     }
     return CATMAID.DOM.createLabeledControl(name, select, helptext);
+  };
+
+  /**
+   * Create a file open button that can be optionally initialized hidden.
+   */
+  DOM.createFileButton = function(id, visible, onchangeFn) {
+    var fb = document.createElement('input');
+    fb.setAttribute('type', 'file');
+    if (id) {
+      fb.setAttribute('id', id);
+    }
+    fb.setAttribute('name', 'files[]');
+    if (!visible) {
+      fb.style.display = 'none';
+    }
+    fb.onchange = onchangeFn;
+    return fb;
   };
 
   /**
@@ -170,6 +215,32 @@
     }
 
     $('.stackTitle', win.getFrame()).after(wrapper);
+
+    return wrapper;
+  };
+
+  /**
+   * Inject a help button into the caption of a window. This button opens a
+   * widget containing the passed help text when clicked.
+   *
+   * @param {CMWWindow} win          Window to which the button with be added.
+   * @param {string}    title        Title of the help window that will open.
+   * @param {string}    helpTextHtml HTML source of the help text.
+   */
+  DOM.addHelpButton = function (win, title, helpTextHtml) {
+    var helpTextFeedback =
+        '<p class="ui-state-highlight ui-widget">' +
+        'Is this documentation incomplete or incorrect? Help out by ' +
+        '<a target="_blank" href="' +
+        CATMAID.makeDocURL('contributing.html#in-client-documentation') +
+        '">letting us know or contributing a fix.</a></p>';
+    DOM.addCaptionButton(win,
+        'ui-icon ui-icon-help',
+        'Show help documentation for this widget',
+        function () {
+          WindowMaker.create('html', {title: title,
+                                      html: helpTextHtml + helpTextFeedback});
+        });
   };
 
   /**
@@ -180,7 +251,7 @@
   DOM.addButtonDisplayToggle = function(win, title) {
     title = title || 'Show and hide widget controls';
     DOM.addCaptionButton(win, 'ui-icon ui-icon-gear', title, function() {
-      var frame = $(this).closest('.sliceView');
+      var frame = $(this).closest('.' + CMWNode.FRAME_CLASS);
       var panels = $('.buttonpanel', frame);
       if (panels.length > 0) {
        // Toggle display of first button panel found
@@ -194,7 +265,7 @@
    * Inject an extra button into the caption of a window. This button allows to
    * show and hide skeleton source controls for a widget.
    */
-  DOM.addSourceControlsToggle = function(win, source, title) {
+  DOM.addSourceControlsToggle = function(win, source, title, options) {
     title = title || 'Show and hide skeleton source controls';
 
     // A toggle function that also allows to recreate the UI.
@@ -211,7 +282,7 @@
 
       if (show || recreate) {
         // Create new panel
-        panel = CATMAID.skeletonListSources.createSourceControls(source);
+        panel = CATMAID.skeletonListSources.createSourceControls(source, options);
         panel.setAttribute('class', 'sourcepanel');
         // Add as first element after caption and event catcher
         var eventCatcher = frame.querySelector('.eventCatcher');
@@ -228,7 +299,7 @@
     // Make a update function that can be referred to from handlers
     var update = toggle.bind(window, true);
 
-    DOM.addCaptionButton(win, 'ui-icon ui-icon-link', title, function() {
+    return DOM.addCaptionButton(win, 'ui-icon ui-icon-link', title, function() {
       // Do a regular toggle update by default
       var opened = toggle();
 
@@ -242,6 +313,324 @@
         source.off(source.EVENT_SUBSCRIPTION_REMOVED, update);
       }
     });
+  };
+
+  /**
+   * Create a new select element that when clicked (or optionally hovered) shows
+   * a custom list in a DIV container below it. This custom list provides
+   * checkbox elements for each entry
+   *
+   * Main idea from: http://stackoverflow.com/questions/17714705
+   *
+   * @param title        {String}   A title showing as the first element of the select
+   * @param options      {Object}   Maps values to field names
+   * @param selectedKeys {String[]} (Optional) list of keys that should be
+   *                                selected initially
+   *
+   * @returns a wrapper around the select element
+   */
+  DOM.createCheckboxSelect = function(title, options, selectedKeys) {
+    var selectedSet = new Set(selectedKeys ? selectedKeys : undefined);
+    var checkboxes = document.createElement('ul');
+    for (var o in options) {
+      var entry = document.createElement('label');
+      var checkbox = document.createElement('input');
+      checkbox.setAttribute('type', 'checkbox');
+      checkbox.setAttribute('value', o);
+      entry.appendChild(checkbox);
+      entry.appendChild(document.createTextNode(options[o]));
+      if (selectedSet.has(o)) {
+        checkbox.checked = true;
+      }
+      checkboxes.appendChild(entry);
+    }
+    checkboxes.onclick = function(e) {
+      // Cancel bubbling
+      e.cancelBubble = true;
+      if (e.stopPropagation) e.stopPropagation();
+    };
+
+    return CATMAID.DOM.createCustomContentSelect(title, checkboxes);
+  };
+
+  /**
+   * Create a new select element that when clicked (or optionally hovered) shows
+   * content in a DIV container below it.
+   *
+   * Main idea from: http://stackoverflow.com/questions/17714705
+   *
+   * @param title {String}   A title showing as the first element of the select
+   * @param content {Object} Content to be displayed when select is clicked
+   *
+   * @returns a wrapper around the select element
+   */
+  DOM.createCustomContentSelect = function(title, content) {
+    // Expandable container
+    var container = document.createElement('span');
+    container.setAttribute('class', 'customselect');
+
+    var selectBox = document.createElement('div');
+    selectBox.setAttribute('class', 'customselect-selectbox');
+
+    var toggleSelect = document.createElement('select');
+    toggleSelect.options.add(new Option(title));
+    selectBox.appendChild(toggleSelect);
+
+    // Hide the selects drop down menu, which is needed for creating our own
+    // drop down as well as for showing thre rest of the panel if the menu is
+    // expanded.
+    var overSelect = document.createElement('div');
+    overSelect.setAttribute('class', 'customselect-overselect');
+    selectBox.appendChild(overSelect);
+
+    container.appendChild(selectBox);
+
+    var customContent = document.createElement('div');
+    customContent.setAttribute('class', 'customselect-content');
+    customContent.style.display = "none";
+    customContent.appendChild(content);
+    container.appendChild(customContent);
+
+    // The function responsible for hiding and showing all controls has a
+    // private state variable and an IIFE is used to encapsulate it (to reduce
+    // closure size).
+    var toggleExpansion = (function() {
+      var expanded = false;
+      return function(e) {
+        var customContent = this.querySelector('div.customselect-content');
+        if (expanded) {
+          customContent.style.display = 'none';
+        } else {
+          customContent.style.display = 'block';
+        }
+        expanded = !expanded;
+      };
+    })();
+
+    // Expand whe the container is clicked
+    container.onclick = toggleExpansion;
+    toggleSelect.onclick = function(e) {
+      toggleExpansion(e);
+      return false; // Don't bubble up
+    };
+
+    // This wrapper is used to make the actual control container expand more
+    // reliable.
+    var wrapper = document.createElement('span');
+    wrapper.appendChild(container);
+
+    return wrapper;
+  };
+
+  /**
+   * Create a simple placeholder.
+   */
+  DOM.createPlaceholder= function() {
+    var placeholder = document.createElement('span');
+    placeholder.classList.add('placeholder');
+    var img = document.createElement('img');
+    img.src = CATMAID.makeStaticURL('images/wait_bgtransgrey.gif');
+    placeholder.appendChild(img);
+    return placeholder;
+  };
+
+  /**
+   * Create a placeholder element that will get replaced once async content has
+   * been loaded, i.e. the passed in promise has been resolved. The promise is
+   * expected to return the actual element to be displayed.
+   */
+  DOM.createAsyncPlaceholder= function(promise) {
+    var placeholder = CATMAID.DOM.createPlaceholder();
+    if (!promise || !CATMAID.tools.isFn(promise.then)) {
+      throw new CATMAID.ValueError('Async musst be either a callback or promise');
+    }
+
+    // After promise is fulfilled, replace placeholder
+    promise.then(function(element) {
+      if (placeholder.parentNode) {
+        placeholder.parentNode.replaceChild(element, placeholder);
+      } else {
+        throw new CATMAID.ValueError('Placeholder node doesn\'t have a parent');
+      }
+    }).catch(CATMAID.handleError);
+
+    return placeholder;
+  };
+
+	DOM.createCheckbox = function(label, value, onclickFn) {
+		var cb = document.createElement('input');
+		cb.setAttribute('type', 'checkbox');
+		cb.checked = value ? true : false;
+		cb.onclick = onclickFn;
+		return [cb, document.createTextNode(label)];
+	};
+
+  /**
+   * Create a new numeric field based on the passed in configuration.
+   */
+  DOM.createNumericField = function(id, label, title, value, postlabel, onchangeFn, length) {
+    var nf = document.createElement('input');
+    if (id) nf.setAttribute('id', id);
+    nf.setAttribute('type', 'text');
+    nf.setAttribute('value', value);
+    if (length) nf.setAttribute('size', length);
+    if (onchangeFn) nf.onchange = onchangeFn;
+    if (label || postlabel) {
+      var labelEl = document.createElement('label');
+      labelEl.setAttribute('title', title);
+      if (label) labelEl.appendChild(document.createTextNode(label));
+      labelEl.appendChild(nf);
+      if (postlabel) labelEl.appendChild(document.createTextNode(postlabel));
+      return labelEl;
+    } else {
+      return nf;
+    }
+  };
+
+  DOM.createSelect = function(id, items, selectedValue) {
+    var select = document.createElement('select');
+    if (id) {
+      select.setAttribute("id", id);
+    }
+    items.forEach(function(item, i) {
+      var option = document.createElement("option");
+      var itemType = typeof item;
+      var text, value;
+      if ('object' === itemType) {
+        text = item.title;
+        value = item.value;
+      } else {
+        text = item;
+        value = item;
+      }
+      option.text = text;
+      option.value = value;
+      if (option.value === selectedValue) {
+        option.defaultSelected = true;
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+    return select;
+  };
+
+  /**
+   * Create a tab group and add it to the passed in container. The widget ID is
+   * expected to be unique.
+   */
+  DOM.addTabGroup = function(container, widgetId, titles) {
+    var ul = document.createElement('ul');
+    container.appendChild(ul);
+    return titles.reduce(function(o, name) {
+      var id = name.replace(/ /, '') + widgetId;
+      ul.appendChild($('<li><a href="#' + id + '">' + name + '</a></li>')[0]);
+      var div = document.createElement('div');
+      div.setAttribute('id', id);
+      container.appendChild(div);
+      o[name] = div;
+      return o;
+    }, {});
+  };
+
+  /**
+   * Construct elements from an array of parameters and append them to a tab
+   * element.
+
+   * @param {Element}     tab   The tab to which to append constructed elements.
+   * @param {Array.<(Object|Array)>} elements
+   *                             An array of parameters from which to construct
+   *                             elements. The elements of the array are either
+   *                             arrays of parameters, in which case the length
+   *                             of the array is used to choose element type, or
+   *                             an object specifying parameters, in which case
+   *                             the `type` property specifies element type.
+   * @return {Element[]}         An array of the constructed elements.
+   */
+  DOM.appendToTab = function(tab, elements) {
+    return elements.map(function(e) {
+      if (Array.isArray(e)) {
+        switch (e.length) {
+          case 1: return tab.appendChild(e[0]);
+          case 2: return CATMAID.DOM.appendButton(tab, e[0], e[1]);
+          case 3: return CATMAID.DOM.appendButton(tab, e[0], e[1], e[2]);
+          case 4: return CATMAID.DOM.appendCheckbox(tab, e[0], e[0], e[1], e[2], e[3]);
+          case 5: return CATMAID.DOM.appendNumericField(tab, e[0], e[0], e[1], e[2], e[3], e[4]);
+          default: return undefined;
+        }
+      } else {
+        switch (e.type) {
+          case 'child':
+            return tab.appendChild(e.element);
+          case 'button':
+            return CATMAID.DOM.appendButton(tab, e.label, e.onclick, e.attr);
+          case 'checkbox':
+            return CATMAID.DOM.appendCheckbox(tab, e.label, e.title, e.value, e.onclick, e.left);
+          case 'numeric':
+            return CATMAID.DOM.appendNumericField(tab, e.label, e.title, e.value, e.postlabel, e.onchange, e.length);
+          case 'select':
+            return CATMAID.DOM.appendSelect(tab, e.id, e.label, e.entries, e.title, e.value, e.onchange);
+          default: return undefined;
+        }
+      }
+    });
+  };
+
+  /**
+   * Append a new button to another element.
+   */
+  DOM.appendButton = function(div, label, onclickFn, attr) {
+    var b = document.createElement('input');
+    if (attr) Object.keys(attr).forEach(function(key) { b.setAttribute(key, attr[key]); });
+    b.setAttribute('type', 'button');
+    b.setAttribute('value', label);
+    b.onclick = onclickFn;
+    div.appendChild(b);
+    return b;
+  };
+
+  /**
+   * Append a new checkbox to another element.
+   */
+  DOM.appendCheckbox = function(div, label, title, value, onclickFn, left) {
+    var labelEl = document.createElement('label');
+    labelEl.setAttribute('title', title);
+    var elems = DOM.createCheckbox(label, value, onclickFn);
+    if (left) elems.reverse();
+    elems.forEach(function(elem) { labelEl.appendChild(elem); });
+    div.appendChild(labelEl);
+    return left ? elems[elems.length - 1] : elems[0];
+  };
+
+  /**
+   * Append a new numeric input field to another element.
+   */
+  DOM.appendNumericField = function(div, label, title, value, postlabel, onchangeFn, length) {
+    var field = DOM.createNumericField(undefined, label, title, value, postlabel, onchangeFn, length);
+    div.appendChild(field);
+    return field;
+  };
+
+  /**
+   * Append a new select element to another element.
+   */
+  DOM.appendSelect = function(div, id, label, entries, title, value, onChangeFn) {
+    id = id ? (div.id + '_' + id) : undefined;
+    var select = CATMAID.DOM.createSelect(id, entries, value);
+    div.appendChild(select);
+    if (title) {
+      select.title = title;
+    }
+    if (onChangeFn) {
+      select.onchange= onChangeFn;
+    }
+    if (label) {
+      var labelElement = document.createElement('label');
+      labelElement.setAttribute('title', title);
+      labelElement.appendChild(document.createTextNode(label));
+      labelElement.appendChild(select);
+      div.appendChild(labelElement);
+    }
+    return select;
   };
 
   // Export DOM namespace

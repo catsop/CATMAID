@@ -1,4 +1,5 @@
 import json
+import logging
 import sys
 
 import networkx as nx
@@ -188,7 +189,6 @@ def _skeleton_graph(project_id, skeleton_ids, confidence_threshold, bandwidth, e
         i = 0
         for g in digraphs:
             if g.number_of_nodes() == 0:
-                #print "no nodes in g, from skeleton ID #%s" % skid
                 continue
             if tag:
                 label = "%s [%s]" % (base_label, i+1)
@@ -280,7 +280,7 @@ def _skeleton_graph(project_id, skeleton_ids, confidence_threshold, bandwidth, e
                 else:
                     edge_props['risk'] = 1.0 / sqrt(pow(cable / cable_spread, 2) + pow(median_synapse_centrality / path_confluence, 2)) # NOTE: should subtract 1 from median_synapse_centrality, but not doing it here to avoid potential divisions by zero
             except Exception as e:
-                print >> sys.stderr, e
+                logging.getLogger(__name__).error(e)
                 # Signal error when computing
                 edge_props['risk'] = -3
 

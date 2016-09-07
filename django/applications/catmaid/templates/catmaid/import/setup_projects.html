@@ -1,6 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% load i18n admin_static %}
 {% load admin_urls %}
+{% load pipeline %}
 
 {% block extrastyle %}
   {{ block.super }}
@@ -24,7 +25,7 @@
         want to mess around with it. It uses currently v1.4.2, but we want
         to have a newer version. Therefore, we use our own jQuery version here.
     {% endcomment %}
-    <script type="text/javascript" src="{{ STATIC_URL }}libs/jquery/jquery.js"></script>
+    {% javascript 'jquery-lib' %}
     <script>
         $(document).ready(function() {
             // functionality for (un-)selecting all projects
@@ -75,12 +76,12 @@
     {% endif %}
 
     {% if folders %}
-        <p>The list below shows all the folders (projects) that fit your
-        configuration. Please continue with the next step without any (or
-        all) projects selected if you want to use all projects.
-        Alternatively, you can select a subset of projects you would like
-        to import. If you want to add one or more tags to the imported
-        projects, please insert them in the field below.</p>
+        <p>The list below shows all found projects that fit your configuration.
+        Please continue with the next step without any (or all) projects
+        selected if you want to use all projects. Alternatively, you can select
+        a subset of projects you would like to import. If you want to add one or
+        more tags to the imported projects, please insert them in the field
+        below.</p>
         <p>
             <label for="select_all">
                 <input type="checkbox" name="select_all" id="id_select-all" checked>
@@ -88,6 +89,7 @@
             </label>
         </p>
         <div class="aligned">
+        {{ wizard.form.non_field_errors }}
         {{ wizard.management_form }}
         {% for field in wizard.form %}
             <div class="form-row">
@@ -97,6 +99,18 @@
             </div>
         {% endfor %}
         </div>
+    {% endif %}
+
+    {% if already_available %}
+        <p>
+        The following projects are available, but projects with the same name
+        already exist in this CATMAID instance.
+        <ul>
+            {% for key, short_name in already_available %}
+                <li>Source: {{ key }}<br />Name: {{ short_name }}</li>
+            {% endfor %}
+        </ul>
+        </p>
     {% endif %}
     </div>
 
@@ -113,7 +127,8 @@
         <form method="post" id="path-setup-form"
               action="">
             {% csrf_token %}
-            <p>No project info files have been found. Please return to the last step to adjust your settings and/or make sure that there is actually data accessible.</p>
+            <p>No projects could be imported. Please return to the last step to
+            adjust your settings and make sure the data accessible.</p>
         {% if wizard.steps.prev %}
             <p>
             <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.first }}" class="button small">{% trans "first step" %}</button>

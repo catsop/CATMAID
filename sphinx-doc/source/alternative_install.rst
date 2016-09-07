@@ -88,6 +88,35 @@ placeholder needs to be replaced with the absolute path to your CATMAID
 folder. The second location block passes all requests to the WSGI server
 defined before and allows therefore the execution of Django.
 
+.. _nginx-image-data:
+
+Image data
+**********
+
+Serving image data works the same way as serving CATMAID static data. However,
+you might want to add a so called
+`CORS <https://en.wikipedia.org/wiki/Cross-origin_resource_sharing>`_ header to
+your Nginx location block::
+
+ Access-Control-Allow-Origin *
+
+Without this header, only a CATMAID instance served from the *same* domain name
+as the image data will be able to access it. If the image data should be accessed
+by CATMAID instances served  on other domains, this header is required. A
+typical tile data location block could look like this::
+
+ location /tiles/ {
+   # Regular cached tile access
+   alias /path/to/tiles/;
+   expires max;
+   add_header Cache-Control public;
+   # CORS header to allow cross-site access to the tile data
+   add_header Access-Control-Allow-Origin *;
+ }
+
+Besides adding the CORS header, caching is also set to be explicitly allowed,
+which might be helpful for data that doesn't change often.
+
 A note on the ``proxy_redirect`` command
 ****************************************
 
@@ -152,7 +181,7 @@ There, you put the following lines into a file (e.g. run-gevent.py)::
   monkey.patch_all(httplib=True)
 
   # Import the rest
-  from django.core.handlers.wsgi import WSGIHandler as DjangoWSGIApp
+  from django.core.wsgi import get_wsgi_application
   from django.core.management import setup_environ
   from gevent.wsgi import WSGIServer
   import sys
@@ -162,7 +191,7 @@ There, you put the following lines into a file (e.g. run-gevent.py)::
 
   def runserver():
       # Create the server
-      application = DjangoWSGIApp()
+      application = get_wsgi_application()
       address = "127.0.0.1", 8080
       server = WSGIServer( address, application )
       # Run the server
@@ -171,7 +200,7 @@ There, you put the following lines into a file (e.g. run-gevent.py)::
       except KeyboardInterrupt:
           server.stop()
           sys.exit(0)
-  
+
   if __name__ == '__main__':
       runserver()
 
@@ -191,7 +220,7 @@ On Ubuntu 12.04, install nginx and uwsgi::
 
   sudo apt-get install nginx uwsgi uwsgi-plugin-python
 
-Here is a sample uWSGI configuration file.  On Ubuntu, this can be saved as 
+Here is a sample uWSGI configuration file.  On Ubuntu, this can be saved as
 */etc/uwsgi/apps-available/catmaid.ini*, with a soft link to */etc/uwsgi/apps-enabled/catmaid.ini*::
 
   ; uWSGI instance configuration for CATMAID
@@ -206,7 +235,7 @@ Here is a sample uWSGI configuration file.  On Ubuntu, this can be saved as
 
 You now be able to start uWSGI manually with one of the following::
 
-   uwsgi --ini /etc/uwsgi/apps-available/catmaid.ini 
+   uwsgi --ini /etc/uwsgi/apps-available/catmaid.ini
    (or)
    service uwsgi start catmaid.ini
 
@@ -240,3 +269,50 @@ copy this to ``/etc/init/``, customize it, and start Gunicorn
 with ``initctl start gunicorn-catmaid``.  (Thereafter it will be
 started on boot automatically, and can be restarted with
 ``initctl restart gunicorn-catmaid``.
+
+.. _supervisord:
+
+Using Supervisord for process management
+----------------------------------------
+
+Depending on your setup, you might use custom scripts to run a WSGI server,
+Celery or other server components. In this case, process management has to be
+taken care of as well, so that these scripts are run after a e.g. a server
+restart. One way to do this is using ``supervisord``. We found it to be
+reliable, flexible and easy to configure with multiple custom scripts. For each
+program or program group a new configuration file has to be created::
+
+  /etc/supervisor/conf.d/<name>.conf
+
+Such a configuration file can contain information about individual programs and
+groups of them (to manage them together). Below you will find an example of
+a typical setup with a Gunicorn start script and a Celery start script, both
+grouped under the name "catmaid"::
+
+  [program:catmaid-app]
+  command = /opt/catmaid/django/projects/mysite/run-gunicorn.sh
+  user = www-data
+  stdout_logfile = /opt/catmaid/django/projects/mysite/gunicorn.log
+  redirect_stderr = true
+
+  [program:catmaid-celery]
+  command = /opt/catmaid/django/projects/mysite/run-celery.sh
+  user = www-data
+  stdout_logfile = /opt/catmaid/django/projects/mysite/celery.log
+  redirect_stderr = true
+
+  [group:catmaid]
+  programs=catmaid-app,catmaid-celery
+
+This of course expects a CATMAID instance installed in the folder
+``/opt/catmaid/``. An example for a working ``run-celery.sh`` script can be
+found :ref:`here <celery-supervisord>`. With the configuration and the scripts
+in place, ``supervisord`` can be instructed to reload its configuration and
+start the catmaid group::
+
+  $ sudo supervisorctl reread
+  $ sudo supervisorctl update
+  $ sudo supervisorctl start catmaid:
+
+For changed configuration files also both ``reread`` and ``update`` are
+required.

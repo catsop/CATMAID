@@ -20,9 +20,17 @@
     this.renderer = new PIXI.autoDetectRenderer(
         stackViewer.getView().clientWidth,
         stackViewer.getView().clientHeight,
-        {backgroundColor: 0x000000});
+        {transparent: true, backgroundColor: 0x000000, antialias: true});
     this.stage = new PIXI.Container();
     this.layersRegistered = new Set();
+
+    // Disable the renderer's accessibility plugin (if available), because it
+    // requires the renderer view to be part of the DOM at all times (which we
+    // cannot guarantee).
+    if (this.renderer.plugins['accessibility']) {
+      this.renderer.plugins['accessibility'].destroy();
+      delete this.renderer.plugins['accessibility'];
+    }
   }
 
   /**
@@ -130,7 +138,10 @@
     if (toDequeue < 1) return;
     var remainingQueue = this._loadingQueue.splice(toDequeue);
     this._loadingQueue.forEach(function (url) {
-      this._loader.add(url, {crossOrigin: true}, this._boundResourceLoaded);
+      this._loader.add(url,
+                       {crossOrigin: true,
+                        xhrType: PIXI.loaders.Resource.XHR_RESPONSE_TYPE.BLOB},
+                       this._boundResourceLoaded);
     }, this);
     this._loadingQueue = remainingQueue;
     this._loader.load();
@@ -219,7 +230,7 @@
    * @param  {string} key Texture resource key, usually a URL.
    */
   PixiContext.TextureManager.prototype.dec = function (key) {
-    if (typeof key === 'undefined') return;
+    if (typeof key === 'undefined' || key === null) return;
     var count = this._counts[key];
 
     if (typeof count !== 'undefined') { // Key is already tracked by cache.
@@ -334,9 +345,27 @@
     this.opacity = val;
     this.visible = val >= 0.02;
     if (this.batchContainer) {
-      this.batchContainer.alpha = val;
+      // Some filters must handle opacity alpha themselves. If such a filter is
+      // applied to this layer, do not use the built-in Pixi alpha.
+      var filterBasedAlpha = false;
+
+      this.filters.forEach(function (filter) {
+        if (filter.pixiFilter.uniforms.hasOwnProperty('containerAlpha')) {
+          filter.pixiFilter.uniforms.containerAlpha = val;
+          filterBasedAlpha = true;
+        }
+      });
+
+      if (!filterBasedAlpha) this.batchContainer.alpha = val;
       this.batchContainer.visible = this.visible;
     }
+  };
+
+  /**
+   * Get the layer opacity.
+   */
+  PixiLayer.prototype.getOpacity = function () {
+    return this.opacity;
   };
 
   /**
@@ -363,7 +392,7 @@
    * @return {string[]} Names of supported blend modes.
    */
   PixiLayer.prototype.getAvailableBlendModes = function () {
-    var glBlendModes = this._context.renderer.blendModes;
+    var glBlendModes = this._context.renderer.state.blendModes;
     var normBlendFuncs = glBlendModes[PIXI.BLEND_MODES.NORMAL];
     return Object.keys(PIXI.BLEND_MODES)
         .filter(function (modeKey) { // Filter modes that are not different from normal.
@@ -393,6 +422,7 @@
     this.batchContainer.children.forEach(function (child) {
       child.blendMode = PIXI.BLEND_MODES[modeKey];
     });
+    this.syncFilters();
   };
 
   /**
@@ -408,8 +438,8 @@
         {displayName: 'Width (px)', name: 'blurX', type: 'slider', range: [0, 32]},
         {displayName: 'Height (px)', name: 'blurY', type: 'slider', range: [0, 32]}
       ], this),
-      'Invert': PixiLayer.FilterWrapper.bind(null, 'Invert', PIXI.filters.InvertFilter, [
-        {displayName: 'Strength', name: 'invert', type: 'slider', range: [0, 1]}
+      'Invert': PixiLayer.FilterWrapper.bind(null, 'Invert', PixiLayer.Filters.Invert, [
+        {displayName: 'Strength', name: 'strength', type: 'slider', range: [0, 1]}
       ], this),
       'Brightness, Contrast & Saturation': PixiLayer.FilterWrapper.bind(null, 'Brightness, Contrast & Saturation', PixiLayer.Filters.BrightnessContrastSaturationFilter, [
         {displayName: 'Brightness', name: 'brightness', type: 'slider', range: [0, 3]},
@@ -423,12 +453,15 @@
         {displayName: 'Intensity Threshold', name: 'intensityThreshold', type: 'slider', range: [0, 1]},
         {displayName: 'Luminance Coefficients', name: 'luminanceCoeff', type: 'matrix', size: [1, 3]}
       ], this),
+      'Label Color Map': PixiLayer.FilterWrapper.bind(null, 'Label Color Map', PixiLayer.Filters.LabelColorMap, [
+        {displayName: 'Map Seed', name: 'seed', type: 'slider', range: [0, 1]},
+      ], this),
     };
   };
 
   /**
    * Retrieve the set of active filters for this layer.
-   * @return {[]} The collection of active filter objects.
+   * @return {Array} The collection of active filter objects.
    */
   PixiLayer.prototype.getFilters = function () {
     return this.filters;
@@ -438,10 +471,22 @@
    * Update filters in the renderer to match filters set for the layer.
    */
   PixiLayer.prototype.syncFilters = function () {
-    if (this.filters.length > 0)
-      this.batchContainer.filters = this.filters.map(function (f) { return f.pixiFilter; });
-    else
+    if (this.filters.length > 0) {
+      var modeKey = this.blendMode.replace(/ /, '_').toUpperCase();
+      var filters = this.filters.map(function (f) {
+        f.pixiFilter.blendMode = PIXI.BLEND_MODES[modeKey];
+        return f.pixiFilter;
+      });
+      // This is a currently needed work-around for issue #1598 in Pixi.js
+      if (1 === this.filters.length) {
+        var noopFilter = new PIXI.filters.ColorMatrixFilter();
+        noopFilter.blendMode = PIXI.BLEND_MODES[modeKey];
+        filters.push(noopFilter);
+      }
+      this.batchContainer.filters = filters;
+    } else {
       this.batchContainer.filters = null;
+    }
   };
 
   /**
@@ -479,9 +524,9 @@
    * a layer filter.
    * @constructor
    * @param {string} displayName      Display name of this filter in interfaces.
-   * @param {function(new:PIXI.AbstractFilter)} pixiConstructor
+   * @param {function(new:PIXI.Filter)} pixiConstructor
    *                                  Constructor for the underlying Pixi filter.
-   * @param {[]} params               Parameters to display in control UI and
+   * @param {Array}   params               Parameters to display in control UI and
    *                                  their mapping to Pixi properties.
    * @param {CATMAID.TileLayer} layer The layer to which this filter belongs.
    */
@@ -497,8 +542,8 @@
 
   /**
    * Set a filter parameter.
-   * @param {[type]} key   Name of the parameter to set.
-   * @param {[type]} value New value for the parameter.
+   * @param {string} key   Name of the parameter to set.
+   * @param {Object} value New value for the parameter.
    */
   PixiLayer.FilterWrapper.prototype.setParam = function (key, value) {
     this.pixiFilter[key] = value;
@@ -576,22 +621,54 @@
   PixiLayer.Filters = {};
 
   /**
+   * A simple intensity inversion filter.
+   * @constructor
+   */
+  PixiLayer.Filters.Invert = function () {
+    PIXI.filters.ColorMatrixFilter.call(this);
+
+    this._strength = 1.0;
+
+    this.updateMatrix();
+  };
+
+  PixiLayer.Filters.Invert.prototype = Object.create(PIXI.Filter.prototype);
+  PixiLayer.Filters.Invert.prototype.constructor = PixiLayer.Filters.Invert;
+
+  PixiLayer.Filters.Invert.prototype.updateMatrix = function () {
+    var s = -this._strength;
+
+    this.uniforms.m = [
+      s, 0, 0, 0, 1,
+      0, s, 0, 0, 1,
+      0, 0, s, 0, 1,
+      0, 0, 0, 1, 0];
+  };
+
+  Object.defineProperty(PixiLayer.Filters.Invert.prototype, 'strength', {
+    get: function () {
+      return this._strength;
+    },
+    set: function (value) {
+      this._strength = value;
+      this.updateMatrix();
+    }
+  });
+
+  /**
    * This filter allows basic linear brightness, contrast and saturation
    * adjustments in RGB space.
    * @constructor
    */
   PixiLayer.Filters.BrightnessContrastSaturationFilter = function () {
-    PIXI.AbstractFilter.call(this);
 
-    this.passes = [this];
-
-    this.uniforms = {
+    var uniforms = {
       brightness: {type: '1f', value: 1},
       contrast: {type: '1f', value: 1},
       saturation: {type: '1f', value: 1}
     };
 
-    this.fragmentSrc =
+    var fragmentSrc =
         'precision mediump float;' +
         'uniform float brightness;' +
         'uniform float contrast;' +
@@ -616,18 +693,20 @@
           'frag.rgb = color;' +
           'gl_FragColor = frag;' +
         '}';
+
+    PIXI.Filter.call(this, null, fragmentSrc, uniforms);
   };
 
-  PixiLayer.Filters.BrightnessContrastSaturationFilter.prototype = Object.create(PIXI.AbstractFilter.prototype);
+  PixiLayer.Filters.BrightnessContrastSaturationFilter.prototype = Object.create(PIXI.Filter.prototype);
   PixiLayer.Filters.BrightnessContrastSaturationFilter.prototype.constructor = PixiLayer.Filters.BrightnessContrastSaturationFilter;
 
   ['brightness', 'contrast', 'saturation'].forEach(function (prop) {
     Object.defineProperty(PixiLayer.Filters.BrightnessContrastSaturationFilter.prototype, prop, {
       get: function () {
-        return this.uniforms[prop].value;
+        return this.uniforms[prop];
       },
       set: function (value) {
-        this.uniforms[prop].value = value;
+        this.uniforms[prop] = value;
       }
     });
   });
@@ -638,16 +717,13 @@
    * @constructor
    */
   PixiLayer.Filters.IntensityThresholdTransparencyFilter = function () {
-    PIXI.AbstractFilter.call(this);
 
-    this.passes = [this];
-
-    this.uniforms = {
+    var uniforms = {
       luminanceCoeff: {type: '3fv', value: [0.2125, 0.7154, 0.0721]},
       intensityThreshold: {type: '1f', value: 0.01}
     };
 
-    this.fragmentSrc =
+    var fragmentSrc =
         'precision mediump float;' +
         'uniform vec3 luminanceCoeff;' +
         'uniform float intensityThreshold;' +
@@ -664,18 +740,74 @@
         '  frag.rgb = frag.rgb * frag.a;' + // Use premultiplied RGB
         '  gl_FragColor = frag;' +
         '}';
+
+    PIXI.Filter.call(this, null, fragmentSrc, uniforms);
   };
 
-  PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype = Object.create(PIXI.AbstractFilter.prototype);
+  PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype = Object.create(PIXI.Filter.prototype);
   PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype.constructor = PixiLayer.Filters.IntensityThresholdTransparencyFilter;
 
   ['luminanceCoeff', 'intensityThreshold'].forEach(function (prop) {
     Object.defineProperty(PixiLayer.Filters.IntensityThresholdTransparencyFilter.prototype, prop, {
       get: function () {
-        return this.uniforms[prop].value;
+        return this.uniforms[prop];
       },
       set: function (value) {
-        this.uniforms[prop].value = value;
+        this.uniforms[prop] = value;
+      }
+    });
+  });
+
+  /**
+   * This filter maps label image pixels to a false coloring. Because of Pixi's
+   * textue handling, etc., this is very lossy to distinguishing similar label
+   * values.
+   * @constructor
+   */
+  PixiLayer.Filters.LabelColorMap = function () {
+
+    var uniforms = {
+      seed: {type: '1f', value: 1.0},
+      containerAlpha: {type: '1f', value: 1.0}
+    };
+
+    var fragmentSrc =
+        'precision highp float;' +
+        'uniform float seed;' +
+        'uniform float containerAlpha;' +
+
+        'vec3 hash_to_color(vec4 label) {' +
+        '  const float SCALE = 33452.5859;' + // Some large constant to make the truncation interesting.
+        '  label = fract(label * SCALE);' + // Truncate some information.
+        '  label += dot(label, label.wzyx + 100.0 * seed);' + // Mix channels and add the salt.
+        '  return fract((label.xzy + label.ywz) * label.zyw);' + // Downmix to three channels and truncate to a color.
+        '}' +
+
+        'varying vec2 vTextureCoord;' +
+        'uniform sampler2D uSampler;' +
+
+        'void main(void) {' +
+        '  vec4 frag = texture2D(uSampler, vTextureCoord);' +
+        '  vec3 color = frag.rgb;' +
+
+        '  frag.rgb = hash_to_color(frag.rgba) * containerAlpha;' +
+        '  frag.a = containerAlpha;' +
+        '  gl_FragColor = frag;' +
+        '}';
+
+    PIXI.Filter.call(this, null, fragmentSrc, uniforms);
+  };
+
+  PixiLayer.Filters.LabelColorMap.prototype = Object.create(PIXI.Filter.prototype);
+  PixiLayer.Filters.LabelColorMap.prototype.constructor = PixiLayer.Filters.LabelColorMap;
+
+  ['seed', 'containerAlpha'].forEach(function (prop) {
+    Object.defineProperty(PixiLayer.Filters.LabelColorMap.prototype, prop, {
+      get: function () {
+        return this.uniforms[prop];
+      },
+      set: function (value) {
+        this.uniforms[prop] = value;
       }
     });
   });

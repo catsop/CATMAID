@@ -34,16 +34,46 @@
     this.opacity = opacity; // in the range [0,1]
     this.visible = visibility;
     this.isOrderable = true;
+    this.isHideable = false;
 
-    /** @type {[[Element]]} Contains all tiles in a 2D toroidal array */
+    /**
+     * Whether to hide this tile layer if the nearest section is marked as
+     * broken, rather than the default behavior of displaying the nearest
+     * non-broken section.
+     * @type {Boolean}
+     */
+    this.hideIfNearestSliceBroken = false;
+
+    /**
+     * Omit tiles with less area than this threshold visible.
+     * @type {Number}
+     */
+    this.efficiencyThreshold = 0.0;
+
+    /**
+     * Contains all tiles in a 2D toroidal array
+     * @type {Element[][]}
+     */
     this._tiles = [];
-    /** @type {number} Current origin row in the tiles array. */
+    /**
+     * Current origin row in the tiles array.
+     * @type {Number}
+     */
     this._tileOrigR = 0;
-    /** @type {number} Current origin column in the tiles array. */
+    /**
+     * Current origin column in the tiles array.
+     * @type {Number}
+     */
     this._tileOrigC = 0;
-    /** @type {number} Current stack tile row of the tiles array origin. */
+    /**
+     * Current stack tile row of the tiles array origin.
+     * @type {Number}
+     */
     this._tileFirstR = 0;
-    /** @type {number} Current stack tile column of the tiles array origin. */
+    /**
+     * Current stack tile column of the tiles array origin.
+     * @type {Number}
+     */
     this._tileFirstC = 0;
     this._tilesBuffer = [];
     this._buffering = false;
@@ -52,8 +82,11 @@
     this.tilesContainer = document.createElement('div');
     this.tilesContainer.className = 'sliceTiles';
 
-    /** @type {boolean} True to use linear tile texture interpolation, false to
-                        use nearest neighbor. */
+    /**
+     * True to use linear tile texture interpolation, false to use nearest
+     * neighbor.
+     * @type {boolean}
+     */
     this._interpolationMode = linearInterpolation;
     this.tilesContainer.classList.add('interpolation-mode-' + (this._interpolationMode ? 'linear' : 'nearest'));
 
@@ -159,13 +192,26 @@
   /**
    * Update and draw the tile grid based on the current stack position and scale.
    */
-  TileLayer.prototype.redraw = function (completionCallback) {
+  TileLayer.prototype.redraw = function (completionCallback, blocking) {
     var scaledStackPosition = this.stackViewer.scaledPositionInStack(this.stack);
     var tileInfo = this.tilesForLocation(
         scaledStackPosition.xc,
         scaledStackPosition.yc,
         scaledStackPosition.z,
-        scaledStackPosition.s);
+        scaledStackPosition.s,
+        this.efficiencyThreshold);
+
+    if (this.hideIfNearestSliceBroken) {
+      // Re-project the stack z without avoiding broken sections to determine
+      // if the nearest section is broken.
+      var linearStackZ = this.stack.projectToLinearStackZ(
+          this.stackViewer.projectCoordinates().z);
+      if (this.stack.isSliceBroken(linearStackZ)) {
+        this.tilesContainer.style.opacity = '0';
+      } else {
+        this.setOpacity(this.opacity);
+      }
+    }
 
     var effectiveTileWidth = this.tileSource.tileWidth * tileInfo.mag;
     var effectiveTileHeight = this.tileSource.tileHeight * tileInfo.mag;
@@ -206,17 +252,8 @@
     this._tileFirstC = tileInfo.firstCol;
     this._tileFirstR = tileInfo.firstRow;
 
-    var top;
-    var left;
-
-    if (scaledStackPosition.yc >= 0)
-      top  = -(scaledStackPosition.yc % effectiveTileHeight);
-    else
-      top  = -((scaledStackPosition.yc + 1) % effectiveTileHeight) - effectiveTileHeight + 1;
-    if (scaledStackPosition.xc >= 0)
-      left = -(scaledStackPosition.xc % effectiveTileWidth);
-    else
-      left = -((scaledStackPosition.xc + 1) % effectiveTileWidth) - effectiveTileWidth + 1;
+    var top = tileInfo.top;
+    var left = tileInfo.left;
 
     var t = top;
     var l = left;
@@ -324,7 +361,12 @@
     }
 
     if (typeof completionCallback !== 'undefined') {
-      completionCallback();
+      if (this._buffering && blocking) {
+        this._completionCallback = completionCallback;
+      } else {
+        this._completionCallback = null;
+        completionCallback();
+      }
     }
   };
 
@@ -349,6 +391,14 @@
         tile.src = buf.src;
       }
     }
+
+    // If the redraw was blocking, its completion callback needs to be invoked
+    // now that the async redraw is finished.
+    if (this._completionCallback) {
+      var completionCallback = this._completionCallback;
+      this._completionCallback = null;
+      completionCallback();
+    }
   };
 
   /**
@@ -367,7 +417,7 @@
   /**
    * Loads tiles at specified indices, but does not display them, so that
    * they are cached for future viewing.
-   * @param  {[[]]}                     tileIndices      an array of tile
+   * @param  {number[][]}               tileIndices      an array of tile
    *                                                     indices like:
    *                                                     [c, r, z, s]
    * @param  {function(number, number)} progressCallback
@@ -378,7 +428,7 @@
     // Truncate request to no more than 3000 tiles.
     if (tileIndices.length > 3000) tileIndices.splice(3000);
 
-    progressCallback(tileIndices.length, cachedCounter);
+    CATMAID.tools.callIfFn(progressCallback, tileIndices.length, cachedCounter);
     // Check if the queue is empty
     if (0 === tileIndices.length) return;
 
@@ -409,7 +459,7 @@
   /**
    * Loads tiles for views centered at specified project locations, but does
    * not display them, so that they are cached for future viewing.
-   * @param  {[[]]}                     locations        an array of project
+   * @param  {number[][]}               locations        an array of project
    *                                                     coords like:
    *                                                     [x, y, z]
    * @param  {function(number, number)} progressCallback
@@ -428,7 +478,8 @@
           px / Math.pow(2, s) - self.stackViewer.viewWidth / 2,
           py / Math.pow(2, s) - self.stackViewer.viewHeight / 2,
           pz,
-          s);
+          s,
+          self.efficiencyThreshold);
       for (var i = tileInfo.firstCol; i <= tileInfo.lastCol; ++i)
         for (var j = tileInfo.firstRow; j <= tileInfo.lastRow; ++j)
           tileInds.push([i, j, tileInfo.z, tileInfo.zoom]);
@@ -446,10 +497,13 @@
    * @param  {number} yc Top view origin in scaled stack coordinates.
    * @param  {number} z  Stack section number.
    * @param  {number} s  Stack scale.
+   * @param  {number} efficiencyThreshold Omit tiles with less area than this
+   *                                      threshold visible.
    * @return {Object}    Object containing information sufficient to generate
    *                     tile indicies for all tiles in the requested view.
    */
-  TileLayer.prototype.tilesForLocation = function (xc, yc, z, s) {
+  TileLayer.prototype.tilesForLocation = function (xc, yc, z, s, efficiencyThreshold) {
+    if (typeof efficiencyThreshold === 'undefined') efficiencyThreshold = 1.0;
     var zoom = s;
     var mag = 1.0;
     var artificialZoom = false;
@@ -479,13 +533,45 @@
     var fr = Math.floor(yc / effectiveTileHeight);
     var fc = Math.floor(xc / effectiveTileWidth);
 
+    // Location of the first tile relative to the viewport.
+    var top, left;
+
+    if (yc >= 0)
+      top  = -(yc % effectiveTileHeight);
+    else
+      top  = -((yc + 1) % effectiveTileHeight) - effectiveTileHeight + 1;
+    if (xc >= 0)
+      left = -(xc % effectiveTileWidth);
+    else
+      left = -((xc + 1) % effectiveTileWidth) - effectiveTileWidth + 1;
+
+    // Efficient mode: omit tiles at the periphery that are only partially
+    // visible.
+    if (efficiencyThreshold > 0.0) {
+      // If the efficiency margins would cause no tile be drawn, ignore them.
+      if ((2 * efficiencyThreshold + 1) * effectiveTileHeight > this.stackViewer.viewHeight ||
+          (2 * efficiencyThreshold + 1) * effectiveTileWidth  > this.stackViewer.viewWidth) {
+        efficiencyThreshold = 0.0;
+      }
+
+      if ((top + effectiveTileHeight) < (effectiveTileHeight * efficiencyThreshold)) {
+        top += effectiveTileHeight;
+        fr += 1;
+      }
+
+      if ((left + effectiveTileWidth) < (effectiveTileWidth * efficiencyThreshold)) {
+        left += effectiveTileWidth;
+        fc += 1;
+      }
+    }
+
     var lr, lc;
 
     // Adjust last tile index to display to the one intersecting the bottom right
     // of the field of view. The purpose: to hide images beyond the stack edges.
     // Notice that we add the panning xd, yd as well (which is already in tile units).
-    lc = Math.floor((xc + this.stackViewer.viewWidth) / effectiveTileWidth);
-    lr = Math.floor((yc + this.stackViewer.viewHeight) / effectiveTileHeight);
+    lc = Math.floor((xc + this.stackViewer.viewWidth - efficiencyThreshold * effectiveTileWidth) / effectiveTileWidth);
+    lr = Math.floor((yc + this.stackViewer.viewHeight - efficiencyThreshold * effectiveTileHeight) / effectiveTileHeight);
 
     // Clamp last tile coordinates within the slice edges.
     lc = Math.min(lc, Math.floor((this.stack.dimension.x * Math.pow(2, -zoom) - 1) / this.tileSource.tileWidth));
@@ -496,10 +582,57 @@
       firstCol:  fc,
       lastRow:   lr,
       lastCol:   lc,
+      top:       top,
+      left:      left,
       z:         z,
       zoom:      zoom,
       mag:       mag
     };
+  };
+
+  /**
+   * Returns a set of set settings for this layer. This will only contain
+   * anything if the tile layer's tile source provides additional settings.
+   */
+  TileLayer.prototype.getLayerSettings = function () {
+    var settings = [{
+        name: 'hideIfBroken',
+        displayName: 'Hide if nearest slice is broken',
+        type: 'checkbox',
+        value: 'true',
+        help: 'Hide this tile layer if the nearest section is marked as ' +
+              'broken, rather than the default behavior of displaying the ' +
+              'nearest non-broken section.'},{
+        name: 'efficiencyThreshold',
+        displayName: 'Tile area efficiency threshold',
+        type: 'number',
+        range: [0, 1],
+        step: 0.1,
+        value: 0.0,
+        help: 'Omit tiles with less area visible than this threshold. This ' +
+              'is useful to reduce data use on bandwidth-limited connections.'}];
+
+    if (this.tileSource && CATMAID.tools.isFn(this.tileSource.getSettings)) {
+      settings = settings.concat(this.tileSource.getSettings());
+    }
+
+    return settings;
+  };
+
+  /**
+   * Set a layer setting for this layer. The value will only have any effect if
+   * the layer's tile source accepts setting changes.
+   */
+  TileLayer.prototype.setLayerSetting = function(name, value) {
+    if ('hideIfBroken' === name) {
+      this.hideIfNearestSliceBroken = value;
+      if (!this.hideIfNearestSliceBroken) this.setOpacity(this.opacity);
+    } else if ('efficiencyThreshold' === name) {
+      this.efficiencyThreshold = value;
+      this.redraw();
+    } else if (this.tileSource && CATMAID.tools.isFn(this.tileSource.setSetting)) {
+      return this.tileSource.setSetting(name, value);
+    }
   };
 
   /**

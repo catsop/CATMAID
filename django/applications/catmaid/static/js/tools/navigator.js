@@ -44,11 +44,11 @@
         undefined,
         undefined,
         new Array(
-          0,
-          1,
-          2,
+          8,
           4,
-          8 ),
+          2,
+          1,
+          0 ),
         8,
         function( val ){ CATMAID.statusBar.replaceLast( "s: " + val ); },
         undefined,
@@ -175,13 +175,40 @@
     {
       if ( changeSliceDelayedTimer ) window.clearTimeout( changeSliceDelayedTimer );
       changeSliceDelayedParam = { z : val };
-      changeSliceDelayedTimer = window.setTimeout( changeSliceDelayedAction, 100 );
+      changeSliceDelayedTimer = window.setTimeout( changeSliceDelayedAction, 50 );
     };
 
     this.changeSlice = function( val )
     {
       self.stackViewer.moveToPixel( val, self.stackViewer.y, self.stackViewer.x, self.stackViewer.s );
     };
+
+    var smoothChangeSlice = function (e, step) {
+      if (self.smoothScrolling) return true;
+      self.smoothScrolling = true;
+      var callback = function () {
+        if (!self.smoothScrolling) return;
+        var zOffset = self.stackViewer.primaryStack.validZDistanceByStep(self.slider_z.val, step);
+        if (!zOffset) return;
+        self.stackViewer.moveToPixel(
+            self.slider_z.val + zOffset,
+            self.stackViewer.y,
+            self.stackViewer.x,
+            self.stackViewer.s,
+            callback);
+      };
+      var target = e.target;
+      var oldListener = target.onkeyup;
+      var oldBlocking = self.stackViewer.blockingRedraws;
+      self.stackViewer.blockingRedraws = true;
+      target.onkeyup = function (e) {
+        target.onkeyup = oldListener;
+        self.smoothScrolling = false;
+        self.stackViewer.blockingRedraws = oldBlocking;
+      };
+      callback();
+    };
+
     //--------------------------------------------------------------------------
 
     //--------------------------------------------------------------------------
@@ -312,23 +339,33 @@
       }),
 
       new CATMAID.Action({
-        helpText: "Move up 1 slice in z (or 10 with <kbd>Shift</kbd> held)",
+        helpText: "Move up 1 slice in z (or 10 with <kbd>Shift</kbd> held; hold with <kbd>Ctrl</kbd> to animate)",
         keyShortcuts: {
           ',': [ 44, 188 ]
         },
         run: function (e) {
-          self.slider_z.move(-(e.shiftKey ? 10 : 1));
+          var step = e.shiftKey ? -10 : -1;
+          if (e.ctrlKey) {
+            smoothChangeSlice(e, step);
+          } else {
+            self.slider_z.move(step);
+          }
           return true;
         }
       }),
 
       new CATMAID.Action({
-        helpText: "Move down 1 slice in z (or 10 with <kbd>Shift</kbd> held)",
+        helpText: "Move down 1 slice in z (or 10 with <kbd>Shift</kbd> held; hold with <kbd>Ctrl</kbd> to animate)",
         keyShortcuts: {
           '.': [ 190 ]
         },
         run: function (e) {
-          self.slider_z.move((e.shiftKey ? 10 : 1));
+          var step = e.shiftKey ? 10 : 1;
+          if (e.ctrlKey) {
+            smoothChangeSlice(e, step);
+          } else {
+            self.slider_z.move(step);
+          }
           return true;
         }
       }),
@@ -382,7 +419,7 @@
       }),
 
       new CATMAID.Action({
-        helpText: "Hide all layers except image tile layer (while held)",
+        helpText: "Hide all layers except image tile layers (while held)",
         keyShortcuts: {
           "SPACE": [ 32 ]
         },
@@ -398,9 +435,11 @@
           var layerOpacities = stackLayers.map(function (layers) {
             var opacities = {};
             layers.forEach(function (layer, k) {
-              if (k !== 'TileLayer') {
+              if (layer.isHideable) {
                 opacities[k] = layer.getOpacity();
                 layer.setOpacity(0);
+                // Redrawing the layer is necessary to hide WebGL layers.
+                layer.redraw();
               }
             });
             return opacities;
@@ -419,6 +458,8 @@
                 target.onkeyup = oldListener;
                 self.hideLayersHeld = false;
               });
+              // Redraw everything to show, e.g., WebGL layers.
+              project.getStackViewers().forEach(function (s) { s.redraw(); });
             } else if (oldListener) oldListener(e);
           };
           return true;

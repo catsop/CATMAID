@@ -1,7 +1,6 @@
 /* global
   project,
   requestQueue,
-  session
   */
 
 (function (CATMAID) {
@@ -19,6 +18,13 @@
   {
     // The NeuronNameService is a singleton
     var instance;
+
+    var DEFAULT_COMPONENT_LIST = [
+          {id: 'skeletonid', name: "Skeleton ID"},
+          {id: 'neuronname', name: "Neuron name"}
+        ];
+
+    var DEFAULT_FORMAT_STRING = '%f{, }';
 
     /**
      * Creates a new instance of the neuron name service. If empty is true, the
@@ -38,13 +44,13 @@
       ];
 
       // The current label component/naming list
-      var componentList = empty ? [] : [
-        {id: 'skeletonid', name: "Skeleton ID"},
-        {id: 'neuronname', name: "Neuron name"}
-      ];
+      var componentList = empty ? [] : $.extend(true, [], DEFAULT_COMPONENT_LIST);
 
       // The format string mapping components into a final neuron name.
-      var formatString = '%f';
+      var formatString = DEFAULT_FORMAT_STRING;
+
+      // The delimiter used for listing annotations in a neuron name.
+      var listDelimiter = ", ";
 
       // An object mapping skeleton IDs to objects that contain the current name and
       // a list of clients, interested in the particular skeleton.
@@ -54,6 +60,50 @@
       var clients = [];
 
       return {
+
+        /**
+         * Load configuration for this name service instance from the persistent
+         * settings manager.
+         *
+         * @param  {string=} scope Name of the settings scope to load, defaults
+         *                         to 'session'.
+         * @param  {boolean=} sync Whether to load synchronously. Default false.
+         * @return {Promise=}      A promise, if loading asynchronously.
+         */
+        loadConfigurationFromSettings: function (scope, sync) {
+          if (!(scope in CATMAID.Settings.SCOPES))
+            scope = 'session';
+          if (!CATMAID.NeuronNameService.Settings) {
+            CATMAID.NeuronNameService.Settings = new CATMAID.Settings(
+                'neuron-name-service',
+                {
+                  version: 0,
+                  entries: {
+                    component_list: {
+                      default: DEFAULT_COMPONENT_LIST
+                    },
+                    format_string: {
+                      default: DEFAULT_FORMAT_STRING
+                    },
+                  },
+                  migrations: {}
+                });
+          }
+
+          var loadValues = (function () {
+            componentList = $.extend(true, [], CATMAID.NeuronNameService.Settings[scope].component_list);
+            formatString = CATMAID.NeuronNameService.Settings[scope].format_string;
+            this.refresh();
+          }).bind(this);
+
+          if (sync) {
+            loadValues();
+          } else {
+            return CATMAID.NeuronNameService.Settings
+                .load()
+                .then(loadValues);
+          }
+        },
 
         /**
          * Mutator for the format string that maps componenets to a final neuron
@@ -295,6 +345,15 @@
           });
         },
 
+        handleAnnotationChange: function(changedEntities) {
+            this.refresh();
+        },
+
+        handleNeuronNameChange: function(neuonId, newName) {
+            // TODO: only refresh if neuron is currently managed
+            this.refresh();
+        },
+
         /**
          * Updates the name representation of every managed neuron and notifies all
          * clients about it.
@@ -352,7 +411,7 @@
                   }, []);
                   // Return only if there are own annotations
                   if (ma.length > 0) {
-                    return ma.join(', ');
+                    return ma.sort(compareAnnotations).join(listDelimiter);
                   }
 
                   return null;
@@ -360,17 +419,18 @@
 
               var skeleton = managedSkeletons[skid];
 
-              // Find values for component in the list.
+              // Find values for component in the list, each component is a list
+              // of strings, or null if no value is available.
               var componentValues = componentList.map(function (l) {
                 if ('neuronname' === l.id) {
-                  return data.neuronnames[skid];
+                  return [data.neuronnames[skid]];
                 } else if ('skeletonid' === l.id) {
-                  return '' + skid;
+                  return ['' + skid];
                 } else if ('all' === l.id) {
                   if (skid in data.skeletons) {
                     return data.skeletons[skid].annotations.map(function(a) {
                       return data.annotations[a.id];
-                    }).join(', ');
+                    }).sort(compareAnnotations);
                   }
                 } else if ('all-meta' === l.id) {
                   if (skid in data.skeletons) {
@@ -378,21 +438,21 @@
                     // annotation.
                     var label = metaLabel(CATMAID.annotations.getID(l.option));
                     if (null !== label) {
-                      return label;
+                      return [label];
                     }
                   }
                 } else if ('own' === l.id) {
                   if (skid in data.skeletons) {
                     // Collect own annotations
                     var oa = data.skeletons[skid].annotations.reduce(function(o, a) {
-                      if (a.uid === session.userid) {
+                      if (a.uid === CATMAID.session.userid) {
                         o.push(data.annotations[a.id]);
                       }
                       return o;
                     }, []);
                     // Return only if there are own annotations
                     if (oa.length > 0) {
-                      return oa.join(', ');
+                      return oa.sort(compareAnnotations);
                     }
                   }
                 } else if ('own-meta' === l.id) {
@@ -400,9 +460,9 @@
                     // Collect all annotations that are annotated with requested meta
                     // annotation.
                     var label = metaLabel(CATMAID.annotations.getID(l.option),
-                        session.userid);
+                        CATMAID.session.userid);
                     if (null !== label) {
-                      return label;
+                      return [label];
                     }
                   }
                 }
@@ -412,18 +472,20 @@
 
               var fallbackValue = null;
               for (var i = 0; i < componentList.length; ++i) {
-                if (componentValues[i] !== null)
+                if (componentValues[i] !== null && componentValues[i].length > 0)
                   fallbackValue = componentValues[i];
               }
 
-              var name = formatString.replace(/%(f|\d+)/g, function (match, component) {
+              var name = formatString.replace(/%(f|\d+)(?:\{(.*)\})?/g, function (match, component, delimiter) {
+                delimiter = delimiter === undefined ? ", " : delimiter;
+
                 if (component === 'f') {
-                  return fallbackValue;
+                  return fallbackValue.join(delimiter);
                 }
 
                 var index = parseInt(component, 10);
                 if (index >= 0 && index < componentValues.length) {
-                  return componentValues[index];
+                  return componentValues[index].join(delimiter);
                 } else return match;
               });
 
@@ -507,54 +569,34 @@
         },
 
         /**
-         * This is a convenience method to rename a neuron. If the neuron in question
-         * is managed by the name service, an update event will be triggered and all
-         * registered widgets will be notified.
-         */
-        renameNeuron: function(neuronId, skeletonIds, newName, callback)
-        {
-          requestQueue.register(django_url + project.id + '/neurons/' + neuronId + '/rename',
-            'POST', { name: newName },
-            CATMAID.jsonResponseHandler((function(data) {
-              // Update all skeletons of the current neuron that are managed
-              var updatedSkeletons = skeletonIds.filter(function(skid) {
-                if (skid in managedSkeletons) {
-                  // Update skeleton model
-                  managedSkeletons[skid].model.baseName = newName;
-                  return true;
-                }
-                return false;
-              });
-
-              // Only update the names if there was indeed a skeleton update.
-              // Otherwise, execute callback directly.
-              if (updatedSkeletons.length > 0) {
-                // Update the names of the affected skeleton IDs and notify clients if
-                // there was a change. And finally execute the callback.
-                this.refresh(callback);
-              } else {
-                if (callback) {
-                  callback();
-                }
-              }
-            }).bind(this)));
-        },
-
-        /**
          * Listen to the neuron controller's delete event and remove neurons
-         * automatically from the name service.
+         * automatically from the name service. Also register to changed
+         * annotation links so that the name service can update itself.
          */
         registerEventHandlers: function() {
-          CATMAID.neuronController.on(CATMAID.neuronController.EVENT_SKELETON_DELETED,
+          CATMAID.Skeletons.on(CATMAID.Skeletons.EVENT_SKELETON_DELETED,
               this.unregisterSingleFromAllClients, instance);
+          CATMAID.Annotations.on(CATMAID.Annotations.EVENT_ANNOTATIONS_CHANGED,
+              this.handleAnnotationChange, instance);
+          CATMAID.Neurons.on(CATMAID.Neurons.EVENT_NEURON_RENAMED,
+              this.handleNeuronNameChange, instance);
+          CATMAID.Init.on(CATMAID.Init.EVENT_PROJECT_CHANGED,
+              this.loadConfigurationFromSettings, instance);
         },
 
         /**
-         * Unregister from the neuron controller's delete event.
+         * Unregister from the neuron controller's delete and the annotation
+         * change events.
          */
         unregisterEventHandlers: function() {
-          CATMAID.neuronController.off(CATMAID.neuronController.EVENT_SKELETON_DELETED,
+          CATMAID.Skeletons.off(CATMAID.Skeletons.EVENT_SKELETON_DELETED,
               this.unregisterSingleFromAllClients, instance);
+          CATMAID.Annotations.off(CATMAID.Annotations.EVENT_ANNOTATIONS_CHANGED,
+              this.handleAnnotationChange, instance);
+          CATMAID.Neurons.off(CATMAID.Neurons.EVENT_NEURON_RENAMED,
+              this.handleNeuronNameChange, instance);
+          CATMAID.Init.off(CATMAID.Init.EVENT_PROJECT_CHANGED,
+              this.loadConfigurationFromSettings, instance);
         }
       };
     }
@@ -564,6 +606,7 @@
         if (!instance) {
           instance = init();
           instance.registerEventHandlers();
+          instance.loadConfigurationFromSettings();
         }
 
         return instance;
@@ -578,5 +621,12 @@
       },
     };
   })();
+
+  /**
+   * Compare strings ignoring case.
+   */
+  function compareAnnotations(a, b) {
+    return a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"});
+  }
 
 })(CATMAID);

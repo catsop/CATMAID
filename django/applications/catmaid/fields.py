@@ -1,9 +1,8 @@
 import re
 from django import forms
+from django.core.exceptions import ValidationError
 from django.db import models
 from widgets import Double3DWidget, Integer3DWidget, RGBAWidget
-
-from south.modelsinspector import add_introspection_rules
 
 # ------------------------------------------------------------------------
 # Classes to support the integer3d compound type:
@@ -24,14 +23,12 @@ class Integer3D(object):
                              y=int(m.group(2), 10),
                              z=int(m.group(3), 10))
         else:
-            raise Exception, "Couldn't parse value as an Integer3D: "+str(s)
+            raise ValidationError("Couldn't parse value as an Integer3D: " + str(s))
 
     def __unicode__(self):
         return u"(%d, %d, %d)" % (self.x, self.y, self.z)
 
 class Integer3DField(models.Field):
-
-    __metaclass__ = models.SubfieldBase
 
     def formfield(self, **kwargs):
         defaults = {'form_class': Integer3DFormField}
@@ -40,6 +37,12 @@ class Integer3DField(models.Field):
 
     def db_type(self, connection):
         return 'integer3d'
+
+    def from_db_value(self, value, expression, connection, context):
+        if value is None:
+            return value
+
+        return Integer3D.from_str(value)
 
     def to_python(self, value):
         if isinstance(value, Integer3D):
@@ -52,12 +55,11 @@ class Integer3DField(models.Field):
             return Integer3D()
         else:
             return Integer3D.from_str(value)
+
     def get_db_prep_value(self, value, connection, prepared=False):
         value = self.to_python(value)
         return "(%d,%d,%d)" % (value.x, value.y, value.z)
 
-add_introspection_rules([([Integer3DField], [], {})],
-                        [r'^catmaid\.fields\.Integer3DField'])
 
 # ------------------------------------------------------------------------
 # Classes to support the double3d compound type:
@@ -78,14 +80,12 @@ class Double3D(object):
                             y=float(m.group(2)),
                             z=float(m.group(3)))
         else:
-            raise Exception, "Couldn't parse value from the database as a Double3D: " + str(s)
+            raise ValidationError("Couldn't parse value from the database as a Double3D: " + str(s))
 
     def __unicode__(self):
         return u"(%.3f, %.3f, %.3f)" % (self.x, self.y, self.z)
 
 class Double3DField(models.Field):
-
-    __metaclass__ = models.SubfieldBase
 
     def formfield(self, **kwargs):
         defaults = {'form_class': Double3DFormField}
@@ -94,6 +94,12 @@ class Double3DField(models.Field):
 
     def db_type(self, connection):
         return 'double3d'
+
+    def from_db_value(self, value, expression, connection, context):
+        if value is None:
+            return value
+
+        return Double3D.from_str(value)
 
     def to_python(self, value):
         if isinstance(value, Double3D):
@@ -110,9 +116,6 @@ class Double3DField(models.Field):
     def get_db_prep_value(self, value, connection, prepared=False):
         value = self.to_python(value)
         return "(%f,%f,%f)" % (value.x, value.y, value.z)
-
-add_introspection_rules([([Double3DField], [], {})],
-                        [r'^catmaid\.fields\.Double3DField'])
 
 # ------------------------------------------------------------------------
 # Classes to support the rgba compound type:
@@ -134,7 +137,7 @@ class RGBA(object):
                         b=float(m.group(3)),
                         a=float(m.group(4)))
         else:
-            raise Exception, "Couldn't parse value as an RGBA: " + str(s)
+            raise ValidationError("Couldn't parse value as an RGBA: " + str(s))
 
     def hex_color(self):
         return "#{0:06x}".format((int(self.r * 255) << 16) + (int(self.g * 255) << 8) + int(self.b * 255))
@@ -144,8 +147,6 @@ class RGBA(object):
 
 class RGBAField(models.Field):
 
-    __metaclass__ = models.SubfieldBase
-
     def formfield(self, **kwargs):
         defaults = {'form_class': RGBAFormField}
         defaults.update(kwargs)
@@ -153,6 +154,12 @@ class RGBAField(models.Field):
 
     def db_type(self, connection):
         return 'rgba'
+
+    def from_db_value(self, value, expression, connection, context):
+        if value is None:
+            return value
+
+        return RGBA.from_str(value)
 
     def to_python(self, value):
         if isinstance(value, RGBA):
@@ -173,67 +180,6 @@ class RGBAField(models.Field):
     def get_db_prep_value(self, value, connection, prepared=False):
         value = self.to_python(value)
         return "(%f,%f,%f,%f)" % (value.r, value.g, value.b, value.a)
-
-add_introspection_rules([([RGBAField], [], {})],
-                        [r'^catmaid\.fields\.RGBAField'])
-
-# ------------------------------------------------------------------------
-
-# from https://github.com/aino/django-arrayfields/blob/master/arrayfields/fields.py
-
-import json
-from django.utils.translation import ugettext_lazy as _
-
-class ArrayFieldBase(models.Field):
-    def get_prep_value(self, value):
-        if value == '':
-            value = '{}'
-        return value
-
-    def value_to_string(self, obj):
-        value = self._get_val_from_obj(obj)
-        return json.dumps(value)
-
-    def to_python(self, value):
-        if isinstance(value, basestring):
-            value = json.loads(value)
-        return value
-
-    def south_field_triple(self):
-        from south.modelsinspector import introspector
-        name = '%s.%s' % (self.__class__.__module__ , self.__class__.__name__)
-        args, kwargs = introspector(self)
-        return name, args, kwargs
-
-
-class IntegerArrayField(ArrayFieldBase):
-    """
-    An integer array field for PostgreSQL
-    """
-    description = _('Integer array')
-
-    def db_type(self, connection):
-        return 'integer[]'
-
-
-class FloatArrayField(ArrayFieldBase):
-    """
-    A single-precision float array field for PostgreSQL
-    """
-    description = _('Double array')
-
-    def db_type(self, connection):
-        return 'real[]'
-
-
-class DoubleArrayField(ArrayFieldBase):
-    """
-    A double-precision float array field for PostgreSQL
-    """
-    description = _('Double array')
-
-    def db_type(self, connection):
-        return 'double precision[]'
 
 # ------------------------------------------------------------------------
 

@@ -4,6 +4,8 @@ from django.utils.decorators import method_decorator
 from django.shortcuts import get_object_or_404
 from django.views.decorators.cache import never_cache
 
+from guardian.utils import get_anonymous_user
+
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.serializers import ModelSerializer, ValidationError
@@ -18,7 +20,7 @@ from catmaid.models import ClientDatastore, ClientData, Project, UserRole
 class ClientDatastoreSerializer(ModelSerializer):
     class Meta:
         model = ClientDatastore
-        read_only_fields = ('id')
+        read_only_fields = ('id',)
 
 
 class ClientDatastoreList(APIView):
@@ -50,7 +52,7 @@ class ClientDatastoreList(APIView):
           paramType: form
         serializer: ClientDatastoreSerializer
         """
-        if request.user.is_anonymous() or not request.user.is_authenticated():
+        if request.user == get_anonymous_user() or not request.user.is_authenticated():
             raise PermissionDenied('Unauthenticated or anonymous users ' \
                                    'can not create datastores.')
         name = request.POST['name']
@@ -81,7 +83,7 @@ class ClientDatastoreDetail(APIView):
 class ClientDataSerializer(ModelSerializer):
     class Meta:
         model = ClientData
-        read_only_fields = ('id')
+        read_only_fields = ('id',)
 
 
 class ClientDataList(APIView):
@@ -185,7 +187,7 @@ class ClientDataList(APIView):
           paramType: form
         response_serializer: ClientDataSerializer
         """
-        if request.user.is_anonymous() or not request.user.is_authenticated():
+        if request.user == get_anonymous_user() or not request.user.is_authenticated():
             raise PermissionDenied('Unauthenticated or anonymous users ' \
                                    'can not create data.')
         datastore = get_object_or_404(ClientDatastore, name=name)
@@ -199,7 +201,7 @@ class ClientDataList(APIView):
             raise ValidationError('A value for the data must be provided.')
         # Validate JSON by reserializing.
         try:
-            value = json.dumps(json.loads(value))
+            value = json.loads(value)
         except ValueError as exc:
             raise ValidationError('Data value is invalid JSON: ' + str(exc))
 

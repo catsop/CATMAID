@@ -1,11 +1,15 @@
 import numpy as np
+from datetime import timedelta
+from dateutil import parser as dateparser
+import pytz
 
-from datetime import timedelta, datetime
-
+from django.db import connection
 from django.http import HttpResponse
+from django.utils import timezone
+from django.shortcuts import get_object_or_404
+from django.views.decorators.cache import never_cache
 
-from catmaid.models import Connector, Treenode, Review
-from catmaid.control.user_evaluation import _parse_date
+from catmaid.models import Connector, Project, Treenode, Review
 
 
 # Because we don't want to show generated images in a window, we can use
@@ -48,45 +52,85 @@ class Bout(object):
         return "Bout with %s events [%s, %s]" % \
                 (self.nrEvents, self.start, self.end)
 
+@never_cache
 def plot_useranalytics(request):
     """ Creates a PNG image containing different plots for analzing the
     performance of individual users over time.
     """
     userid = request.GET.get('userid', -1)
+    project_id = request.GET.get('project_id', None)
+    project = get_object_or_404(Project, pk=project_id) if project_id else None
     start_date = request.GET.get('start')
     end_date = request.GET.get('end')
+    all_writes = request.GET.get('all_writes', 'false') == 'true'
+    maxInactivity = int(request.GET.get('max_inactivity', 10))
 
-    print userid, start_date, end_date
-
-    if request.user.is_superuser:
-        end = _parse_date(end_date) if end_date else datetime.now()
-        start = _parse_date(start_date) if start_date else end - timedelta(end.isoweekday() + 7)
-        f = generateReport( userid, 10, start, end )
+    if request.user.is_superuser or \
+            project and request.user.has_perm('can_administer', project):
+        end = dateparser.parse(end_date).replace(tzinfo=pytz.utc) if end_date else timezone.now()
+        start = dateparser.parse(start_date).replace(tzinfo=pytz.utc) if start_date else end - timedelta(end.isoweekday() + 7)
+        f = generateReport( userid, project_id, maxInactivity, start, end, all_writes )
     else:
-        f = figure(1, figsize=(6,6))
+        f = generateErrorImage('You lack permissions to view this report.')
 
     canvas = FigureCanvasAgg( f )
     response = HttpResponse(content_type='image/png')
     canvas.print_png(response)
     return response
 
-def eventTimes(user_id, start_date, end_date):
+def eventTimes(user_id, project_id, start_date, end_date, all_writes=True):
     """ Returns a tuple containing a list of tree node edition times, connector
     edition times and tree node review times within the date range specified
     where the editor/reviewer is the given user.
     """
     dr = (start_date, end_date)
     tns = Treenode.objects.filter(
-        editor_id = user_id,
-        edition_time__range=dr).values_list('edition_time', flat=True)
+        editor_id=user_id,
+        edition_time__range=dr)
     cns = Connector.objects.filter(
-        editor_id = user_id,
-        edition_time__range=dr).values_list('edition_time', flat=True)
+        editor_id=user_id,
+        edition_time__range=dr)
     rns = Review.objects.filter(
-        reviewer_id = user_id,
-        review_time__range=dr).values_list('review_time', flat=True)
+        reviewer_id=user_id,
+        review_time__range=dr)
 
-    return list(tns), list(cns), list(rns)
+    if project_id:
+        tns = tns.filter(project_id=project_id)
+        cns = cns.filter(project_id=project_id)
+        rns = rns.filter(project_id=project_id)
+
+    tns = tns.values_list('edition_time', flat=True)
+    cns = cns.values_list('edition_time', flat=True)
+    rns = rns.values_list('review_time', flat=True)
+
+    events = {
+        'treenode_events': list(tns),
+        'connector_events': list(cns),
+        'review_events': list(rns)
+    }
+
+    if all_writes:
+        if project_id:
+            params = (start_date, end_date, user_id, project_id)
+            project_filter = "AND project_id = %s"
+        else:
+            params = (start_date, end_date, user_id)
+            project_filter = ""
+
+        # Query transaction log. This makes this feature only useful of history
+        # tracking is available.
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT execution_time
+            FROM catmaid_transaction_info
+            WHERE execution_time >= %s
+            AND execution_time <= %s
+            AND user_id = %s
+            {}
+        """.format(project_filter), params)
+        events['write_events'] = [r[0] for r in cursor.fetchall()]
+
+    return events
 
 def eventsPerInterval(times, start_date, end_date, interval='day'):
     """ Creates a histogram of how many events fall into all intervals between
@@ -116,7 +160,7 @@ def eventsPerInterval(times, start_date, end_date, interval='day'):
     for t in times:
         i = int((t - start_date).total_seconds() * intervalsPerSecond)
         timebins[i] += 1
-    
+
     return timebins, timeaxis
 
 def activeTimes( alltimes, gapThresh ):
@@ -152,7 +196,7 @@ def activeTimes( alltimes, gapThresh ):
     # Return last bout, if it hasn't been returned, yet
     if bout:
         yield bout
-    
+
 def activeTimesPerDay(active_bouts):
     """ Creates a tuple containing the active time in hours for every day
     between the first event of the first bout and the last event of the last
@@ -191,7 +235,7 @@ def singleDayEvents( alltimes, start_hour, end_hour ):
             if a.hour < end_hour:
                 activity[a.hour-start_hour] += 1
     return np.true_divide(activity,(alltimes[-1] - alltimes[0]).days), timeaxis
-    
+
 def singleDayActiveness( activebouts, increment, start_hour, end_hour ):
     """ Returns a ... for all bouts between <start_hour> and <end_hour> of the
     day.
@@ -209,7 +253,7 @@ def singleDayActiveness( activebouts, increment, start_hour, end_hour ):
     daysConsidered = (activebouts[-1].end - activebouts[0].start).days + 1
 
     # Get start of current day
-    starttime = datetime.now()
+    starttime = timezone.now()
     # FIXME: replace doesn't replace in place, but returns a new object
     starttime.replace(hour=start_hour,minute=0,second=0,microsecond=0)
     # Create time axis list with entry for every <increment> minutes between
@@ -256,13 +300,13 @@ def singleDayActiveness( activebouts, increment, start_hour, end_hour ):
     durations = np.true_divide(durPerPeriod, n)
     # Return a tuple containing a list durations and a list of timepoints
     return durations, timeaxis
-                    
+
 def splitBout(bout,increment):
     """ Splits one bout in periods of <increment> minutes.
     """
     if np.mod(60, increment) > 0:
         raise RuntimeError('Increments must divide 60 evenly')
-    
+
     boutListOut = []
     currtime = bout.start
     nexttime = bout.start
@@ -272,7 +316,7 @@ def splitBout(bout,increment):
         if nexttime > bout.end:
             nexttime = bout.end
         boutListOut.append(Bout(currtime, nexttime))
-        currtime = nexttime    
+        currtime = nexttime
     return boutListOut
 
 def generateErrorImage(msg):
@@ -283,21 +327,32 @@ def generateErrorImage(msg):
     fig.suptitle(msg)
     return fig
 
-def generateReport( user_id, activeTimeThresh, start_date, end_date ):
+def generateReport(user_id, project_id, activeTimeThresh, start_date, end_date, all_writes=True):
     """ nts: node times
         cts: connector times
         rts: review times """
-    nts, cts, rts = eventTimes( user_id, start_date, end_date )
+    events = eventTimes(user_id, project_id, start_date, end_date, all_writes)
+
+    nts = events['treenode_events']
+    cts = events['connector_events']
+    rts = events['review_events']
 
     # If no nodes have been found, return an image with a descriptive text.
     if len(nts) == 0:
         return generateErrorImage("No tree nodes were edited during the " +
                 "defined period if time.")
-    
+
     annotationEvents, ae_timeaxis = eventsPerInterval( nts + cts, start_date, end_date )
     reviewEvents, re_timeaxis = eventsPerInterval( rts, start_date, end_date )
 
-    activeBouts = list(activeTimes( nts+cts+rts, activeTimeThresh ))
+    if all_writes:
+        write_events = events['write_events']
+        other_write_events = write_events
+        writeEvents, we_timeaxis = eventsPerInterval(other_write_events, start_date, end_date)
+    else:
+        other_write_events = []
+
+    activeBouts = list(activeTimes( nts+cts+rts+other_write_events, activeTimeThresh ))
     netActiveTime, at_timeaxis = activeTimesPerDay( activeBouts )
 
     dayformat = DateFormatter('%b %d')
@@ -306,12 +361,24 @@ def generateReport( user_id, activeTimeThresh, start_date, end_date ):
 
     # Top left plot: created and edited nodes per day
     ax1 = plt.subplot2grid((2,2), (0,0))
-    an = ax1.bar( ae_timeaxis, annotationEvents, color='#0000AA')
-    rv = ax1.bar( re_timeaxis, reviewEvents, bottom=annotationEvents, color='#AA0000')
+
+    # If other writes should be shown, draw accumulated write bar first. This
+    # makes the regular bar draw over it, so that only the difference is
+    # visible, which is exactly what we want.
+    if all_writes:
+        we = ax1.bar(we_timeaxis, writeEvents, color='#00AA00')
+
+    an = ax1.bar(ae_timeaxis, annotationEvents, color='#0000AA')
+    rv = ax1.bar(re_timeaxis, reviewEvents, bottom=annotationEvents, color='#AA0000')
     ax1.set_xlim((start_date,end_date))
-    
-    ax1.legend( (an, rv), ('Annotated', 'Reviewed'), loc=2,frameon=False )
-    ax1.set_ylabel('Nodes')
+
+    if all_writes:
+        ax1.legend( (we, an, rv), ('Other changes','Annotated', 'Reviewed'), loc=2,frameon=False )
+        ax1.set_ylabel('Nodes and changes')
+    else:
+        ax1.legend( (an, rv), ('Annotated', 'Reviewed'), loc=2,frameon=False )
+        ax1.set_ylabel('Nodes')
+
     yl = ax1.get_yticklabels()
     plt.setp(yl, fontsize=10)
     ax1.xaxis.set_major_formatter(dayformat)
@@ -339,7 +406,7 @@ def generateReport( user_id, activeTimeThresh, start_date, end_date ):
     # Right column plot: bouts over days
     ax4 = plt.subplot2grid((2,2), (0,1), rowspan=2)
     ax4 = dailyActivePlotFigure( activeBouts, ax4, start_date, end_date )
-    
+
     yl = ax4.get_yticklabels()
     plt.setp(yl, fontsize=10)
     ax4.xaxis.set_major_formatter(dayformat)
@@ -349,9 +416,9 @@ def generateReport( user_id, activeTimeThresh, start_date, end_date ):
     yl = ax4.get_yticklabels()
     plt.setp(yl, fontsize=10)
     ax4.set_ylabel('Time (24 hr)')
-    
+
     return fig
-    
+
 def dailyActivePlotFigure( activebouts, ax, start_date, end_date ):
     """ Draws a plot of all bouts during each day between <start_date> and
     <end_date> to the plot given by <ax>.
@@ -385,13 +452,13 @@ def dailyActivePlotFigure( activebouts, ax, start_date, end_date ):
 def eventsPerIntervalPerDayPlot(ax,times,start_date,end_date,interval=60):
     if np.mod(24 * 60, interval) > 0:
         raise ValueError('Interval in minutes must divide the day evenly')
-        
+
     daycount = (end_date-start_date).days
     timebins = {}
-    
+
     for i in range(daycount):
         timebins[i] = np.zeros(24 * 60 / interval)
-        
+
     dayList = []
     daylabels = []
 
@@ -407,7 +474,7 @@ def eventsPerIntervalPerDayPlot(ax,times,start_date,end_date,interval=60):
             timelabels.append( str(i/2) + ':00' )
         else:
             timelabels.append( str( (i-1)/2 ) + ':30' )
-    
+
     for t in times:
         timebins[np.floor((t-start_date).days)][ np.floor(np.divide(t.hour*60+t.minute, interval)) ] += 1
     meandat = np.zeros(len(timebins[0]))
@@ -428,7 +495,7 @@ def eventsPerIntervalPerDayPlot(ax,times,start_date,end_date,interval=60):
     tmp,  = ax.plot( timeaxis, meandat, color='k', linewidth=4, linestyle='-')
     dats.append(tmp)
     daylabels.append('Mean')
-    
+
     ax.set_xticks( timeaxis )
     ax.set_xticklabels( timelabels )
     xl = ax.get_xticklabels()
@@ -437,6 +504,6 @@ def eventsPerIntervalPerDayPlot(ax,times,start_date,end_date,interval=60):
     plt.setp(yl, fontsize=10)
     ax.set_ylabel('Events',fontsize=10)
     ax.set_xlim( 8 * 60 / interval, 19 * 60 / interval )
-    ax.legend(dats,daylabels,loc=2,frameon=False) 
-    
+    ax.legend(dats,daylabels,loc=2,frameon=False)
+
     return ax

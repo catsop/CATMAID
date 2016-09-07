@@ -1,8 +1,9 @@
 from django import forms
 from django.conf import settings
-from django.contrib.formtools.wizard.views import SessionWizardView
 from django.db import connection
 from django.shortcuts import render_to_response
+
+from formtools.wizard.views import SessionWizardView
 
 from catmaid.models import Class, ClassInstance, ClassInstanceClassInstance
 from catmaid.models import Connector, Project, Relation, Treenode
@@ -108,9 +109,9 @@ class ImportingWizard(SessionWizardView):
                         'ntags': 0,
                     }
                     if scd['import_treenodes']:
-                        ps['ntreenodes'] = Treenode.objects.filter(project=p).count();
+                        ps['ntreenodes'] = Treenode.objects.filter(project=p).count()
                     if scd['import_connectors']:
-                        ps['nconnectors'] = Connector.objects.filter(project=p).count();
+                        ps['nconnectors'] = Connector.objects.filter(project=p).count()
                     if scd['import_annotations']:
                         annotation = Class.objects.filter(project=p,
                                 class_name="annotation")

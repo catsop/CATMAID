@@ -62,7 +62,7 @@ class DVIDClient:
             for instance_id in repo[instance_key]:
                 instance = repo[instance_key][instance_id]
                 if 'Base' not in instance:
-                    continue;
+                    continue
                 base = instance['Base']
                 if 'TypeName' not in base:
                     continue
@@ -147,7 +147,9 @@ def get_server_info(url):
     """
     try:
         info_url = '%s/api/repos/info' % url
-        info_json = urllib2.urlopen(info_url).read()
+        req = urllib2.Request(info_url, headers={'Content-Type': 'application/json'})
+        opener = urllib2.build_opener()
+        info_json = opener.open(req).read()
     except urllib2.HTTPError as e:
         raise ValueError("Couldn't retrieve DVID project information from %s" % url)
     except urllib2.URLError as e:

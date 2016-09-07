@@ -20,14 +20,26 @@ Introduction
 
 The most fundamental dependencies of CATMAID are:
 
-1. PostgreSQL >= 9.3 and PostGIS >= 2.1
+1. PostgreSQL >= 9.5 and PostGIS >= 2.2
 2. Python 2.7
 3. Imagemagick (for generating image tiles)
 
-On Debian-based systems, such as Ubuntu, you can install these
-with::
+To get the required PostgreSQL version for Debian-based systems, such as
+Ubuntu, you have to add the officical Postgres repository as an
+`extra Apt repository <https://wiki.postgresql.org/wiki/Apt>`_ (if you haven't
+done so already)::
 
-    sudo apt-get install python postgresql-9.3 imagemagick
+    PG_URL="http://apt.postgresql.org/pub/repos/apt/"
+    APT_LINE="deb ${PG_URL} $(lsb_release -cs)-pgdg main"
+    echo "${APT_LINE}" | sudo tee "/etc/apt/sources.list.d/pgdg.list"
+    sudo apt-get install wget ca-certificates
+    PG_KEY_URL="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+    wget --quiet -O - ${PG_KEY_URL} | sudo apt-key add -
+    sudo apt-get update
+
+And then you can install these dependencies with::
+
+    sudo apt-get install python postgresql-9.5 imagemagick
 
 CATMAID is based on the `Django web framework
 <https://www.djangoproject.com/>`_.  If you just wish to work on
@@ -108,9 +120,9 @@ shells, for example, you will need to activate it by running::
 
 .. note::
 
-    On Ubuntu versions before 14.04 a rather old version of Pip is shipped.
-    This is the tool we use to install Python packages within the virtualenv, so
-    let's update it first::
+    Many distributions ship with an outdated version of Pip.
+    This is the tool we use to install Python packages within the virtualenv,
+    so let's update it first::
 
         python -m pip install -U pip
 
@@ -149,8 +161,7 @@ database called ``catmaid`` and a database user called
 ``catmaid_user``.  Firstly, we need to reconfigure PostgreSQL to
 allow password-based authentication for that user to that
 database.  To do that, edit the file
-``/etc/postgresql/9.3/main/pg_hba.conf`` (where ``9.3`` may be a
-slightly different version for you) and add this line as the
+``/etc/postgresql/9.5/main/pg_hba.conf`` and add this line as the
 *first* rule in that file::
 
     local catmaid catmaid_user md5
@@ -169,17 +180,25 @@ user with, for example::
 
     scripts/createuser.sh catmaid catmaid_user p4ssw0rd | sudo -u postgres psql
 
-Besides createing the database and the database user, it will also enable a
+Besides creating the database and the database user, it will also enable a
 required Postgres extension, called ``postgis``. You should now be able to
-access the database and see that it is currently empty, e.g.::
+access the database and see that it is currently empty except for PostGIS
+relations, e.g.::
 
     psql -U catmaid_user catmaid
     Password:
-    psql (9.3.4)
+    psql (9.5.3)
     Type "help" for help.
 
     catmaid=> \d
-    No relations found.
+             List of relations
+     Schema |       Name        | Type  |  Owner
+    --------+-------------------+-------+----------
+     public | geography_columns | view  | postgres
+     public | geometry_columns  | view  | postgres
+     public | raster_columns    | view  | postgres
+     public | raster_overviews  | view  | postgres
+     public | spatial_ref_sys   | table | postgres
 
 4. Create the Django settings files
 ###################################
@@ -208,12 +227,8 @@ instructions assume that you've changed into that directory::
 
     cd /home/alice/catmaid/django/projects/mysite
 
-Now create some required tables with::
-
-    ./manage.py syncdb
-
-And bring the database schema up to date for applications that
-mange changes to their tables with South::
+Now create all required tables and bring the database schema up to date
+for applications that mange changes to their tables with South::
 
     ./manage.py migrate
 
@@ -274,6 +289,11 @@ following options:
 
 We usually prefer to use Nginx because of a more straight-forward configuration,
 smaller memory footprint and better performance with Gunicorn.
+
+Note if the domain you are serving your image data from is different from where
+CATMAID is running, `CORS <https://en.wikipedia.org/wiki/Cross-origin_resource_sharing>`_
+headers have to be sent by the image server or some aspects of the web front-end
+won't work as expected. For more details, have a look :ref:`here <nginx-image-data>`.
 
 In general you want to fine-tune your setup to improve performance. Please have
 a look at our :ref:`collection of advice <performance-tuning>` for the various

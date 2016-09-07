@@ -10,7 +10,7 @@
 
   "use strict";
 
-  var ProjectStatistics = new function()
+  var ProjectStatistics = function()
   {
     // Store retrieved data locally to change time unit on the fly
     var statisticsData = null;
@@ -408,14 +408,14 @@
         .text("Nodes edited");
     };
     
-    var refresh_project_statistics = function() {
+    this.refresh_project_statistics = function() {
       refresh_nodecount();
-      refresh_history();
+      this.refresh_history();
 
       // d3.json(django_url + project.id + '/stats/history', update_linegraph);
     };
 
-    var refresh_history = function() {
+    this.refresh_history = function() {
       // disable the refresh button until finished
       $(".stats-history-setting").prop('disabled', true);
       requestQueue.register(django_url + project.id + '/stats/user-history', "GET", {
@@ -427,7 +427,7 @@
         statisticsData = null;
         if (status == 200) {
           if (text && text != " ") {
-            var jso = $.parseJSON(text);
+            var jso = JSON.parse(text);
             if (jso.error) {
               alert(jso.error);
             } else {
@@ -445,7 +445,7 @@
       }, function (status, text, xml) {
         if (status == 200) {
           if (text && text != " ") {
-            var jso = $.parseJSON(text);
+            var jso = JSON.parse(text);
             if (jso.error) {
               alert(jso.error);
             } else {
@@ -462,7 +462,7 @@
       }, function (status, text, xml) {
         if (status == 200) {
           if (text && text != " ") {
-            var jso = $.parseJSON(text);
+            var jso = JSON.parse(text);
             if (jso.error) {
               alert(jso.error);
             } else {
@@ -479,7 +479,7 @@
       }, function (status, text, xml) {
         if (status == 200) {
           if (text && text != " ") {
-            var jso = $.parseJSON(text);
+            var jso = JSON.parse(text);
             if (jso.error) {
               alert(jso.error);
             }
@@ -496,41 +496,109 @@
      * Recreates the summary table based on the selected time unit. It can be
      * one of "day", "week", "month" or "year".
      */
-    var refresh_timeunit = function(unit) {
+    this.refresh_timeunit = function(unit) {
       timeUnit = unit;
       update_user_history(statisticsData, timeUnit);
     };
+  };
 
-    /**
-     * Initialized the statistics widget by asking the backend to create the basic
-     * layout.
-     */
-    this.init = function () {
-      $('#project_stats_widget').load(django_url + project.id + '/stats', null,
-          function() {
-            // Make the contribution record input fields date selectors
-            $("#stats-history-start-date")
-                .datepicker({ dateFormat: "yy-mm-dd", defaultDate: -10 })
-                .datepicker('setDate', "-10");
-            $("#stats-history-end-date")
-                .datepicker({ dateFormat: "yy-mm-dd", defaultDate: 0 })
-                .datepicker('setDate', "0");
-            // Attach handler to history refresh button
-            $("#stats-history-refresh").click(function() {
-                refresh_history();
-            });
-            // Attach handler to time unit selector
-            $("#stats-time-unit").change(function() {
-              refresh_timeunit(this.options[this.selectedIndex].value);
-            });
+  ProjectStatistics.prototype.getName = function() {
+    return "Statistics";
+  };
 
-            // Updae the actual statistics
-            refresh_project_statistics();
-          });
+  ProjectStatistics.prototype.getWidgetConfiguration = function() {
+    var config = {
+      contentID: "project_stats_widget",
+      createContent: function(container) {
+        container.innerHTML =
+          '<div class="project-stats">' +
+          '<h3>Contribution Record</h3>' +
+          '<p>' +
+            '<div class="left">' +
+            'beween <input type="text" class="stats-history-setting"' +
+                'id="stats-history-start-date" />' +
+            'and <input type="text" class="stats-history-setting"' +
+                'id="stats-history-end-date" />' +
+            '<input type="button" class="stats-history-setting"' +
+                'id="stats-history-refresh" value="Refresh" />' +
+            '</div>' +
+            '<div class="right">' +
+              'Time unit' +
+              '<select id="stats-time-unit" class="stats-history-setting">' +
+                '<option value="day">Day</option>' +
+                '<option value="week">Week</option>' +
+                '<option value="month">Month</option>' +
+                '<option value="year">Year</option>' +
+              '</select>' +
+            '</div>' +
+          '</p>' +
+          '<div class="clear">' +
+            '<br />' +
+            'per cell values: new cable length (nm) / completed connector links / reviewed nodes' +
+            '<table cellpadding="0" cellspacing="0" border="1" class="project-stats"' +
+                'id="project_stats_history_table">' +
+            '</table>' +
+          '</div>' +
+          '<br clear="all" />' +
+          '<h3>Nodes created by user</h3>' +
+          '<div id="piechart_treenode_holder"></div>' +
+          '<br clear="all" />' +
+          '</div>';
+      },
+      init: function() {
+        var self = this;
+        // Make the contribution record input fields date selectors
+        $("#stats-history-start-date")
+          .datepicker({ dateFormat: "yy-mm-dd", defaultDate: -10 })
+          .datepicker('setDate', "-10");
+        $("#stats-history-end-date")
+          .datepicker({ dateFormat: "yy-mm-dd", defaultDate: 0 })
+          .datepicker('setDate', "0");
+        // Attach handler to history refresh button
+        $("#stats-history-refresh").click(function() {
+          self.refresh_history();
+        });
+        // Attach handler to time unit selector
+        $("#stats-time-unit").change(function() {
+          self.refresh_timeunit(this.options[this.selectedIndex].value);
+        });
+
+        // Updae the actual statistics
+        this.refresh_project_statistics();
+      }
     };
-  }();
+
+    // If this user has has can_administer permissions in this project,
+    // buttons to access additional tools are addeed.
+    if (CATMAID.hasPermission(project.id, 'can_administer')) {
+      config['controlsID'] = 'project_stats_controls';
+      config['createControls'] = function(controls) {
+        var userAnalytics = document.createElement('input');
+        userAnalytics.setAttribute("type", "button");
+        userAnalytics.setAttribute("value", "User Analytics");
+        userAnalytics.onclick = openUserAnalytics;
+        controls.appendChild(userAnalytics);
+      };
+    }
+
+    return config;
+  };
+
+  var openUserAnalytics = function() {
+    WindowMaker.show('user-analytics');
+  };
+
+  var openUserProficiency = function() {
+    WindowMaker.show('user-analytics');
+  };
 
   // Export statistics widget
   CATMAID.ProjectStatistics = ProjectStatistics;
+
+  // Register widget with CATMAID
+  CATMAID.registerWidget({
+    key: "statistics",
+    creator: ProjectStatistics
+  });
 
 })(CATMAID);

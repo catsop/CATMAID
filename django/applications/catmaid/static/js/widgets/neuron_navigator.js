@@ -4,7 +4,6 @@
   CATMAID
   AnalyzeArbor,
   Arbor,
-  checkPermission,
   ConnectorTable,
   InstanceRegistry,
   NeuronDendrogram,
@@ -27,7 +26,7 @@
     // Map registered neurons to the number of nodes referencing them
     this.registered_neurons = {};
     // Listen to skeleton and annotation change events
-    CATMAID.neuronController.on(CATMAID.neuronController.EVENT_SKELETON_CHANGED,
+    CATMAID.Skeletons.on(CATMAID.Skeletons.EVENT_SKELETON_CHANGED,
       this.handleChangedSkeleton, this);
     CATMAID.Annotations.on(CATMAID.Annotations.EVENT_ANNOTATIONS_CHANGED,
       this.handleChangedAnnotations, this);
@@ -51,7 +50,7 @@
     CATMAID.NeuronNameService.getInstance().unregister(this);
 
     // Unregister from event stream
-    CATMAID.neuronController.off(CATMAID.neuronController.EVENT_SKELETON_CHANGED,
+    CATMAID.Skeletons.off(CATMAID.Skeletons.EVENT_SKELETON_CHANGED,
         this.handleChangedSkeleton, this);
     CATMAID.Annotations.off(CATMAID.Annotations.EVENT_ANNOTATIONS_CHANGED,
         this.handleChangedAnnotations, this);
@@ -361,9 +360,8 @@
     /* Because some nodes use tables to display data, some common options are
      * kept on the abstract node level.
      */
-    this.possibleLengths = [25, 100, 500, 2000];
-    this.possibleLengthsLabels = this.possibleLengths.map(
-        function (n) { return n.toString(); });
+    this.possibleLengths = CATMAID.pageLengthOptions;
+    this.possibleLengthsLabels = CATMAID.pageLengthLabels;
   };
 
   /**
@@ -630,7 +628,7 @@
   var getAnnotationColumTitles = function(usage, annotator, unlink) {
     // Prepare column definition, depending on whether there is a removal handler
     // and if the annotator should be displayed.
-    var columns = ['Annotation', 'Last used'];
+    var columns = ['Annotation', 'Last used (local)'];
 
     if (usage) {
         columns.push('# used');
@@ -677,7 +675,14 @@
       { // Last used date
         "bSearchable": false,
         "bSortable": true,
-        "mData": 1
+        "mData": 1,
+        render: function(data) {
+          var d = new Date(data);
+          return isNaN(d) ?
+              'never' :
+              d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()
+              + ' ' + d.toLocaleTimeString(undefined, {hour12: false});
+        }
       }];
 
     if (usage) {
@@ -734,11 +739,53 @@
   };
 
   NeuronNavigator.Node.prototype.add_annotation_list_table = function($container,
-      table_id, filters, display_usage, display_annotator, unlink_handler, callback)
+      table_id, filters, display_usage, display_annotator, displayLength,
+      unlink_handler, callback)
   {
     var content = document.createElement('div');
     content.setAttribute('id', 'navigator_annotationlist_content' +
         this.navigator.widgetID);
+
+    // Create annotate button
+    var link_annotations_button = document.createElement('input');
+    link_annotations_button.setAttribute('type', 'button');
+    link_annotations_button.setAttribute('value', 'Add annotations to neurons');
+    link_annotations_button.onclick = function() {
+      // Get all selected checkboxes
+      var annotationIds = $('#' + table_id)
+        .find('td input[type=checkbox].annotation-selection:checked')
+        .map(function(a) {
+          return $(this).data('annotation-id');
+        })
+        .get();
+      var annotations = annotationIds
+        .map(CATMAID.annotations.getName, CATMAID.annotations)
+        .filter(function(a) { return !!a; });
+      if (!annotations || !annotations.length) {
+        CATMAID.warn("Please select at least one annotation");
+        return;
+      }
+
+      // Open a new source select dialog to annotate selected neurons
+      var dialog = new CATMAID.SkeletonSourceDialog("Select annotation targets",
+          "Please select a skeleton source. All its selected neurons will be " +
+          "annotated.", function(source) {
+            var skeletonIds = source.getSelectedSkeletons();
+            CATMAID.Annotations.add(project.id, null, skeletonIds, annotations, null)
+              .then(function(result) {
+                if (result.new_annotations.length > 0) {
+                  CATMAID.msg("New annotations added", "Successfully added " +
+                      result.new_annotations.length + " new annotations to " +
+                      skeletonIds.length + " neurons");
+                } else {
+                  CATMAID.msg("No new annotations",
+                      "All annotations were already linked to the selected neurons");
+                }
+              });
+          });
+      dialog.show();
+    };
+    content.appendChild(link_annotations_button);
 
     // Create annotation table
     var header_columns = getAnnotationColumTitles(display_usage,
@@ -838,7 +885,7 @@
       "bProcessing": true,
       "bServerSide": true,
       "bAutoWidth": false,
-      "iDisplayLength": this.possibleLengths[0],
+      "iDisplayLength": Number.isInteger(displayLength) ? displayLength : -1,
       "sAjaxSource": django_url + project.id + '/annotations/table-list',
       "fnServerData": function (sSource, aoData, fnCallback) {
           if (filters.is_meta) {
@@ -1127,8 +1174,10 @@
         var params = {};
 
         // Set general parameters
-        params['range_start'] = data.start;
-        params['range_length'] = data.length;
+        if (-1 !== data.length) {
+          params['range_start'] = data.start;
+          params['range_length'] = data.length;
+        }
         params['sort_by'] = "name";
         params['sort_dir'] = data.order[0].dir;
         params['types[0]'] = 'neuron';
@@ -1253,14 +1302,10 @@
       if (selected_neurons.length > 0) {
         // Get annotation ID
         var annotation_id = parseInt(this.getAttribute('data-annotationid'));
-        // Unlink the annotation from the current neuron
-        CATMAID.remove_annotation_from_entities(selected_neurons,
-            annotation_id, function(message) {
-                // Display message returned by the server
-                CATMAID.info(message);
-            });
+        return CATMAID.confirmAndRemoveAnnotations(project.id,
+            selected_neurons, [annotation_id]);
       } else {
-        alert("Please select at least one neuron to remove the annotation from first!");
+        CATMAID.warn("Please select at least one neuron to remove the annotation from first!");
       }
     });
 
@@ -1326,7 +1371,7 @@
    */
   NeuronNavigator.disable_on_missing_permissions = function(html_element)
   {
-    if (!checkPermission('can_annotate')) {
+    if (!CATMAID.mayEdit()) {
       html_element.setAttribute('disabled', 'disabled');
     }
   };
@@ -1388,15 +1433,24 @@
    * Returns a skeleton model dictionary.
    */
   NeuronNavigator.NeuronListMixin.prototype.getSkeletonModels = function() {
-    return this.get_entities().reduce((function(o, n) {
+    var models = this.get_entities().reduce((function(o, n) {
       n.skeleton_ids.forEach(function(skid) {
         var model = new CATMAID.SkeletonModel(skid, n.name,
             new THREE.Color().setRGB(1, 1, 0));
-        model.selected = this.listed_neurons[n.id].selected;
-        o[skid] = model;
-      });
+        model.selected = false;
+        this[skid] = model;
+      }, o);
       return o;
     }).bind(this), {});
+
+    // Mark selected ones
+    this.get_entities(true).forEach(function(n) {
+      n.skeleton_ids.forEach(function(skid) {
+        this[skid].selected = true;
+      }, this);
+    }, models);
+
+    return models;
   };
 
   /**
@@ -1471,17 +1525,21 @@
   NeuronNavigator.AnnotationListNode = function(creates_co_annotations)
   {
     if (creates_co_annotations) {
-      this.name = "Co-Annotations";
+      NeuronNavigator.Node.call(this, "Co-Annotations");
       this.creates_co_annotations = true;
     } else {
-      this.name = "Annotations";
+      NeuronNavigator.Node.call(this, "Annotations");
       this.creates_co_annotations = false;
     }
+
+    // Number of displayed annotations per page
+    this.annotationListLength = 25;
   };
 
-  NeuronNavigator.AnnotationListNode.prototype = {};
-  $.extend(NeuronNavigator.AnnotationListNode.prototype,
-      new NeuronNavigator.Node(""));
+  NeuronNavigator.AnnotationListNode.prototype = Object.create(
+      NeuronNavigator.Node.prototype);
+  NeuronNavigator.AnnotationListNode.prototype.constructor =
+      NeuronNavigator.AnnotationListNode;
 
   NeuronNavigator.AnnotationListNode.prototype.become_co_annotation_list =
       function()
@@ -1504,10 +1562,15 @@
 
     // Add annotation data table based on filters above
     var datatable = this.add_annotation_list_table(container, table_id, filters,
-        true, false, null, null);
+        true, false, this.annotationListLength, null, null);
 
     // Make self accessible in callbacks more easily
     var self = this;
+
+    // If the pagination display length is changed, record the new length
+    datatable.on('length.dt', function(e, settings, length) {
+      self.annotationListLength = length;
+    });
 
     // If an annotation is selected an annotation filter node is created and the
     // event is removed. If the annotation list node should create co-annotations,
@@ -1530,14 +1593,16 @@
    */
   NeuronNavigator.MetaAnnotationListNode = function(annotates)
   {
+    NeuronNavigator.AnnotationListNode.call(this, false);
     this.is_meta = true;
     this.annotates = annotates;
     this.name = annotates ? "Annotates" : "Annotated with";
   };
 
-  NeuronNavigator.MetaAnnotationListNode.prototype = {};
-  $.extend(NeuronNavigator.MetaAnnotationListNode.prototype,
-      new NeuronNavigator.AnnotationListNode(false));
+  NeuronNavigator.MetaAnnotationListNode.prototype = Object.create(
+      NeuronNavigator.AnnotationListNode.prototype);
+  NeuronNavigator.MetaAnnotationListNode.prototype.constructor =
+      NeuronNavigator.MetaAnnotationListNode;
 
   NeuronNavigator.MetaAnnotationListNode.prototype.create_annotation_filter =
       function(annotation, annotation_id)
@@ -1551,11 +1616,14 @@
    * The user list node of the navigator provides a list of all existing users.
    * It will add a user filter node if double clicked on one of them.
    */
-  NeuronNavigator.UserListNode = function() {};
+  NeuronNavigator.UserListNode = function() {
+    NeuronNavigator.Node.call(this, "Users");
+  };
 
-  NeuronNavigator.UserListNode.prototype = {};
-  $.extend(NeuronNavigator.UserListNode.prototype,
-      new NeuronNavigator.Node("Users"));
+  NeuronNavigator.UserListNode.prototype = Object.create(
+      NeuronNavigator.Node.prototype);
+  NeuronNavigator.UserListNode.prototype.constructor =
+      NeuronNavigator.UserListNode;
 
   NeuronNavigator.UserListNode.prototype.add_content = function(container,
       filters)
@@ -1586,11 +1654,14 @@
    * The neuron list node of the navigator lists all neurons. It is the simplest
    * user of the neuron list mixin.
    */
-  NeuronNavigator.NeuronListNode = function() {};
+  NeuronNavigator.NeuronListNode = function() {
+    NeuronNavigator.Node.call(this, "Neurons");
+  };
 
-  NeuronNavigator.NeuronListNode.prototype = {};
-  $.extend(NeuronNavigator.NeuronListNode.prototype,
-      new NeuronNavigator.Node("Neurons"));
+  NeuronNavigator.NeuronListNode.prototype = Object.create(
+      NeuronNavigator.Node.prototype);
+  NeuronNavigator.NeuronListNode.prototype.constructor =
+      NeuronNavigator.NeuronListNode;
   $.extend(NeuronNavigator.NeuronListNode.prototype,
       new NeuronNavigator.NeuronListMixin());
 
@@ -1609,22 +1680,33 @@
   NeuronNavigator.AnnotationFilterNode = function(annotation, annotation_id,
       is_coannotation, is_meta_annotation)
   {
+    NeuronNavigator.Node.call(this, annotation);
     this.annotation = annotation;
     this.annotation_id = annotation_id;
     this.is_coannotation = is_coannotation;
     this.is_meta_annotation = is_meta_annotation;
-    this.name = annotation;
   };
 
-  NeuronNavigator.AnnotationFilterNode.prototype = {};
-  $.extend(NeuronNavigator.AnnotationFilterNode.prototype,
-      new NeuronNavigator.Node("Empty Annotation Filter"));
+  NeuronNavigator.AnnotationFilterNode.prototype = Object.create(
+      NeuronNavigator.Node.prototype);
+  NeuronNavigator.AnnotationFilterNode.prototype.constructor =
+      NeuronNavigator.AnnotationFilterNode;
   $.extend(NeuronNavigator.AnnotationFilterNode.prototype,
       new NeuronNavigator.NeuronListMixin());
 
   NeuronNavigator.AnnotationFilterNode.prototype.breaks_filter_chain = function()
   {
     return !this.is_coannotation;
+  };
+
+  /**
+   * Update this node if an annotation changed.
+   */
+  NeuronNavigator.AnnotationFilterNode.prototype.handleChangedAnnotations = function(updated_entities)
+  {
+    // Due to design limitations, there is currently no easy way to check if the
+    // passed in updated entities are part of the current display.
+    this.navigator.select_node(this);
   };
 
   NeuronNavigator.AnnotationFilterNode.prototype.add_content = function(container,
@@ -1703,13 +1785,15 @@
    */
   NeuronNavigator.UserFilterNode = function(included_user)
   {
+    NeuronNavigator.Node.call(this, "Empty User Filter");
     this.user_id = included_user.id;
     this.name = included_user.login;
   };
 
-  NeuronNavigator.UserFilterNode.prototype = {};
-  $.extend(NeuronNavigator.UserFilterNode.prototype,
-      new NeuronNavigator.Node("Empty User Filter"));
+  NeuronNavigator.UserFilterNode.prototype = Object.create(
+      NeuronNavigator.Node.prototype);
+  NeuronNavigator.UserFilterNode.prototype.constructor =
+      NeuronNavigator.UserFilterNode;
 
   NeuronNavigator.UserFilterNode.prototype.breaks_filter_chain = function()
   {
@@ -1751,10 +1835,13 @@
    */
   NeuronNavigator.NeuronNode = function(neuron)
   {
+    NeuronNavigator.Node.call(this, neuron.name);
     this.neuron_id = neuron.id;
     this.neuron_name = neuron.name;
-    this.name = neuron.name;
     this.skeleton_ids = neuron.skeleton_ids;
+
+    // Number of initially displayed annotations per page
+    this.annotationListLength = 25;
 
     this.link = function(navigator, parent)
     {
@@ -1768,9 +1855,10 @@
     };
   };
 
-  NeuronNavigator.NeuronNode.prototype = {};
-  $.extend(NeuronNavigator.NeuronNode.prototype,
-      new NeuronNavigator.Node("Neuron node"));
+  NeuronNavigator.NeuronNode.prototype = Object.create(
+      NeuronNavigator.Node.prototype);
+  NeuronNavigator.NeuronNode.prototype.constructor =
+      NeuronNavigator.NeuronNode;
 
   NeuronNavigator.NeuronNode.prototype.breaks_filter_chain = function()
   {
@@ -1893,10 +1981,12 @@
     rename_button.onclick = (function() {
       var new_name = prompt("Rename", this.neuron_name);
       if (!new_name) return;
-      CATMAID.NeuronNameService.getInstance().renameNeuron(this.neuron_id, this.skeleton_ids, new_name, (function() {
-          $('div.nodeneuronname', container).html('Name: ' + new_name);
-          this.neuron_name = new_name;
-      }).bind(this));
+      CATMAID.commands.execute(new CATMAID.RenameNeuronCommand(
+            project.id, this.neuron_id, new_name))
+        .then((function(neuronId, newName) {
+          $('div.nodeneuronname', container).html('Name: ' + newName);
+          this.neuron_name = newName;
+        }).bind(this));
     }).bind(this);
 
     var analyze_button = document.createElement('input');
@@ -1927,7 +2017,7 @@
     root_button.onclick = (function() {
       requestQueue.register(django_url + project.id + '/skeletons/' + this.skeleton_ids[0] + '/root', 'GET', undefined, function (status, text) {
         if (200 !== status) return;
-        var json = $.parseJSON(text);
+        var json = JSON.parse(text);
         if (json.error) return new CATMAID.ErrorDialog(json.error,
             json.detail).show();
         SkeletonAnnotations.staticMoveTo(json.z, json.y, json.x, function() {
@@ -1945,7 +2035,7 @@
     delete_button.onclick = (function() {
       if (confirm("Are you sure that neuron '" + this.neuron_name +
           "' and its skeleton should get deleted?")) {
-        CATMAID.neuronController.deleteNeuron(project.id, this.neuron_id)
+        CATMAID.Neurons.delete(project.id, this.neuron_id)
           .then((function() {
             // Other widgets like the tracing layer are automatically refreshed
             // due to the change event of the neuron controller.
@@ -1953,7 +2043,12 @@
                   this.neuron_id + " has been succesfully deleted.");
             // Expect a parent node
             this.navigator.select_node(this.parent_node);
-          }).bind(this));
+          }).bind(this),
+          function (result) {
+            var message = result.hasOwnProperty('message') ?
+                result.message : "The server returned an error.";
+            CATMAID.msg("Error: neuron not deleted", message);
+          });
       }
     }).bind(this);
 
@@ -1990,7 +2085,7 @@
 
     connectortable_button.onclick = (function() {
       if (this.skeleton_ids.length > 0) {
-        var TNT = new ConnectorTable(this.skeleton_ids[0]);
+        var TNT = new CATMAID.ConnectorTable(this.skeleton_ids[0]);
         WindowMaker.create('connector-table', TNT);
       }
     }).bind(this);
@@ -2040,7 +2135,7 @@
           '/' + skeleton_id + '/0/1/compact-skeleton', 'POST', {},
           function(status, text) {
             if (200 !== status) return;
-            var json = $.parseJSON(text);
+            var json = JSON.parse(text);
             if (json.error) {
               new CATMAID.ErrorDialog(json.error, json.detail).show();
               return;
@@ -2101,26 +2196,18 @@
 
     // Add annotation data table based on filters above
     var annotation_datatable = this.add_annotation_list_table(container,
-        annotation_table_id, filters, false, true, function(annotation_ids) {
-          if (annotation_ids instanceof Array) {
-            CATMAID.remove_annotations_from_entities([self.neuron_id],
-                annotation_ids, function(data) {
-                  if (data.deleted_annotations.length > 0) {
-                    CATMAID.info("Removed " + data.deleted_annotations.length +
-                       " annotations.");
-                  } else {
-                    CATMAID.info("Couldn not delete any annotation");
-                  }
-                });
-          } else {
-            // Unlink the annotation from the current neuron
-            CATMAID.remove_annotation(self.neuron_id,
-                annotation_ids, function(message) {
-                    // Display message returned by the server
-                    CATMAID.info(message);
-                });
-          }
+        annotation_table_id, filters, false, true, this.annotationListLength,
+        function(annotation_ids) {
+          annotation_ids = annotation_ids instanceof Array ?
+              annotation_ids : [annotation_ids];
+          return CATMAID.confirmAndRemoveAnnotations(project.id,
+              [self.neuron_id], annotation_ids);
         }, this.create_ann_post_process_fn(this, container));
+
+    // If the pagination display length is changed, record the new length
+    annotation_datatable.on('length.dt', function(e, settings, length) {
+      self.annotationListLength = length;
+    });
 
     // If a user is selected an annotation filter node is created and the event
     // is removed.
@@ -2186,12 +2273,19 @@
    */
   NeuronNavigator.ActiveNeuronMixin = function()
   {
+    NeuronNavigator.NeuronNode.call(this, {
+      id: null,
+      name: '',
+      skeleton_ids: []
+    });
     this.current_skid = null;
     this.sync_active_neuron = true;
   };
 
-  $.extend(NeuronNavigator.ActiveNeuronMixin.prototype,
-      new NeuronNavigator.NeuronNode({id: null, name: '', skeleton_ids: []}, true));
+  NeuronNavigator.ActiveNeuronMixin.prototype = Object.create(
+      NeuronNavigator.NeuronNode.prototype);
+  NeuronNavigator.ActiveNeuronMixin.prototype.constructor =
+      NeuronNavigator.ActiveNeuronMixin;
 
   NeuronNavigator.ActiveNeuronMixin.prototype.add_activeneuron_content =
       function(container, filters)
@@ -2213,6 +2307,13 @@
     }).bind(this));
 
     if (this.current_skid) {
+      var info = document.createElement('p');
+      info.classList.add('help');
+      info.appendChild(document.createTextNode('Below you find information on ' +
+            'the currenyly selected neuron as well as its annotations. Its ' +
+            'skeleton ID is #' + this.current_skid));
+      container.append(info);
+
       // Prepare a container that is filled by the async request
       var node_content = $(document.createElement('div'));
       container.append(node_content);
@@ -2222,7 +2323,7 @@
             if (200 !== status) {
               alert("Unexpected status code: " + status);
             } else {
-              var json = $.parseJSON(text);
+              var json = JSON.parse(text);
               if (json.error) {
                 new CATMAID.ErrorDialog(json.error, json.detail).show();
               } else {
@@ -2243,8 +2344,9 @@
       this.neuron_id = -1;
       this.skeleton_ids = [];
       // Print message
-      var message = document.createElement('em');
-      var text = 'There is currently no active node';
+      var message = document.createElement('p');
+      message.classList.add('help');
+      var text = 'There is currently no active neuron';
       message.appendChild(document.createTextNode(text));
       container.append(message);
     }
@@ -2298,13 +2400,15 @@
    */
   NeuronNavigator.ActiveNeuronNode = function()
   {
+    NeuronNavigator.ActiveNeuronMixin.call(this);
     this.name = 'Active Neuron';
     this.refresh_activeneuron();
   };
 
-  NeuronNavigator.ActiveNeuronNode.prototype = {};
-  $.extend(NeuronNavigator.ActiveNeuronNode.prototype,
-      new NeuronNavigator.ActiveNeuronMixin());
+  NeuronNavigator.ActiveNeuronNode.prototype = Object.create(
+      NeuronNavigator.ActiveNeuronMixin.prototype);
+  NeuronNavigator.ActiveNeuronNode.prototype.constructor =
+      NeuronNavigator.ActiveNeuronNode;
 
   NeuronNavigator.ActiveNeuronNode.prototype.add_content = function(container,
       filters)
@@ -2321,6 +2425,8 @@
    */
   NeuronNavigator.HomeNode = function()
   {
+    NeuronNavigator.ActiveNeuronMixin.call(this);
+
     this.name = "Home";
     // A home node acts as the root node and has therefore no parent.
     this.link(null);
@@ -2328,9 +2434,9 @@
     this.current_skid = SkeletonAnnotations.getActiveSkeletonId();
   };
 
-  NeuronNavigator.HomeNode.prototype = {};
-  $.extend(NeuronNavigator.HomeNode.prototype,
-      new NeuronNavigator.ActiveNeuronMixin());
+  NeuronNavigator.HomeNode.prototype = Object.create(
+      NeuronNavigator.ActiveNeuronMixin.prototype);
+  NeuronNavigator.HomeNode.prototype.constructor = Navigator.HomeNode;
 
   NeuronNavigator.HomeNode.prototype.add_content = function(container, filters)
   {
@@ -2367,7 +2473,7 @@
     }, this));
 
     // Add some space
-    var neuron_title = document.createElement('h4');
+    var neuron_title = document.createElement('h1');
     neuron_title.appendChild(document.createTextNode('Active neuron'));
     container.append(neuron_title);
 

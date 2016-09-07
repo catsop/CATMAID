@@ -1,7 +1,7 @@
 import os
 import cStringIO
 from contextlib import closing
-import h5py
+import logging
 import numpy as np
 import base64
 from django.conf import settings
@@ -10,6 +10,14 @@ try:
     from PIL import Image
 except:
     pass
+
+logger = logging.getLogger(__name__)
+
+try:
+    import h5py
+except ImportError, e:
+    logger.warning("CATMAID was unable to load the h5py library. "
+          "HDF5 tiles are therefore disabled.")
 
 from django.http import HttpResponse
 
@@ -59,7 +67,6 @@ def get_tile(request, project_id=None, stack_id=None):
 
 def put_tile(request, project_id=None, stack_id=None):
     """ Store labels to HDF5 """
-    #print >> sys.stderr, 'put tile', request.POST
 
     scale = float(request.POST.get('scale', '0'))
     height = int(request.POST.get('height', '0'))
@@ -72,12 +79,9 @@ def put_tile(request, project_id=None, stack_id=None):
     image = request.POST.get('image', 'x')
 
     fpath=os.path.join( settings.HDF5_STORAGE_PATH, '{0}_{1}.hdf'.format( project_id, stack_id ) )
-    #print >> sys.stderr, 'fpath', fpath
 
     with closing(h5py.File(fpath, 'a')) as hfile:
         hdfpath = '/labels/scale/' + str(int(scale)) + '/data'
-        #print >> sys.stderr, 'storage', x,y,z,height,width,hdfpath
-        #print >> sys.stderr, 'image', base64.decodestring(image)
         image_from_canvas = np.asarray( Image.open( cStringIO.StringIO(base64.decodestring(image)) ) )
         hfile[hdfpath][y:y+height,x:x+width,z] = image_from_canvas[:,:,0]
 

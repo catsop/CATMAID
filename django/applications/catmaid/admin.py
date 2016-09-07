@@ -3,7 +3,7 @@ from django.db.models import fields as db_fields, ForeignKey
 from django.core.exceptions import ValidationError
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, Group
 from django.utils.safestring import mark_safe
 from guardian.admin import GuardedModelAdmin
 from catmaid.models import (Project, DataView, Stack, ProjectStack, UserProfile,
@@ -23,7 +23,7 @@ def add_related_field_wrapper(form, col_name, rel=None):
     admin site instance available in the admin_site field."""
     if not rel:
         rel_model = form.Meta.model
-        rel = rel_model._meta.get_field(col_name).rel
+        rel = rel_model._meta.get_field(col_name).remote_field
 
     form.fields[col_name].widget =  admin.widgets.RelatedFieldWidgetWrapper(
         form.fields[col_name].widget, rel, form.admin_site, can_add_related=True)
@@ -54,6 +54,7 @@ class BrokenSliceModelForm(forms.ModelForm):
 
     class Meta:
         model = BrokenSlice
+        fields = '__all__'
 
 
 class BrokenSliceAdmin(GuardedModelAdmin):
@@ -109,7 +110,8 @@ class BrokenSliceAdmin(GuardedModelAdmin):
 class ProjectStackInline(admin.TabularInline):
     model = ProjectStack
     extra = 1
-
+    max_num = 20
+    raw_id_fields = ("stack",)
 
 class ProjectAdmin(GuardedModelAdmin):
     list_display = ('title',)
@@ -167,7 +169,7 @@ class StackGroupModelForm(StackGroupMemberModelForm):
         super(StackGroupModelForm, self).__init__(*args, **kwargs)
         # This is a hack to create StackGroup proxy models from the inline,
         # instead of ClassInstance model objects.
-        rel = ForeignKey(StackGroup).rel
+        rel = ForeignKey(StackGroup).remote_field
         add_related_field_wrapper(self, 'class_instance', rel)
 
 
@@ -216,7 +218,7 @@ class StackGroupAdmin(GuardedModelAdmin):
             i.relation = Relation.objects.get(project=i.project,
                                               relation_name=i.relation_name)
             i.save()
-        formset.save_m2m();
+        formset.save_m2m()
 
 
 class StackAdmin(GuardedModelAdmin):
@@ -238,7 +240,7 @@ class StackAdmin(GuardedModelAdmin):
                 i.relation = Relation.objects.get(project=i.project,
                                                 relation_name=i.relation_name)
             i.save()
-        formset.save_m2m();
+        formset.save_m2m()
 
 class OverlayAdmin(GuardedModelAdmin):
     list_display = ('title', 'image_base')
@@ -250,7 +252,7 @@ class OverlayAdmin(GuardedModelAdmin):
 class DataViewConfigWidget(forms.widgets.Textarea):
     def render(self, name, value, attrs=None):
         output = super(DataViewConfigWidget, self).render(name, value, attrs)
-        output += "<p id='data_view_config_help'></p>"
+        output += "<p id='data_view_config_help' class='help'></p>"
         return mark_safe(output)
 
 
@@ -260,6 +262,7 @@ class DataViewAdminForm(forms.ModelForm):
     """
     class Meta:
         model = DataView
+        fields = '__all__'
 
     def __init__(self, *args, **kwargs):
         super(DataViewAdminForm, self).__init__(*args, **kwargs)
@@ -358,8 +361,8 @@ admin.site.register(ProjectStack)
 admin.site.register(StackGroup, StackGroupAdmin)
 
 # Replace the user admin view with custom view
-admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
+admin.site.register(Group)
 # Register additional views
 admin.site.register_view('annotationimporter', 'Annotation data importer',
                          view=ImportingWizard.as_view())

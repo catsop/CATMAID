@@ -58,7 +58,7 @@
       for (var j = 0; j < this._tiles[0].length; ++j) {
         var tile = this._tiles[i][j];
         if (tile.texture && tile.texture.valid) {
-          CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.source.src);
+          CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.imageUrl);
         }
       }
     }
@@ -76,7 +76,7 @@
     graphic.beginFill(0xFFFFFF,0);
     graphic.drawRect(0,0,this.tileSource.tileWidth,this.tileSource.tileHeight);
     graphic.endFill();
-    var emptyTex = graphic.generateTexture(false);
+    var emptyTex = graphic.generateCanvasTexture();
 
     this._tiles = [];
     this._tileFirstR = 0;
@@ -91,6 +91,12 @@
         this._tiles[i][j].position.x = j * this.tileSource.tileWidth;
         this._tiles[i][j].position.y = i * this.tileSource.tileHeight;
 
+        if (this.tileSource.transposeTiles &&
+            this.tileSource.transposeTiles.has(this.stack.orientation)) {
+          this._tiles[i][j].scale.x = -1.0;
+          this._tiles[i][j].rotation = -Math.PI / 2.0;
+        }
+
         this._tilesBuffer[i][j] = false;
       }
     }
@@ -99,16 +105,26 @@
   };
 
   /** @inheritdoc */
-  PixiTileLayer.prototype.redraw = function (completionCallback) {
+  PixiTileLayer.prototype.redraw = function (completionCallback, blocking) {
     var scaledStackPosition = this.stackViewer.scaledPositionInStack(this.stack);
     var tileInfo = this.tilesForLocation(
         scaledStackPosition.xc,
         scaledStackPosition.yc,
         scaledStackPosition.z,
-        scaledStackPosition.s);
+        scaledStackPosition.s,
+        this.efficiencyThreshold);
 
-    var effectiveTileWidth = this.tileSource.tileWidth * tileInfo.mag;
-    var effectiveTileHeight = this.tileSource.tileHeight * tileInfo.mag;
+    if (this.hideIfNearestSliceBroken) {
+      // Re-project the stack z without avoiding broken sections to determine
+      // if the nearest section is broken.
+      var linearStackZ = this.stack.projectToLinearStackZ(
+          this.stackViewer.projectCoordinates().z);
+      if (this.stack.isSliceBroken(linearStackZ)) {
+        this.batchContainer.visible = false;
+      } else {
+        this.setOpacity(this.opacity);
+      }
+    }
 
     var rows = this._tiles.length, cols = this._tiles[0].length;
 
@@ -128,17 +144,8 @@
     this._tileFirstC = tileInfo.firstCol;
     this._tileFirstR = tileInfo.firstRow;
 
-    var top;
-    var left;
-
-    if (scaledStackPosition.yc >= 0)
-      top  = -(scaledStackPosition.yc % effectiveTileHeight);
-    else
-      top  = -((scaledStackPosition.yc + 1) % effectiveTileHeight) - effectiveTileHeight + 1;
-    if (scaledStackPosition.xc >= 0)
-      left = -(scaledStackPosition.xc % effectiveTileWidth);
-    else
-      left = -((scaledStackPosition.xc + 1) % effectiveTileWidth) - effectiveTileWidth + 1;
+    var top = tileInfo.top;
+    var left = tileInfo.left;
 
     // Set tile grid offset and magnification on the whole container, rather than
     // individual tiles.
@@ -168,13 +175,13 @@
           var source = this.tileSource.getTileURL(project, this.stack, slicePixelPosition,
               c, r, tileInfo.zoom);
 
-          if (source !== tile.texture.baseTexture.source.src) {
+          if (source !== tile.texture.baseTexture.imageUrl) {
             var texture = PIXI.utils.TextureCache[source];
             if (texture) {
               if (texture.valid) {
                 this._tilesBuffer[i][j] = false;
                 CATMAID.PixiContext.GlobalTextureManager.inc(source);
-                CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.source.src);
+                CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.imageUrl);
                 if (texture.baseTexture.scaleMode !== this._pixiInterpolationMode) {
                   texture.baseTexture.scaleMode = this._pixiInterpolationMode;
                   texture.update();
@@ -220,6 +227,7 @@
       var newRequest = CATMAID.PixiContext.GlobalTextureManager.load(toLoad, this._swapBuffers.bind(this, false, this._swapBuffersTimeout));
       CATMAID.PixiContext.GlobalTextureManager.cancel(this._tileRequest);
       this._tileRequest = newRequest;
+      loading = true;
     } else if (!loading) {
       this._oldZoom = this._swapZoom;
       this._oldZ    = this._swapZ;
@@ -227,7 +235,12 @@
     }
 
     if (typeof completionCallback !== 'undefined') {
-      completionCallback();
+      if (loading && blocking) {
+        this._completionCallback = completionCallback;
+      } else {
+        this._completionCallback = null;
+        completionCallback();
+      }
     }
   };
 
@@ -253,7 +266,7 @@
           if (force || texture && texture.valid) {
             this._tilesBuffer[i][j] = false;
             CATMAID.PixiContext.GlobalTextureManager.inc(source);
-            CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.source.src);
+            CATMAID.PixiContext.GlobalTextureManager.dec(tile.texture.baseTexture.imageUrl);
             tile.texture = texture || PIXI.Texture.fromImage(source);
             if (tile.texture.baseTexture.scaleMode !== this._pixiInterpolationMode) {
               tile.texture.baseTexture.scaleMode = this._pixiInterpolationMode;
@@ -268,6 +281,14 @@
     this._oldZ    = this._swapZ;
 
     this._renderIfReady();
+
+    // If the redraw was blocking, its completion callback needs to be invoked
+    // now that the async redraw is finished.
+    if (this._completionCallback) {
+      var completionCallback = this._completionCallback;
+      this._completionCallback = null;
+      completionCallback();
+    }
   };
 
   CATMAID.PixiTileLayer = PixiTileLayer;

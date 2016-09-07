@@ -22,6 +22,7 @@
       this.firstName = firstName;
       this.lastName = lastName;
       this.color = color;
+      this.isAanonymous = (login === 'AnonymousUser');
 
       // Cache the instance for later lookups.
       User.prototype.users[userID] = this;
@@ -44,6 +45,26 @@
   User.all = function()
   {
     return User.prototype.users;
+  };
+
+  /**
+   * Return a list of all user IDs, sorted by the given field. If non is given,
+   * the full name is used.
+   */
+  User.sortedIds = function(field) {
+    field = field || 'fullName';
+    var users = User.prototype.users;
+    var userIds = Object.keys(users);
+    userIds.sort(function(id1, id2) {
+      var value1 = users[id1][field];
+      var value2 = users[id2][field];
+      if (undefined === value1 || undefined === value2) {
+        throw new CATMAID.ValueError('Could not read field ' + field +
+            ' of users ' + id1 + ' and ' + id2);
+      }
+      return CATMAID.tools.compareStrings(value1, value2);
+    });
+    return userIds;
   };
 
   /**
@@ -102,7 +123,7 @@
         function (status, text, xml) {
           if (status == 200 && text)
           {
-            var jsonData = $.parseJSON(text);
+            var jsonData = JSON.parse(text);
             for (var i = 0; i < jsonData.length; i++)
             {
               var userData = jsonData[i];
@@ -174,7 +195,7 @@
         options_to_save,
         function (status, text, xml) {
           if (status == 200 && text) {
-              var e = $.parseJSON(text);
+              var e = JSON.parse(text);
               if (e.error) {
                 new CATMAID.ErrorDialog("Couldn't update user settings!",
                     e.error).show();

@@ -19,7 +19,7 @@
   /**
    * Enumerate the user and project scopes for unique key-value entries provided
    * by the datastore.
-   * @type {[string]}
+   * @type {string[]}
    */
   DataStore.SCOPES = [
     'USER_PROJECT',
@@ -63,10 +63,23 @@
                       if (!e.has(d.key)) {
                         e.set(d.key, {});
                       }
-                      e.get(d.key)[scope] = {
-                        dirty: false,
-                        value: $.parseJSON(d.value)
-                      };
+
+                      try {
+                        var value = (typeof d.value === 'string' || d.value instanceof String) ?
+                            JSON.parse(d.value) :
+                            d.value;
+                        e.get(d.key)[scope] = {
+                          dirty: false,
+                          value: value
+                        };
+                      } catch (error) {
+                        // Do not alert the user, since this will not affect
+                        // other key/scopes and there is nothing explicit they
+                        // can do to correct it.
+                        console.log('Client data for store ' + d.key +
+                                    ', scope ' + scope + ' was not parsable.');
+                      }
+
                       return e;
                     },
                     new Map());
@@ -134,7 +147,7 @@
     };
 
     if (writeThrough) return this._store(key, scope);
-    else Promise.resolve();
+    else return Promise.resolve();
   };
 
   /**
@@ -162,7 +175,12 @@
             key: key,
             value: JSON.stringify(entry.value)
           },
-          CATMAID.jsonResponseHandler(resolve, reject));
+          CATMAID.jsonResponseHandler(resolve, reject, true));
+    }).catch(function (reason) {
+      if (reason && reason.status && reason.status === 403) {
+        console.log('Datastore lacks permissions to store for ' +
+                    'store: ' + self.name + ' key: ' + key + ' scope: ' + scope);
+      }
     });
   };
 

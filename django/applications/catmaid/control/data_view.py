@@ -13,13 +13,44 @@ from django.contrib.contenttypes.models import ContentType
 from taggit.models import TaggedItem
 
 from catmaid.control.common import makeJSON_legacy_list
-from catmaid.control.project import get_project_qs_for_user, extend_projects
-from catmaid.models import DataView, DataViewType, Project, Stack, ProjectStack
+from catmaid.control.project import get_project_qs_for_user
+from catmaid.models import (Class, DataView, DataViewType, Project, Stack,
+        ProjectStack, StackGroup)
+
+class ExProject:
+    """ A wrapper around the Project model to include additional
+    properties.
+    """
+    def __init__(self, project, is_catalogueable):
+        self.project = project
+        self.is_catalogueable = is_catalogueable
+
+    def __getattr__(self, attr):
+        """ Return own property when available, otherwise proxy
+        to project.
+        """
+        if attr in self.__dict__:
+            return getattr(self,attr)
+        return getattr(self.project, attr)
+
+def add_catalogue_info(user, projects):
+    """ Adds the is_catalogueable property to all projects passed.
+    """
+    # Find all the projects that are catalogueable:
+    catalogueable_projects = set(x.project.id for x in \
+        Class.objects.filter(class_name='driver_line').select_related('project'))
+
+    result = []
+    for p in projects:
+        ex_p = ExProject(p, id in catalogueable_projects)
+        result.append(ex_p)
+
+    return result
 
 def get_data_view_type_comment( request ):
     """ Return the comment of a specific data view type.
     """
-    requested_id = request.REQUEST["data_view_type_id"]
+    requested_id = request.GET["data_view_type_id"]
     if requested_id == "":
         text = "Please select a valid data view type."
     else:
@@ -93,25 +124,47 @@ def get_data_view( request, data_view_id ):
     config = json.loads( dv.config )
 
     # Get all the projects that are visible for the current user
-    projects = get_project_qs_for_user(request.user).prefetch_related('stacks')
+    projects = get_project_qs_for_user(request.user)
 
     # If requested, filter projects by tags. Otherwise, get all.
     if "filter_tags" in config:
         filter_tags = config["filter_tags"]
         # Only get projects that have all the filter tags set
+        # TODO: Improve performande by not using an IN query (but a temp table
+        # join) over all filter_tags.
         projects = projects.filter( tags__name__in=filter_tags ).annotate(
             repeat_count=Count("id") ).filter( repeat_count=len(filter_tags) )
+
+    show_stacks = config.get('show_stacks', True)
+    show_stackgroups = config.get('show_stackgroups', True)
+
+    # Make sure we get all needed stacks in the first query
+    if show_stacks:
+        projects = projects.prefetch_related('stacks')
 
     # Build a stack index
     stack_index = defaultdict(list)
     stacks_of = defaultdict(list)
-    for p in projects:
-        for s in p.stacks.all():
-            stack_index[s.id] = s
-            stacks_of[p.id].append(s)
 
-    # Extend the project list with additional information like editabilty
-    projects = extend_projects( request.user, projects )
+    if show_stacks:
+        for p in projects:
+            for s in p.stacks.all():
+                stack_index[s.id] = s
+                stacks_of[p.id].append(s)
+
+    # Build a stack group index, if stack groups should be made available
+    stackgroup_index = defaultdict(list)
+    stackgroups_of = defaultdict(list)
+    if show_stackgroups:
+        # Get all
+        stackgroups = StackGroup.objects.filter(project__in=projects)
+        for sg in stackgroups:
+            stackgroup_index[sg.id] = sg
+            stackgroups_of[sg.project_id].append(sg)
+
+    # Extend the project list with catalogue information
+    if 'catalogue_link' in config:
+        projects = add_catalogue_info( request.user, projects )
 
     # Sort by default
     if "sort" not in config or config["sort"] == True:
@@ -130,7 +183,7 @@ def get_data_view( request, data_view_id ):
         if pid in project_ids:
             tag_index[t].add(pid)
 
-    context = Context({
+    context = {
         'data_view': dv,
         'projects': projects,
         'config': config,
@@ -139,7 +192,9 @@ def get_data_view( request, data_view_id ):
         'project_index': project_index,
         'stack_index': stack_index,
         'stacks_of': stacks_of,
+        'stackgroup_index': stackgroup_index,
+        'stackgroups_of': stackgroups_of,
         'STATIC_URL': settings.STATIC_URL,
-    })
+    }
 
     return HttpResponse( template.render( context ) )

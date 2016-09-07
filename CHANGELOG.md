@@ -1,3 +1,698 @@
+## Under development
+
+
+
+### Features and enhancements
+
+Review widget:
+
+- Skeleton Analytics, which was a separate widget before, is now available
+  through a new tab in the Review Widget. It still lists the same problems for
+  selected neurons as before (i.e.  missing end tags).
+
+
+### Bug fixes
+
+- The statistics widget now properly respects time zones when grouping by day.
+
+- Partner neurons listed in the Connectivity Widget can now be filtered again
+  with regular expressions (when the filter pattern starts with "/").
+
+- Loading stack groups through URLs now correctly respects the specified location.
+
+
+## 2016.09.01
+
+Contributors: Andrew Champion, Tom Kazimiers
+
+### Features and enhancements
+
+3D viewer:
+
+- The 'View settings' has a new option: 'Use native resolution'. When
+  activated (default), the native resolution of the current display will
+  be used. This improves image quality on HiDPI displays like Apple Retina.
+  If the performance penality is too big for large scenes, this can be
+  switched off again.
+
+
+Connectivity Matrix:
+
+- With the help of the "Export XLSX" button, the currently displayed matrix can
+  be exported as a Microsoft Excel compatible XLSX file. Colors are preserved.
+
+
+Miscellaneous:
+
+- With the help of the 'sg' and 'sgs' deep link parameters, stack groups can now
+  be loaded directly through a URL.
+
+
+### Bug fixes
+
+- If multiple stack viewers are open, skeletons can now me modified again across
+  all open tracing layers. E.g. with orthogonal views, selecting a node in one
+  view and adding a child in another view work again.
+
+
+## 2016.08.26
+
+Contributors: Andrew Champion, Tom Kazimiers
+
+### Features and enhancements
+
+3D viewer:
+
+- When coloring by creator the user colormap dialog only shows users who have
+  created at least one node loaded in the view. Additionally, a new coloring
+  mode, "By Creator (relevant users)", will generate a new set of colors for
+  these users from the CATMAID color scheme. This is useful if many users have
+  similar colors in their user profiles.
+
+- Rendering and removal of skeletons is much faster, which is especially
+  noticeable for > 100 loaded skeletons. This also enables the use of a more
+  accurate node picking (Shift+click) algorithm as default, which before was
+  only used as fallback.
+
+
+Volume manager:
+
+- Volumes an now be removed (given a user has the required permissions) by
+  clicking on the 'remove' link in the last column of the volume table.
+
+
+Statistics widget:
+
+- If a user has the can_administer permission for a project, the Statistics
+  widget now displays an extra button to open the new User Analytics widget. It
+  displays the same information as the admin view with the same name. The user
+  analytics view now offers also options to adjust the max. inactivity time and
+  whether all write operations should be included (as opposed to only node and
+  review changes).
+
+
+Tracing overlay:
+
+- Radii can now be set to be visible for no nodes, the active node, all nodes
+  in the active skeleton, or all nodes through the Settings Widget.
+
+- Pressing Ctrl + O will set a radius with the measurement tool without
+  bringing up the confirmation dialog.
+
+
+Miscellaneous:
+
+- Holding Ctrl with < or > will now smoothly animate through sections as
+  fast as the active layers will allow. This also works with Shift to move
+  10 sections at a time.
+
+- The log now displays times in the local timezone.
+
+- The connector table now lists the confidence of both the link to the
+  connector and from the connector to the target treenode.
+
+
+### Bug fixes
+
+- Remove major cause of CATMAID freezing after the display of an error message.
+
+- Annotation search lists all results again, not only first page.
+
+- When joining skeletons, the creation time of annotations is preserved.
+
+- Fixed an error preventing branching from virtual nodes in some cases.
+
+- The history widget correctly displays the action time, not the current time.
+
+
+## 2016.08.12
+
+Contributors: Andrew Champion, Tom Kazimiers
+
+### Notes
+
+- Release 2016.08.09 is deprecated. If you have it installed, please upgrade to
+  this version, 2016.08.12.
+
+
+### Features and enhancements
+
+Tracing overlay:
+
+- Node tags now respect visibility groups.
+
+
+3D viewer:
+
+- Exporting an animation will now use the rotation axis selected in the regular
+  widget controls.
+
+
+### Bug fixes
+
+- The browser link preview no longer obscures the status bar when hovering
+  over the tracing layer.
+
+- Node tags are correctly hidden when holding Space.
+
+- Fixed an error that could sometimes happen on page load for anonymous users.
+
+- Missing documentation for curent volumes features added to
+
+
+## 2016.08.09
+
+Contributors: Albert Cardona, Andrew Champion, Tom Kazimiers
+
+### Notes
+
+- A virtualenv upgrade is required.
+- PostgreSQL 9.5 and PostGIS 2.2 is now required. When updating, update PostGIS
+  first and update all databases in which the PostGIS extension is installed by
+  running "ALTER EXTENSION postgis UPDATE;". Then perform the Postgres update.
+
+
+### Features and enhancements
+
+Tracing overlay:
+
+- Visibility groups can be defined that hide or show nodes in the overlay
+  based upon filtering criteria such as neuron meta-annotations or node
+  creator. Unlike the skeleton source based visibility, visibility groups can be
+  toggled instantly with HOME (for group 1) or Shift + HOME (for group 2). For
+  meta-annotation based visibility, this does not require using a search as a
+  skeleton source, and the set of skeletons matched by the meta-annotations is
+  transparently refreshed in the background. Another visibility group,
+  "Always visible", establishes a set of filters for overriding hidden groups
+  such that skeletons matched by these filters will always be shown.
+
+- The active node color for virtual nodes can now be configured to be different
+  than for read nodes.
+
+- The active node color for suppressed virtual nodes can be configured to be
+  different than for unsuppressed virtual nodes. Note this only takes effect
+  if the "Respect suppressed virtual nodes during navigation" setting is
+  enabled.
+
+
+3D viewer:
+
+- Through the "List connectors" button on the Main tab, it is now possible to
+  open a connector selection with all currently loaded connectors in it.
+  Skeleton visibility and connector restrictions are respected.
+
+
+Importer:
+
+- Projects and stacks available on remote servers can now be imported,
+  optionally with API-key authentication on other CATMAID instances.  The remote
+  data source can of course be any URL in a JSON or YAML format understood by
+  CATMAID. The import section in the CATMAID documentation holds more detail on
+  this. For CATMAID, the new "projects/export" endpoint provides all required
+  data that is visible to the requesting user.
+
+
+Graph widget:
+
+- The new button "Open Connectivity Matrix" in the Export tab will open a new
+  Connectivity Matrix widget for the current graph, including its groups.
+
+
+Connectivity matrix:
+
+- It is now possible to manually change the order of multiple entries at once,
+  which is useful to move sets of entries. The "Display" tab now has a "Manually
+  edit order" option. If checked, number input boxes are shown next to each row
+  and column head as well as a "Re-order" button in the top-left cell if the
+  table. After the numbers are adjusted to the desired order, the "Re-order"
+  button will apply the new ordering. Negative and decimal numbers can be used.
+
+- Connectivity matrices can now be exported as PDF. The "Export PDF" button on
+  the "Main" tab will open a dialog explaining that this PDF export is made
+  through having the browser print the table and how to enable colors. Pressing
+  "Print" will show the browser's print dialog for only the table.
+
+
+Settings widget:
+
+- Tracing overlay colors customized in the settings widget are now persistent.
+
+- Neuron name settings customized in the settings widget are now persistent.
+
+- The delimiter used to separate annotations in a neuron name can now be
+  configured in the Annotations section of the Settings Widget.
+
+- It is now possible to configure the available page length options used by
+  most tables from a central place. This is done through the "Table page length
+  options" setting, which is available from the Settings widget. For widgets to
+  be aware of page length setting changes, they have to be reloaded.
+
+
+History tables:
+
+- Starting with this release, CATMAID will record every single change to its
+  database tables in so called history tables. This makes it possible to
+  reconstruct the actual history of data (e.g. neurons) and user contributions.
+  Even data deleted in CATMAID can now be recovered without touching backups.
+
+- The log widget in the front-end provides a way to few the history: It has a
+  new tab called "History", where each event that caused related database
+  changes is listed.
+
+
+Miscellaneous:
+
+- Alt + Y will always create a new selection table and add the active neuron
+  to it. Also works with Shift.
+
+- Images on CATMAID's front-page are now loaded lazily, i.e. they are only
+  requested and shown once they come into view. This improves performance
+  significantly when displaying many sample images.
+
+- New filter "Label Color Map" will false-color stacks of label ID images.
+
+- The button "Add annotations to neurons" above annotation lists in the
+  Neuron Navigator makes it possible to send currently selected
+  annotations to other neurons. Those target neurons are selected by
+  choosing a skeleton source in a dialog box, which is shown to the user
+  once the button is pressed.
+
+### Bug fixes
+
+- Additive blending between layers now works also when filters are in use. This
+  allows for proper in-browser composite generation.
+
+- Hidden nodes are no longer selected by G or Shift + Y.
+
+- All skeleton sources are now selectable when exporting NeuroML.
+
+- Fix "Reset to inherited default" and "Lock this setting" buttons in settings
+  controls not being clickable.
+
+- All layouts of the color picker can be used again (i.e. resizing it).
+
+
+## 2016.05.26
+
+Contributors:: Albert Cardona, Andrew Champion, Tom Kazimiers
+
+### Notes
+
+- The default image base setting for the importer has changed. If you use the
+  importer along with this setting, please update your settings.py file to now
+  use IMPORTER_DEFAULT_IMAGE_BASE instead of CATMAID_IMPORT_URL. The semantics
+  stay the same.
+
+
+### Features and enhancements
+
+Graph widget:
+
+- If a skeleton is appended that already exists in a group, the group's color
+  and label now doesn't change anymore. Instead a info message is shown.
+
+- Selected edges can now be removed with the help of the "Remove" button in the
+  "Selection" tab. Also, a help text icon has been added to the title bar. The
+  widget help window currently only contains information on how edges/links
+  between nodes can be hidden.
+
+
+Volume widget:
+
+- Preview for alpha shapes is now disabled by default due to its potential
+  re-computation cost.
+
+- Convex hull and alpha shape meshes are now only automatically re-generated on
+  property changes if preview is enabled.
+
+- Saving a new volume makes sure the volume's mesh is up-to-date and will
+  re-generate it if needed. Re-generations will now also show an info dialog.
+  If no mesh could be generated, saving is not allowed and the edit form will
+  stay open.
+
+- Two new filters for convex hulls and alpha shapes are now available: "only
+  end nodes" (optionally including the root) and "only branch nodes". These
+  will restrict the base point set for volume generation.
+
+- Alpha shapes now use the inverse of the alpha value used so far. This makes it
+  easier to use since it translates directly into nanometers.
+
+- If a synaptic connection filter is used with Alpha shapes and convex hulls, it
+  is now possible to select all synaptic nodes, regardless of the partner
+  skeleton (select "None" as partner neurons), and to select both pre- and
+  post-synaptic nodes at the same time.
+
+- Alpha shapes now use a different implementation which takes a little bit more
+  time to compute, but doesn't require re-computation if different alpha values
+  are used. This makes finding a good alpha value much quicker. The input field
+  for the alpha value to use is now also a numeric field in which arrow keys and
+  mouse wheel can be used to change the value. A second numeric input allows to
+  change the step size of alpha value changes.
+
+- For preview, volumes now use the color and opacity defined in the 3D viewer.
+
+
+Tile layer:
+
+- An efficient browsing mode is now available that will not load tiles at
+  the periphery of the stack viewer. This is useful to reduce data use and
+  browsing latency on bandwidth-limited connections. To use this mode, increase
+  the "Tile area efficiency threshold" in the tile layer controls.
+
+
+3D viewer:
+
+- Meshes and volumes can now optionally be displayed with visible faces instead
+  of wireframe only.
+
+- Volume list is now updated when new volumes are added, re-opening the widget
+  is not required anymore.
+
+- Transparent volumes are now displayed correctly.
+
+
+Miscellaneous:
+
+- If a client tries to perform an operation without having the most recent data
+  available and the performed action is canceled, a more helpful dialog is now
+  shown. It explains the situation and offers to refresh the client view
+  (currently only nodes in the tracing layer are refreshed).
+
+
+Administration:
+
+- The image data importer available from CATMAID's admin interface supports now
+  the specification of stack groups. It can also apply custom translations when
+  mapping imported stacks to imported projects.
+
+
+### Bug fixes
+
+- Creating nodes using the Z key without other nodes in close proximity works
+  again.
+
+- Zoom level slider initialized correctly for stacks with eight zoom levels.
+
+- Showing connector info for edge in Graph widget (Alt+Click) now works also if
+  the source is a single neuron and the target a group or split node.
+
+- Activate target node of a joined-in skeleton again.
+
+
+## 2016.04.18
+
+Contributors: Albert Cardona, Andrew Champion, Tom Kazimiers
+
+
+### Features and enhancements
+
+Miscellaneous:
+
+- The skeleton projection layer can now draw the colors used from the selected
+  source. This is now the default and can be changed in the settings widget with
+  the help of the "Use source colors" checkbox.
+
+- Unavailable images on CATMAID's front pages are now displayed as a gray
+  placeholder box, instead of the broken image icon of the browser.
+
+- A new volume type was added: alpha shapes can now be created in practically the
+  same way as convex hull volumes are created. Alpha shapes have one additional
+  parameter: alpha. It is used to filter edges for result mesh and has to be
+  fairly low with our spatial dimensions. Values around 0.00001 seemed to work
+  well in some cases. The preview of alpha shapes is disabled by default, because
+  they can take much longer to compute.
+
+- Materialized virtual nodes have now the correct edition time set, which make
+  operations like adding a child to a virtual node work again (state checks
+  prevent this with wrong edition time).
+
+- The neuron search will now show a warning and cancel a search if a query
+  annotation doesn't exist and the query term doesn't start with a forward
+  slash (used for regular expressions).
+
+
+### Bug fixes
+
+- Creating synaptic connections from connector nodes across sections works
+  again.
+
+- Inserting a node along an edge will now render correctly right after using
+  ctrl+alt+click.
+
+- Merging two skeletons while the losing skeleton was loaded into another widget
+  (e.g. Selection Table) doesn't trigger an error anymore.
+
+- Undoing confidence changes works again.
+
+
+## 2016.04.15
+
+Contributors: Albert Cardona, Andrew Champion, Daniel Witvliet, Stephan Gerhard, Tom Kazimiers
+
+### Notes
+
+Starting with this release CATMAID uses a new database migration system. To
+update an existing CATMAID instance safely, please follow these steps:
+
+1. Make sure you have CATMAID updated to the last release (2015.12.21),
+   including all database migrations and up-to-date Python packages.
+2. Upgrade to this version (or a newer one) and update pip and all Python
+   packages (in within your virtualenv), South can be removed afterwards:
+
+   ```
+   pip install -U pip
+   pip install -r requirements.txt
+   pip uninstall south
+   ```
+
+3. Remove the following variables from settings.py file (in
+   `django/projects/mysite/`): `TEMPLATE_DIRS`, `TEMPLATE_DEBUG`
+
+4. Fake initial migrations (and only the initial migration!) of the
+   `contenttypes` app and apply its other migrations:
+
+   ```
+   python manage.py migrate --fake contenttypes 0001_initial
+   python manage.py migrate contenttypes
+   ```
+
+5. Fake initial migrations (and only the initial migrations!) of all used
+   Django applications to register current database state:
+
+   ```
+   python manage.py migrate --fake admin 0001_initial
+   python manage.py migrate --fake auth 0001_initial
+   python manage.py migrate --fake authtoken 0001_initial
+   python manage.py migrate --fake catmaid 0001_initial
+   python manage.py migrate --fake djcelery 0001_initial
+   python manage.py migrate --fake guardian 0001_initial
+   python manage.py migrate --fake kombu_transport_django 0001_initial
+   python manage.py migrate --fake performancetests 0001_initial
+   python manage.py migrate --fake sessions 0001_initial
+   python manage.py migrate --fake sites 0001_initial
+   python manage.py migrate --fake taggit 0001_initial
+   ```
+
+6. In the future no syncdb step is required anymore. Continue with the rest of
+   the regular update procedure:
+
+   ```
+   python manage.py migrate
+   python manage.py collectstatic [-l]
+   ```
+
+This procedure will only be required for upgrading an existing instance to a
+release newer than 2015.12.21. It won't be needed to migrate from newer
+releases.
+
+Also note that if you are running an Apache/mod_wsgi setup (or referencing
+django.wsgi), you have to re-generate your configuration with:
+
+   ```
+   ./django/create_configuration
+   ```
+
+Additionally, PostgreSQL is now required to be of version 9.4.
+
+
+### Features and enhancements
+
+Tracing overlay:
+
+- Colors of skeleton nodes and edges in the tracing overlay can now be
+  configured to follow colors from selection tables. To configure which
+  skeleton sources to use to select colors, click the skeleton source control
+  icon (the gear) in the title bar of the stack viewer.
+
+- Visibility of skeletons in the tracing overlay can also be controlled by
+  skeleton source subscriptions. To enable this, check "Hide skeletons not
+  in the skeleton source subscriptions" in the Settings widget under Tracing
+  Overlay > Skeleton colors. Note that it the tracing overlay may not update
+  the visibility of some skeletons until a navigation action is performed.
+
+
+Gap junctions:
+
+- A new non-directional connector type for gap junctions can now be created
+  when tracing by Alt + clicking in the tracing overlay. Edges for gap
+  junctions are displayed in purple.
+
+- Gap junction partners can optionally be displayed in a separate table in the
+  Connectivity Widget by checking "Show gap junctions". This table has its
+  own selections for confidence and count thresholds.
+
+
+Volumes:
+
+- The volume widget can create a new volume type: convex hulls. These can be
+  created around a set of nodes from any skeleton source. Different filters can
+  be combined: filters to allow only nodes that have a certain tag, a sub-arbor
+  relative to such nodes (optionally occurring a definable number of times), a
+  region between two tags tag or nodes that are synaptic to skeletons of another
+  skeleton source. Node radii can optionally be ignored, but they are respected
+  by default. A preview of the current filter set can be displayed in the first
+  available 3D viewer.
+
+
+3D Viewer:
+
+- Gap junctions are displayed like synapse edges in purple.
+
+- Stack related settings (bounding box, missing sections and z planes) are now
+  moved to a tab called "Stacks".
+
+- Stack bounding boxes and missing sections now update when stack viewer focus
+  changes.
+
+- A new sphere shading allows for a better depth perception.
+
+- Volumes (created in the Volume Widget) can be displayed. A new selection
+  control in the "View settings" tab allows to select individual volumes. They
+  are colored the same way as they regular mesh. Currently, the color isn't
+  updated on purpose to allow the easy creation of differently colored volumes.
+
+- When the current Z plane is displayed, it will now have the section's images
+  data mapped to it. The used zoom level (resolution) and the opacity can be
+  adjusted and orthogonal stacks are supported, too.
+
+- When restricting connectors to those shared by groups, you can now choose
+  to include only those linking pre->post between the two groups in a specific
+  direction.
+
+
+Skeleton Projection layer:
+
+- Instead of supporting only the display of the active skeleton, the projection
+  layer can now subscribe to other skeleton sources and display multiple
+  skeleton projections at the same time. The used source can be selected in the
+  Settings Widget. This way, for instance, a Selection Table could provide input
+  to the projection layer and effectively control which skeletons will be
+  projected.  And Through its own subscriptions, the Selection Table could even
+  provide a dynamic list that includes the active node.
+
+
+Neuron Search:
+
+- A search result can now be exported as CSV. Only selected rows are exported.
+  The resulting CSV will contain neuron IDs and neuron names. If annotations are
+  displayed, a third column includes annotations.
+
+
+Undo:
+
+- Some actions are now stored as so called commands in a history, which can be
+  displayed in a dialog by pressing the F9 key. Commands in this history can are
+  reversible. They can be undone either through the history dialog or by pressing
+  Ctrl+Z.
+
+- Through the history dialog, undone commands can also be redone. Of course,
+  once one diverges from the list of previously undone commands by executing a
+  completely new command (e.g. creating a node), redo is not possible anymore.
+
+- The following actions are recorded into history: tag add/remove/edit,
+  annotation add/remove/edit, node radius edit, neuron rename, confidence
+  change, connector link/unlink and node add/insert/move/remove/.
+
+
+Ontologies, classification and clustering:
+
+- Ontology tool widgets don't reset each other anymore if they are loaded.
+
+- The Classification Editor and Ontology Editor open sub-trees now quicker.
+
+- Clustering ontology based classifications is much faster and works for
+  multi-level ontologies on thousands of classification graphs.
+
+
+Administration and Performance:
+
+- The return type of many performance-critical queries, like querying nodes
+  for the tracing overlay, is now correctly specified as 'application/json'
+  rather than 'text/html'. Make sure your nginx has gzip enabled for the
+  'application/json' type in its 'gzip_types' setting so that these responses
+  are compressed.
+
+
+Miscellaneous:
+
+- Dragging a window into the center of another window now creates a tabbed
+  window where both windows share the same area of the screen and can be
+  switched between using tabs at the top of the window. Additional tabs
+  can be added by dragging more windows into the center of the tabbed window.
+  The active tab can be removed from the tabbed window by dragging it to
+  another location in the window layout.
+
+- Dragging a window onto the top, left, bottom, or right edge of an already
+  tabbed window while holding SHIFT will add it to that location inside the
+  tab.
+
+- There is now a setting to invert the behavior of CTRL when navigating
+  parent/child topology, i.e., when enabled [ and ] will navigate to the
+  next real node by default, while holding CTRL will go to virtual nodes.
+
+- Which layers are hidden when Space is held is now configurable by checkboxes
+  in the Stack Viewer's layer controls.
+
+- Scroll bar positions in widgets are now maintained when they change their
+  size.
+
+- Non-superusers can now see user analytics and proficiency reports for
+  projects for which they are administrators.
+
+- WebGL layers are now compatible with DVID stacks.
+
+- Tile layers now have an option in the layer controls to hide the tile layer
+  if the nearest section is marked as broken, rather than the default behavior
+  of displaying the nearest non-broken section.
+
+- Clustering over large sets of ontology based classification is now much faster.
+
+
+### Bug fixes
+
+- The skeleton projection layer can be used again and now renders lines with the
+  same width as the tracing layer. This width can be configured in the settings
+  widget.
+
+- Color pickers will now update the color of color picker enabled DOM elements
+  again.
+
+- Fixed hiding edges with less than 2 synapses in the Graph Widget resulting
+  in no edges.
+
+- Fixed an issue where cloning the Graph Widget cloned into the wrong widget.
+
+- Fixed an issue preventing removing split neurons from the Graph Widget.
+
+- Fixed an intermittent exception when renaming neurons.
+
+- Fixed a second Neuron Search widget not working properly.
+
+- Adding a neuron to a Selection Table now re-runs the sorting scheme.
+
+- Fixed Connectivity Matrix cloning.
+
+
 ## 2015.12.21
 
 Contributors: Albert Cardona, Andrew Champion, Eric Trautman, Tom Kazimiers

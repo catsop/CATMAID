@@ -59,11 +59,18 @@
     };
   }
 
-  function onRender(colors, mode) {
+  function onDisplay(colors, mode, options) {
     if (resizeOnRender) {
       CATMAID.tools.callIfFn(resizeOnRender);
       resizeOnRender = null;
     }
+
+    // Make sure no width or height is explicitely set on the container
+    // element, which would prevent proper resizing.
+    $("div.cp-app").css({
+      width: "",
+      height: ""
+    });
   }
 
   /**
@@ -86,7 +93,7 @@
         beforeHideCallback: onClose,
         convertCallback: onConvert,
         afterShowCallback: onShow,
-        renderCallback: onRender
+        displayCallback: onDisplay
       };
       var $element = $(element).colorPicker(config);
       $element.focus();

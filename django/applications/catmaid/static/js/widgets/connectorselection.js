@@ -17,15 +17,42 @@
         relation: relation},
         function(status, text) {
           if (200 !== status) return;
-          var json = $.parseJSON(text);
+          var json = JSON.parse(text);
           if (json.error) {
             alert(json.error);
             return;
           }
-          var text = 'Synapses ' + ('presynaptic_to' === relation ? 'post' : 'pre') +
-              'synaptic to neuron' + (skids1.length > 1 ? 's' : '') + ' ' + skids1.map(CATMAID.NeuronNameService.getInstance().getName).join(', ');
-          show_table(text, json);
+          var text;
+          if ('presynaptic_to' === relation) {
+            text = 'Synapses presynaptic to';
+          } else if ('postsynaptic_to' === relation) {
+            text = 'Synapses postsynaptic to';
+          } else if ('gapjunction_with' === relation) {
+            text = 'Gap junctions with';
+          }
+          if (text !== undefined) {
+            text += ' neuron' + (skids1.length > 1 ? 's' : '') + ' '
+                 + skids1.map(CATMAID.NeuronNameService.getInstance().getName).join(', ');
+            show_table(text, json, relation);
+          } else {
+            alert('Unsupported relation: ' + relation);
+          }
         });
+  };
+
+  /**
+   * Load all connectors in the passed in list and display a connector selcetion
+   * for the result.
+   */
+  ConnectorSelection.prototype.showConnectors = function(connectorIds, skeletonIds) {
+    if ((!connectorIds || !connectorId.length) && (!skeletonIds || !skeletonIds.length)) {
+      CATMAID.warn("No skeletons or connectors provided");
+      return;
+    }
+    CATMAID.Connectors.list(project.id, connectorIds, skeletonIds)
+      .then(function(result) {
+        show_table("", result.connectors, null);
+      });
   };
 
   /**
@@ -53,10 +80,7 @@
       "bServerSide": false, // Enable sorting locally, and prevent sorting from calling the fnServerData to reload the table -- an expensive and undesirable operation.
       "bAutoWidth": false,
       "iDisplayLength": -1,
-      "aLengthMenu": [
-        [-1, 10, 100, 200],
-        ["All", 10, 100, 200]
-      ],
+      "aLengthMenu": [CATMAID.pageLengthOptions, CATMAID.pageLengthLabels],
       //"aLengthChange": false,
       "bJQueryUI": true,
       "aoColumns": [
@@ -100,10 +124,31 @@
     });
   };
 
-  var show_table = function(header, connectors) {
+  var show_table = function(header, connectors, relation) {
+    if (!connectors || 0 === connectors.length) {
+      CATMAID.warn("No connectors to show");
+      return;
+    }
     WindowMaker.show('create-connector-selection');
     // Write the label
     $('#connector-selection-label').text(header);
+    
+    // Set proper table titles
+    var titles;
+    if (relation == 'presynaptic_to' || relation == 'postsynaptic_to' || relation === undefined) {
+      titles = ['Presyn. neuron', 'Postsyn. neuron'];
+    } else {
+      titles = ['Neuron 1', 'Neuron 2'];
+    }
+    $('#connectorselectiontable thead th.preheader div').html(function() {
+      return titles[0] + $(this).children()[0].outerHTML;
+    });
+    $('#connectorselectiontable thead th.postheader div').html(function() {
+      return titles[1] + $(this).children()[0].outerHTML;
+    });
+    $('#connectorselectiontable tfoot th.preheader').html(titles[0]);
+    $('#connectorselectiontable tfoot th.postheader').html(titles[1]);
+
 
     // Split up the JSON reply
     var locations = {}; // keys are connector IDs

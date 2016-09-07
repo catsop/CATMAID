@@ -291,10 +291,14 @@ CATMAID.tools = CATMAID.tools || {};
    * background of the given hex color. The heuristic is to use black if the
    * approximate luminance is above 50%.
    */
-  tools.getContrastColor = function(hex) {
+  tools.getContrastColor = function(hex, getHex) {
     var rgb = CATMAID.tools.hexToRGB(hex);
     var lum = CATMAID.tools.rgbToLuminance(rgb.r, rgb.g, rgb.b);
-    return lum <= 128 ? "white" : "black";
+    if (getHex) {
+      return lum <= 128 ? "#ffffff" : "#000000";
+    } else {
+      return lum <= 128 ? "white" : "black";
+    }
   };
 
   /**
@@ -354,11 +358,8 @@ CATMAID.tools = CATMAID.tools || {};
 
     return function (isodate) {
       var date = new Date(isodate);
-      // ES5 interprets all ISO 8601 times without time zone as UTC, while
-      // CATMAID uses local time. Adjust the time accordingly. This is not
-      // robust for users in different time zones, but is the least surprising
-      // behavior possible so long as CATMAID does not account for time zones.
-      date.setTime(date.getTime() + date.getTimezoneOffset() * MINUTE);
+      // ES5 interprets all ISO 8601 times without time zone as UTC, so should
+      // adjust to local time automatically as long as the backend returns UTC.
       var ago = Date.now() - date;
 
       if (ago < MINUTE) {
@@ -428,6 +429,92 @@ CATMAID.tools = CATMAID.tools || {};
 
     for (var key in obj) {
       if (hasOwnProperty.call(obj, key)) return false;
+    }
+
+    return true;
+  };
+
+  /**
+   * Returns the passed in value if it is not undefined. Otherwise returns
+   * passed in default.
+   */
+  tools.getDefined = function(value, fallback) {
+    return undefined === value ? fallback : value;
+  };
+
+  /**
+   * Make all letters except the first of the second parameter lower case. Used
+   * by cloneNode() function.
+   */
+  var camelize = function(a,b){
+      return b.toUpperCase();
+  };
+
+  /**
+   * Clone a DOM node and apply the currently computed style. All child nodes
+   * are copied as well.
+   */
+  tools.cloneNode = function(element, copyStyle) {
+    var copy = element.cloneNode(false);
+    // Add style information
+    if (copyStyle && Node.ELEMENT_NODE === element.nodeType) {
+      var computedStyle = window.getComputedStyle(element, null);
+      var target = copy.style;
+      for (var i = 0, l = computedStyle.length; i < l; i++) {
+          var prop = computedStyle[i];
+          var camel = prop.replace(/\-([a-z])/g, camelize);
+          var val = computedStyle.getPropertyValue(prop);
+          target[camel] = val;
+      }
+    }
+
+    for (var i=0, length=element.childNodes.length; i<length; ++i) {
+      var child = element.childNodes[i];
+      var childClone = CATMAID.tools.cloneNode(child, copyStyle);
+      copy.appendChild(childClone);
+    }
+
+    return copy;
+  };
+
+  /**
+   * Print a HTML element.
+   */
+  tools.printElement = function(element) {
+    // Add table to new window
+    var printWindow = window.open("");
+    if (!printWindow) {
+      CATMAID.warn("Couldn't open new window for printing");
+      return;
+    }
+    var clone = CATMAID.tools.cloneNode(element, true);
+    var printHTML = "<html><body></body></html>";
+    printWindow.document.write("<html><body></body></html>");
+    printWindow.document.body.appendChild(clone);
+
+    printWindow.print();
+    printWindow.close();
+  };
+
+  /**
+   * Apply thr trim() function to a string. Makes is possible to be used in
+   * map/etc.
+   */
+  tools.trimString = function(str) {
+    return str.trim();
+  };
+
+  /**
+   * Predicate for whether two ES6 Sets have equal elements. O(n log n),
+   * because of the bizarre and incomplete spec.
+   */
+  tools.areSetsEqual = function (a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.size !== b.size) return false;
+
+    for (var member of a) {
+      if (!b.has(member)) return false;
     }
 
     return true;

@@ -1,15 +1,17 @@
 import json
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.db import connection
 from django.contrib.auth.models import User
 
 from catmaid.control.authentication import requires_user_role, \
         can_edit_class_instance_or_fail, can_edit_all_or_fail
-from catmaid.control.common import insert_into_log
+from catmaid.control.common import insert_into_log, get_request_list
 from catmaid.models import UserRole, Project, Class, ClassInstance, \
         ClassInstanceClassInstance, Relation, Treenode
+
+from rest_framework.decorators import api_view
 
 import operator
 from collections import defaultdict
@@ -182,10 +184,39 @@ def give_neuron_to_other_user(request, project_id=None, neuron_id=None):
     return HttpResponse(json.dumps({'success':'Moved neuron #%s to %s staging area.'}))
 
 
+@api_view(['POST'])
 @requires_user_role(UserRole.Annotate)
 def rename_neuron(request, project_id=None, neuron_id=None):
-    """Rename a neuron if it is not locked by a user on which the current user
-    has no permission.
+    """Rename a neuron.
+
+    If a neuron is not locked by a user on which the current user has no
+    permission, the name of neuron can be changed through this endpoint. Neuron
+    names are currently not allowed to contain pipe characters ("|").
+    ---
+    parameters:
+        - name: neuron_id
+          description: ID of neuron to rename
+          required: true
+          type: integer
+          paramType: path
+        - name: name
+          description: New name of the neuron
+          required: true
+          type: string
+          paramType: form
+    type:
+      success:
+        description: If renaming was successful
+        type: boolean
+        required: true
+      renamed_neuron:
+        description: ID of the renamed neuron
+        type: integer
+        required: true
+      old_name:
+        description: Old name of the renamed neuron
+        type: string
+        required: true
     """
     # Make sure the user can edit the neuron
     can_edit_class_instance_or_fail(request.user, neuron_id, 'neuron')
@@ -208,5 +239,55 @@ def rename_neuron(request, project_id=None, neuron_id=None):
 
     return HttpResponse(json.dumps({
         'success': True,
-        'renamed_neuron': neuron.id
+        'renamed_neuron': neuron.id,
+        'old_name': old_name
     }))
+
+
+@api_view(['POST'])
+@requires_user_role(UserRole.Browse)
+def get_neuron_ids_from_models(request, project_id=None):
+    """Retrieve neuron IDs modeled by particular entities, eg skeletons.
+
+    From a list of source entities (class instances), the IDs of all modeled
+    neurons are returned. There are currently only skeletons that model neurons.
+    ---
+    parameters:
+        - name: model_ids[]
+          description: IDs of models to find neurons for (e.g. skeleton IDs)
+          required: true
+          type: array
+          items:
+            type: integer
+          paramType: form
+    type:
+      '{model_id}':
+        description: ID of modeled neuron
+        type: integer
+        required: true
+    """
+    model_ids = get_request_list(request.POST, 'model_ids', map_fn=int)
+    if not model_ids:
+        raise ValueError("No valid model IDs provided")
+
+    cursor = connection.cursor()
+    model_template = ",".join(("(%s)",) * len(model_ids)) or "()"
+    params = [project_id] + model_ids + [project_id]
+    cursor.execute('''
+        WITH allowed_relation AS (
+            SELECT id FROM relation
+            WHERE project_id = %s AND relation_name = 'model_of'
+            LIMIT 1
+        )
+        SELECT cici.class_instance_a, cici.class_instance_b
+        FROM allowed_relation ar, class_instance_class_instance cici
+        JOIN (VALUES {}) model(id)
+        ON cici.class_instance_a = model.id
+        WHERE cici.project_id = %s
+        AND cici.relation_id = ar.id
+    '''.format(model_template), params)
+
+    models = {}
+    for row in cursor.fetchall():
+        models[row[0]] = row[1]
+    return JsonResponse(models)

@@ -4,8 +4,10 @@ import json
 from functools import wraps
 from itertools import groupby
 
+from guardian.core import ObjectPermissionChecker
 from guardian.models import UserObjectPermission, GroupObjectPermission
 from guardian.shortcuts import get_perms_for_model
+from guardian.utils import get_anonymous_user
 
 from django import forms
 from django.conf import settings
@@ -15,7 +17,7 @@ from django.contrib.auth import authenticate, logout, login
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.db import connection
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import _get_queryset, render
 
@@ -24,7 +26,6 @@ from rest_framework.authtoken.serializers import AuthTokenSerializer
 
 from catmaid.models import Project, UserRole, ClassInstance, \
         ClassInstanceClassInstance
-from catmaid.control.common import my_render_to_response
 
 
 def login_user(request):
@@ -36,53 +37,53 @@ def login_user(request):
         user = authenticate(username=username, password=password)
 
         if user is not None:
-            profile_context['userprofile'] = user.userprofile.as_dict()
-            profile_context['permissions'] = tuple(request.user.get_all_permissions())
             if user.is_active:
                 # Redirect to a success page.
                 request.session['user_id'] = user.id
                 login(request, user)
                 # Add some context information
                 profile_context['id'] = request.session.session_key
-                profile_context['longname'] = user.get_full_name()
-                profile_context['userid'] = user.id
-                profile_context['username'] = user.username
-                profile_context['is_superuser'] = user.is_superuser
-                return HttpResponse(json.dumps(profile_context))
+                return user_context_response(user, profile_context)
             else:
                 # Return a 'disabled account' error message
                 profile_context['error'] = ' Disabled account'
-                return HttpResponse(json.dumps(profile_context))
+                return user_context_response(request.user, profile_context)
         else:
             # Return an 'invalid login' error message.
-            profile_context['userprofile'] = request.user.userprofile.as_dict()
             profile_context['error'] = ' Invalid login'
-            return HttpResponse(json.dumps(profile_context))
+            return user_context_response(request.user, profile_context)
     else:   # request.method == 'GET'
-        profile_context['userprofile'] = request.user.userprofile.as_dict()
-        profile_context['permissions'] = tuple(request.user.get_all_permissions())
         # Check if the user is logged in.
         if request.user.is_authenticated():
             profile_context['id'] = request.session.session_key
-            profile_context['longname'] = request.user.get_full_name()
-            profile_context['userid'] = request.user.id
-            profile_context['username'] = request.user.username
-            profile_context['is_superuser'] = request.user.is_superuser
-            return HttpResponse(json.dumps(profile_context))
+            return user_context_response(request.user, profile_context)
         else:
             # Return a 'not logged in' warning message.
             profile_context['warning'] = ' Not logged in'
-            return HttpResponse(json.dumps(profile_context))
+            return user_context_response(request.user, profile_context)
 
 
 def logout_user(request):
     logout(request)
     # Return profile context of anonymous user
-    anon_user = User.objects.get(id=settings.ANONYMOUS_USER_ID)
-    profile_context = {}
-    profile_context['userprofile'] = anon_user.userprofile.as_dict()
-    profile_context['success'] = True
-    return HttpResponse(json.dumps(profile_context))
+    anon_user = get_anonymous_user()
+    return user_context_response(anon_user)
+
+
+def user_context_response(user, additional_fields=None):
+    cursor = connection.cursor()
+    context = {
+        'longname': user.get_full_name(),
+        'userid': user.id,
+        'username': user.username,
+        'is_superuser': user.is_superuser,
+        'userprofile': user.userprofile.as_dict(),
+        'permissions': tuple(user.get_all_permissions()),
+        'domain': list(user_domain(cursor, user.id))
+    }
+    if additional_fields is not None:
+        context.update(additional_fields)
+    return JsonResponse(context)
 
 
 def check_user_role(user, project, roles):
@@ -91,8 +92,11 @@ def check_user_role(user, project, roles):
     Administrator role satisfies any requirement.
     """
 
+    # Prefetch all user permissions for project.
+    checker = ObjectPermissionChecker(user)
+
     # Check for admin privs in all cases.
-    has_role = user.has_perm('can_administer', project)
+    has_role = checker.has_perm('can_administer', project)
 
     if not has_role:
         # Check the indicated role(s)
@@ -100,9 +104,9 @@ def check_user_role(user, project, roles):
             roles = [roles]
         for role in roles:
             if role == UserRole.Annotate:
-                has_role = user.has_perm('can_annotate', project)
+                has_role = checker.has_perm('can_annotate', project)
             elif role == UserRole.Browse:
-                has_role = user.has_perm('can_browse', project)
+                has_role = checker.has_perm('can_browse', project)
             if has_role:
                 break
 
@@ -236,12 +240,15 @@ def get_objects_and_perms_for_user(user, codenames, klass, use_groups=True, any_
 def user_project_permissions(request):
     """ If a user is authenticated, this method returns a dictionary that
     stores whether the user has a specific permission on a project. If a user
-    is not authenticated and the request is done by the anonymous user, the
-    permissions for the anonymous user are returned. Otherwise, this dictionary
-    will be empty.
+    is not authenticated, the request is done by Django's anonymous user, which
+    is different from Guardian's anonymous user. In this case, no permissions
+    are returned, because Django's anonymous user does not have a user profile.
+    A middleware should make sure Guardian's anonymous user is used for
+    anonymous requests, because it reports as authenticated and a profile will
+    be returned.
     """
     result = {}
-    if request.user.is_authenticated() or request.user.is_anonymous:
+    if request.user.is_authenticated():
         projectPerms = get_perms_for_model(Project)
         permNames = [perm.codename for perm in projectPerms]
         # Find out what permissions a user actually has for any of those projects.
@@ -373,9 +380,9 @@ def user_can_edit(cursor, user_id, other_user_id):
     # The group with identical name to the username is implicit, doesn't have to exist. Therefore, check this edge case before querying:
     if user_id == other_user_id:
         return True
-    # Retrieve a value larger than zero when the user_id belongs to a group with name equal to that associated with other_user_id
+    # Retrieve a row when the user_id belongs to a group with name equal to that associated with other_user_id
     cursor.execute("""
-    SELECT count(*)
+    SELECT 1
     FROM auth_user u,
          auth_group g,
          auth_user_groups ug
@@ -383,9 +390,9 @@ def user_can_edit(cursor, user_id, other_user_id):
       AND u.username = g.name
       AND g.id = ug.group_id
       AND ug.user_id = %s
+    LIMIT 1
     """ % (other_user_id, user_id))
-    rows = cursor.fetchall()
-    return rows and rows[0][0] > 0
+    return cursor.rowcount > 0
 
 
 def user_domain(cursor, user_id):
@@ -406,6 +413,7 @@ def user_domain(cursor, user_id):
     domain = set(row[0] for row in cursor.fetchall())
     domain.add(user_id)
     return domain
+
 
 @requires_user_role([UserRole.Annotate])
 def all_usernames(request, project_id=None):

@@ -1,3 +1,5 @@
+.. _api:
+
 Using the CATMAID API
 =====================
 
@@ -70,6 +72,8 @@ see what parameters it expects.
 Note that the undocumented API is considered volatile and changes to it are
 not included in the API changelog.
 
+.. _api-token:
+
 API Token
 ---------
 
@@ -125,7 +129,7 @@ running on ``localhost`` using the `Requests Python package
     response = requests.post(
             'https://localhost/{}/annotations/query'.format(project_id),
             auth=CatmaidApiTokenAuth(token),
-            data={'object_ids[]': object_ids})
+            data={'object_ids': object_ids})
 
 Other API Clients
 -----------------
@@ -135,3 +139,6 @@ A partial listing of libraries or programs that consume the CATMAID HTTP API:
 `RCATMAID <https://github.com/jefferis/rcatmaid>`_
    R bindings for the CATMAID API by
    `Gregory Jefferis <http://www2.mrc-lmb.cam.ac.uk/group-leaders/h-to-m/gregory-jefferis/>`_.
+
+`CATMAID-to-Blender <https://github.com/schlegelp/CATMAID-to-Blender>`_
+   A Blender-Plugin to pull data from CATMAID by Philipp Schlegel

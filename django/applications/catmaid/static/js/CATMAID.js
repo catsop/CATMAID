@@ -112,6 +112,16 @@ window.onbeforeunload = function() {
   });
 
   /**
+   * Return a string version of the input array and replace occurences of "-1"
+   * with "All". This is usefule for page length lists.
+   */
+  CATMAID.getPageLengthLabels = function(options) {
+    return options.map(function (n) {
+      return -1 === n ? "All" : n.toString();
+    });
+  };
+
+  /**
    * Convenience function to show a growl message
    */
   CATMAID.msg = function(title, message, options)
@@ -161,7 +171,7 @@ window.onbeforeunload = function() {
       if (status >= 200 && status <= 204 &&
           (typeof text === 'string' || text instanceof String)) {
         // `text` may be empty for no content responses.
-        var json = text.length ? $.parseJSON(text) : {};
+        var json = text.length ? JSON.parse(text) : {};
         if (json.error) {
           // Call error handler, if any, and force silence if it returned true.
           if (CATMAID.tools.isFn(error)) {
@@ -191,25 +201,44 @@ window.onbeforeunload = function() {
   };
 
   /**
-   * Queue a request for the given back-end method along with the given data. It
-   * expects a JSON response. A promise is returned. The URL passed in needs to
-   * be relative to the back-end URL.
-   */
-  CATMAID.fetch = function(relativeURL, method, data)
-  {
-    return new Promise(function(resolve, reject) {
-      var url = CATMAID.makeURL(relativeURL);
-      requestQueue.register(url, method, data,
-          CATMAID.jsonResponseHandler(resolve, reject, true));
-    });
-  };
-
-  /**
    * Convenience function to show an error dialog.
    */
   CATMAID.error = function(msg, detail)
   {
     new CATMAID.ErrorDialog(msg, detail).show();
+  };
+
+  /**
+   * Open a state update dialog and send a state update event to update state
+   * listeners.
+   */
+  CATMAID.suggestStateUpdate = function(error) {
+    var refresh = CATMAID.State.trigger.bind(CATMAID.State,
+        CATMAID.State.EVENT_STATE_NEEDS_UPDATE);
+    var dialog = new CATMAID.StateUpdateDialog(error.message,
+        error.detail, refresh);
+    dialog.show();
+  };
+
+  /**
+   * Look at the error type and take appropriate action.
+   */
+  CATMAID.handleError = function(error) {
+    if (error instanceof CATMAID.Error) {
+      if (error instanceof CATMAID.PermissionError) {
+        new CATMAID.LoginDialog(e.error).show();
+      } else if (error instanceof CATMAID.CommandHistoryError) {
+        CATMAID.warn(error.message);
+      } else if (error instanceof CATMAID.StateMatchingError) {
+        CATMAID.suggestStateUpdate(error);
+      } else {
+        CATMAID.error(error.message, error.detail);
+      }
+    } else if (error instanceof Error) {
+      CATMAID.error(error.message, error.stack);
+    } else {
+      CATMAID.error(error);
+    }
   };
 
   /**
@@ -219,5 +248,18 @@ window.onbeforeunload = function() {
   {
     CATMAID.statusBar.replaceLast(msg);
   };
+
+  // Maintain a single command history, this adds execute, undo and redo
+  // functions to the CATMAID namespace. Limit it to 1000 entries for now.
+  CATMAID.commands = new CATMAID.CommandHistory(1000);
+  CATMAID.commands.on(CATMAID.CommandHistory.EVENT_COMMAND_EXECUTED, function(command, redo) {
+    // Don't confirm regular commands to reduce visual noise
+    if (redo) {
+      CATMAID.msg("Redo successful", command.getName());
+    }
+  });
+  CATMAID.commands.on(CATMAID.CommandHistory.EVENT_COMMAND_UNDONE, function(command) {
+    CATMAID.msg("Undo successful", command.getName());
+  });
 
 })(CATMAID);

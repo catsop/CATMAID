@@ -32,6 +32,10 @@
     this.colSortingDesc = false;
     // Rotate column headers by 90 degree
     this.rotateColumnHeaders = false;
+    // Display manual order edit controls
+    this.displayOrderFields = false;
+
+    CATMAID.skeletonListSources.updateGUI();
   };
 
   ConnectivityMatrixWidget.prototype = {};
@@ -233,6 +237,19 @@
         exportCSV.onclick = this.exportCSV.bind(this);
         tabs['Main'].appendChild(exportCSV);
 
+        var exportPDF = document.createElement('input');
+        exportPDF.setAttribute("type", "button");
+        exportPDF.setAttribute("value", "Export PDF");
+        exportPDF.onclick = this.exportPDF.bind(this);
+        tabs['Main'].appendChild(exportPDF);
+
+        var exportXLSX = document.createElement('input');
+        exportXLSX.setAttribute("type", "button");
+        exportXLSX.setAttribute("value", "Export XLSX");
+        exportXLSX.setAttribute("title", "Export a spreadsheet file compatible to Microsoft Excel and Libre Office, colors are preserved");
+        exportXLSX.onclick = this.exportXLSX.bind(this);
+        tabs['Main'].appendChild(exportXLSX);
+
         var sortOptionNames = sortOptions.map(function(o) {
           return o.name;
         });
@@ -317,6 +334,18 @@
         rotateCols.appendChild(document.createTextNode('Column header 90°'));
         tabs['Display'].appendChild(rotateCols);
 
+        var displayOrderFieldsCb = document.createElement('input');
+        displayOrderFieldsCb.setAttribute('type', 'checkbox');
+        displayOrderFieldsCb.checked = this.displayOrderFields;
+        displayOrderFieldsCb.onclick = (function(e) {
+          this.displayOrderFields = e.target.checked;
+          this.refresh();
+        }).bind(this);
+        var displayOrderFields = document.createElement('label');
+        displayOrderFields.appendChild(displayOrderFieldsCb);
+        displayOrderFields.appendChild(document.createTextNode('Manually edit order'));
+        tabs['Display'].appendChild(displayOrderFields);
+
         $(controls).tabs();
       },
 
@@ -377,7 +406,7 @@
     var rowSort = sortOptions[this.rowSorting];
     if (rowSort && CATMAID.tools.isFn(rowSort.sort)) {
       this.rowDimension.sort(rowSort.sort.bind(this, this.rowSortingDesc,
-            this.matrix, this.rowDimension, true));
+            this.matrix, this.rowDimension, this.colDimension, true));
     } else if (undefined === rowSort.sort) {
       // Explicitly allow null as no-op
       CATMAID.error('Could not find row sorting function with name ' +
@@ -388,7 +417,7 @@
     var colSort = sortOptions[this.colSorting];
     if (colSort && CATMAID.tools.isFn(colSort.sort)) {
       this.colDimension.sort(colSort.sort.bind(this, this.colSortingDesc,
-            this.matrix, this.colDimension, false));
+            this.matrix, this.colDimension, this.rowDimension, false));
     } else if (undefined === colSort.sort) {
       // Explicitly allow null as no-op
       CATMAID.error('Could not find column sorting function with name ' +
@@ -409,7 +438,7 @@
    * Recreate the connectivity matrix and refresh the UI.
    */
   ConnectivityMatrixWidget.prototype.update = function(container) {
-    if (!this.matrix) {
+    if (!(this.matrix && this.content)) {
       return;
     }
 
@@ -452,6 +481,38 @@
       }).bind(this));
   };
 
+  function sortDimension(map, a, b) {
+    // A mapped values is expected to be a list of two elements: a new
+    // index and an old one. If the new index is the same, the old is used
+    // for comparison. This maintains local order when moving sets.
+    var aIndices = map.get(a), bIndices = map.get(b);
+    var ia = aIndices[0], ib = bIndices[0];
+    if (ia === ib) {
+      ia = aIndices[1];
+      ib = bIndices[1];
+    }
+    return ia === ib ? 0 : (ia < ib ? -1 : 1);
+  }
+
+  function mapOrder(table, source, isRow, map, e, i) {
+    var headerCell = source.isGroup(e) ?
+      $(table).find('a[data-is-row="' + isRow + '"][data-group="' + e + '"]') :
+      $(table).find('a[data-is-row="' + isRow + '"][data-skeleton-ids="[' + e + ']"]');
+    var position;
+    if (1 !== headerCell.length) {
+      CATMAID.warn('Did not find exactly one connectivity matrix row for pre-element ' + e);
+      position = -1;
+    } else  {
+      var inputCell = isRow ? headerCell.closest('th').prev() :
+          $($(table).find('tr:first').find('th')[i + 2]);
+      if (inputCell) {
+        position = Number(inputCell.find('input').val());
+      }
+    }
+    map.set(e, [position, i]);
+    return map;
+  }
+
   /**
    * Add a tabular representation of the connectivity matrix to the given DOM
    * element.
@@ -484,6 +545,74 @@
         handleCompletion.bind(this, table, rowNames, rowSkids, colNames, colSkids));
 
     if (walked) {
+      // Add optional order fields
+      if (this.displayOrderFields) {
+        // Row
+        var orderFieldRow = document.createElement('tr');
+        var orderFieldApply = document.createElement('input');
+        orderFieldApply.setAttribute('type', 'button');
+        orderFieldApply.setAttribute('value', 'Re-order');
+        var orderFieldTh = document.createElement('th');
+        orderFieldTh.appendChild(orderFieldApply);
+        orderFieldRow.appendChild(orderFieldTh);
+        // One empty column is required here, compensating for the pre-column
+        orderFieldRow.appendChild(document.createElement('th'));
+
+        colNames.forEach(function(col, i) {
+          var orderTh = document.createElement('th');
+          var orderInput = document.createElement('input');
+          orderInput.setAttribute('type', 'number');
+          orderInput.setAttribute('class', 'order-input');
+          orderInput.setAttribute('value', i + 1);
+          orderTh.appendChild(orderInput);
+          this.appendChild(orderTh);
+        }, orderFieldRow);
+
+        // For symmetry with the first column
+        orderFieldRow.appendChild(document.createElement('th'));
+
+        table.insertBefore(orderFieldRow, colHeader);
+        // If order inputs are displayed, one more empty cell is needed, due to
+        // the extra order input column.
+        $(colHeader).find("th:first").before(document.createElement('th'));
+
+        $(table).find("tr").each(function(i, e) {
+          // The first row is the top order row and the second one the regular
+          // header. No need to modify both of them
+          if (i > 1) {
+            if (i < rowNames.length + 2) {
+              var orderTh = document.createElement('th');
+              var orderInput = document.createElement('input');
+              orderInput.setAttribute('type', 'number');
+              orderInput.setAttribute('class', 'order-input');
+              orderInput.setAttribute('value', i - 1);
+              orderTh.appendChild(orderInput);
+              $(this).find('th:first').before(orderTh);
+            } else {
+              $(this).find('th:first').before(document.createElement('th'));
+            }
+          }
+        });
+
+        orderFieldApply.onclick = (function(widget) {
+          return function() {
+            var cmTable = $(this).closest('table');
+            // Read new order
+            var rowOrder = widget.rowDimension.orderedElements.reduce(
+                mapOrder.bind(window, cmTable, widget.rowDimension, true), new Map());
+            var colOrder = widget.colDimension.orderedElements.reduce(
+                mapOrder.bind(window, cmTable, widget.colDimension, false), new Map());
+            // Sort dimensions
+            widget.rowDimension.sort(sortDimension.bind(widget, rowOrder));
+            widget.colDimension.sort(sortDimension.bind(widget, colOrder));
+            // Set no-op sort and refresh view
+            widget.rowSorting = 0;
+            widget.colSorting = 0;
+            widget.refresh();
+          };
+        })(this);
+      }
+
       // Add general information paragraph
       var infoBox = document.createElement('div');
       infoBox.appendChild(document.createTextNode('The table below shows the ' +
@@ -558,6 +687,16 @@
 
       // Keep track of button hiding time out and last position
       var hideTimeout, lastButtonLeft, lastButtonTop;
+
+      $(table).on('mouseenter', 'td, th', function () {
+        var colnum = parseInt($(this).index()) + 1;
+        $('td:nth-child(' + colnum + '), th:nth-child(' + colnum + ')', $(this).closest('table'))
+            .addClass('highlight');
+      }).on('mouseleave', 'td, th', function () {
+        var colnum = parseInt($(this).index()) + 1;
+        $('td:nth-child(' + colnum + '), th:nth-child(' + colnum + ')', $(this).closest('table'))
+            .removeClass('highlight');
+      });
 
       // Add a handler for hovering over table headers
       $(table).on('mouseenter', 'th', content, function(e) {
@@ -755,7 +894,7 @@
       var th = document.createElement('th');
       th.appendChild(div);
       if (group) {
-        a.setAttribute('data-group', group);
+        a.setAttribute('data-group', name);
         th.setAttribute('title', 'This group contains ' + group.length +
             ' skeleton(s): ' + group.join(', '));
       }
@@ -945,6 +1084,33 @@
   };
 
   /**
+   * Open the print dialog for an empty page containing only the connectivity
+   * matrix table.
+   */
+  ConnectivityMatrixWidget.prototype.exportPDF = function() {
+    var table = $("table.partner_table", this.content);
+    if (1 !== table.length) {
+      CATMAID.warn("Couldn't find table to print");
+      return;
+    }
+    // Show an options dialog that explains a PDF export is only possible
+    // through printing at the moment
+    var dialog = new CATMAID.OptionsDialog("Connecticity matrix export", {
+      "Cancel": null,
+      "Print": function() {
+        CATMAID.tools.printElement(table[0]);
+      }
+    });
+    dialog.appendMessage("Exporting the connectivity matrix as a PDF file " +
+        "currently only works by printing to a PDF file. Clicking the \"Print\" " +
+        "button below will create a new window with only the connectivity " +
+        "matrix in it. The browser's print dialog is automatically shown. Colors " +
+        "will only be visible if the \"Background graphics\" setting in the " +
+        "print dialog is active.");
+    dialog.show(450, 200, true);
+  };
+
+  /**
    * Export the currently displayed matrix as CSV file.
    */
   ConnectivityMatrixWidget.prototype.exportCSV = function() {
@@ -981,6 +1147,217 @@
     // Create cell
     function handleCell(line, rowName, rowSkids, colName, colSkids, connections) {
       line.push(connections);
+    }
+  };
+
+  /**
+   * Export the currently displayed matrix as XLSX file using jQuery DataTables.
+   */
+  ConnectivityMatrixWidget.prototype.exportXLSX = function() {
+    if (!this.matrix) {
+      CATMAIR.error("Please load some data first.");
+      return;
+    }
+
+    // Create a new array that contains entries for each line. Pre-pulate with
+    // first element (empty upper left cell). Unfortunately, an empty string
+    // doesn't work correctly, and some content has to be provided.
+    var lines = [[' ']];
+
+    // Create header
+    function handleColumn(line, id, colGroup, name, skeletonIDs) {
+      var n = (name && name.length) ? name : '""';
+      line.push(n);
+    }
+
+    // Create row
+    function handleRow(lines, id, rowGroup, name, skeletonIDs) {
+      var n = (name && name.length) ? name : '""';
+      var line = [n];
+      lines.push(line);
+      return line;
+    }
+
+    // Create cell
+    function handleCell(line, rowName, rowSkids, colName, colSkids, connections) {
+      line.push(connections);
+    }
+
+    var walked = this.walkMatrix(this.matrix, handleColumn.bind(window, lines[0]),
+        handleRow.bind(window, lines), handleCell);
+
+    // Export concatenation of all lines, delimited buy new-line characters
+    if (!walked) {
+      CATMAID.warn("Couldn't export XLSX file");
+      return;
+    }
+
+    // Create color index
+    var colorScheme = colorOptions[this.color];
+    var maxConnections = this.matrix.getMaxConnections();
+    var colorIndex = {};
+    for (var r=0, maxr=lines.length; r<maxr; ++r) {
+      var row = lines[r];
+      for (var c=0, maxc=row.length; c<maxc; ++c) {
+        var value = parseInt(row[c], 10);
+        if (Number.isNaN(value)) {
+          continue;
+        }
+        var color = getColor(colorScheme, value,
+            this.synapseThreshold, maxConnections);
+        if (color) {
+          colorIndex[value] = color;
+        }
+      }
+    }
+
+    // Construct temporary data table instance
+    var content = document.getElementById('connectivity_matrix' + this.widgetID);
+    var container = document.createElement('table');
+    container.style.display = 'none';
+    content.appendChild(container);
+
+    try {
+      var table = $(container).DataTable({
+        dom: 'Bfrtip',
+        paging: false,
+        order: [],
+        buttons: [{
+          extend: 'excelHtml5',
+          header: false, // We take care of heder ourselves
+          footer: false,
+          filename: 'catmaid-connectivity-matrix.xlsx',
+          customize: function(xlsx) {
+            var sheet = xlsx.xl.worksheets['sheet1.xml'];
+            // Find style definitions
+            var styles = xlsx.xl['styles.xml'];
+            var cellStyles = null, cellFills = null, fonts = null;
+            var nextStyleIndex = -1, nextFillIndex = -1, nextFontIndex = -1;
+            if (styles) {
+              // Style reference
+              cellStyles = $('cellXfs', styles);
+              if (1 !== cellStyles.length) {
+                CATMAID.warn('Could\'t find XLSX cell style definition');
+              } else {
+                nextStyleIndex = cellStyles.attr('count');
+              }
+              // Fill reference
+              cellFills = $('fills', styles);
+              if (1 !== cellFills.length) {
+                CATMAID.warn('Could\'t find XLSX cell fill definition');
+              } else {
+                nextFillIndex = cellFills.attr('count');
+              }
+              // Font reference
+              fonts = $('fonts', styles);
+              if (1 !== fonts.length) {
+                CATMAID.warn('Could\'t find XLSX cell font definition');
+              } else {
+                nextFontIndex = fonts.attr('count');
+              }
+            } else {
+              CATMAID.warn('Could\'t find XLSX style definition');
+            }
+            // Make fist column use a bold font
+            $('row c[r$="1"]', sheet).filter(function(c) {
+              return this.attributes.r.value.match(/^[A-Z]+1$/);
+            }).each( function () {
+              $(this).attr( 's', '2' );
+            });
+            // Make firt row  use a bold font
+            $('row c[r^="A"]', sheet).filter(function(c) {
+              return this.attributes.r.value.match(/^A[0-9]+$/);
+            }).each( function () {
+              $(this).attr( 's', '2' );
+            });
+            // Export colors
+            var foundStyles = [];
+            var foundStylesIndex = {};
+            $('row c', sheet).each( function () {
+              var value = $('v', this).text();
+              var color = colorIndex[value];
+              // Only add style information if there is a color available for
+              // the value of this cell.
+              if (color) {
+                var style = foundStylesIndex[value];
+                if (!style) {
+                  style = {
+                    value: value,
+                    bgColor: color.replace(/#/, ''),
+                    fgColor: CATMAID.tools.getContrastColor(color, true).replace(/#/, ''),
+                    styleIndex: nextStyleIndex,
+                    fillIndex: nextFillIndex,
+                    fontIndex: nextFontIndex
+                  };
+                  foundStyles.push(style);
+                  foundStylesIndex[value] = style;
+
+
+                  // Increment style index counters
+                  ++nextStyleIndex;
+                  ++nextFillIndex;
+                  ++nextFontIndex;
+                } 
+                $(this).attr( 's', style.styleIndex );
+              }
+            });
+            // Store all found styles in XLSX stylesheet section. We use cell
+            // styles, which are part of the <cellXfs> collection.
+            if (foundStyles.length > 0) {
+              if (styles && cellStyles && cellFills) {
+                for (var i=0; i<foundStyles.length; ++i) {
+                  var style = foundStyles[i];
+                  // Add a new pattern fill with ARGB color format
+                  var bgColor = 'FF' + style.bgColor;
+                  var fill = '<fill><patternFill patternType="solid"><fgColor rgb="' +
+                      bgColor + '"></fgColor></patternFill></fill>';
+                  cellFills.append(fill);
+
+                  // Add a font entry for each fill. While a little bit
+                  // redundant in most cases, it allows more flexibility.
+                  var fontColor = 'FF' + style.fgColor;
+                  var font = '<font><sz val="11" /><name val="Calibri" /><color rgb="' +
+                      fontColor + '" /></font>';
+                  fonts.append(font);
+
+                  // Add a new <xf> entry:
+                  var xf = '<xf numFmtId="0" fontId="' + style.fontIndex +'" fillId="' + style.fillIndex +
+                      '" borderId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' +
+                      '<alignment horizontal="center"/></xf>';
+                  cellStyles.append(xf);
+                }
+                // Set required count properties for syles and fills
+                cellFills.attr('count', nextFillIndex);
+                cellStyles.attr('count', nextStyleIndex);
+                fonts.attr('count', nextFontIndex);
+              }
+            }
+          }
+        }],
+        data: lines,
+        columns: lines[0].map(function(l) {
+          return {
+            title: l
+          };
+        })
+      });
+  
+      // Press excel export button
+      var exportButton = $('a.buttons-excel', content);
+      if (0 === exportButton.length) {
+        CATMAID.warn('Could not load XLSX extension');
+        if (container) {
+          table.destroy();
+          content.removeChild(container);
+        }
+        return;
+      }
+      exportButton.trigger('click');
+    } finally {
+      if (container) {
+        table.destroy();
+        content.removeChild(container);
+      }
     }
   };
 
@@ -1078,14 +1455,14 @@
     },
     {
       name: 'ID',
-      sort: function(desc, matrix, src, isRow, a, b) {
+      sort: function(desc, matrix, src, otherSrc, isRow, a, b) {
         var c = CATMAID.tools.compareStrings('' + a, '' + b);
         return desc ? -1 * c : c;
       }
     },
     {
       name: 'Name',
-      sort: function(desc, matrix, src, isRow, a, b) {
+      sort: function(desc, matrix, src, otherSrc, isRow, a, b) {
         // Compare against the group name, if a or b is a group,
         // otherwise use the name of the neuron name service.
         var nns = CATMAID.NeuronNameService.getInstance();
@@ -1097,16 +1474,10 @@
     },
     {
       name: 'Order of other',
-      sort: function(desc, matrix, src, isRow, a, b) {
-        var ia, ib;
+      sort: function(desc, matrix, src, otherSrc, isRow, a, b) {
         // Get index of a and b in other dimensions
-        if (isRow) {
-          ia = matrix.colSkeletonIDs.indexOf(a);
-          ib = matrix.colSkeletonIDs.indexOf(b);
-        } else {
-          ia = matrix.rowSkeletonIDs.indexOf(a);
-          ib = matrix.rowSkeletonIDs.indexOf(b);
-        }
+        var ia = otherSrc.orderedElements.indexOf(a);
+        var ib = otherSrc.orderedElements.indexOf(b);
         // If either a or b is -1, meaning they were not found in the other
         // dimension, the columns not found will be pushed to the end.
         if (-1 === ia || -1 === ib) {
@@ -1118,21 +1489,21 @@
     },
     {
       name: 'Synapse count',
-      sort: function(desc, matrix, src, isRow, a, b) {
+      sort: function(desc, matrix, src, otherSrc, isRow, a, b) {
         var c = compareDescendingSynapseCount(matrix, src, isRow, a, b);
         return desc ? -1 * c : c;
       }
     },
     {
       name: 'Output synapse count',
-      sort: function(desc, matrix, src, isRow, a, b) {
+      sort: function(desc, matrix, src, otherSrc, isRow, a, b) {
         var c = compareDescendingSynapseCount(matrix, src, isRow, a, b, true);
         return desc ? -1 * c : c;
       }
     },
     {
       name: 'Total synapse count',
-      sort: function(desc, matrix, src, isRow, a, b) {
+      sort: function(desc, matrix, src, otherSrc, isRow, a, b) {
         var c =  compareDescendingTotalSynapseCount(matrix, src, isRow, a, b);
         return desc ? -1 * c : c;
       }
@@ -1221,9 +1592,10 @@
   };
 
   /**
-   * Set background color of a DOM element according to the given color scheme.
+   * Get color for a particular cell value, optionally bounded with a minimum
+   * and maximum value.
    */
-  var colorize = function(element, scheme, value, minValue, maxValue) {
+  var getColor = function(scheme, value, minValue, maxValue) {
     var bg = null;
     if (!scheme || "None" === scheme) return;
     else if (value < minValue) return;
@@ -1245,7 +1617,18 @@
       }
     }
 
-    // Set background
+    return bg;
+  };
+
+  /**
+   * Set background color of a DOM element according to the given color scheme.
+   */
+  var colorize = function(element, scheme, value, minValue, maxValue) {
+    // Set background or return if there was no color found for this value
+    var bg = getColor(scheme, value, minValue, maxValue);
+    if (!bg) {
+      return;
+    }
     element.style.backgroundColor = bg;
 
     // Heuristic to find foreground color for children

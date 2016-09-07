@@ -5,7 +5,6 @@ import subprocess
 import compileall
 
 from django.conf import settings
-from .models import TestResult
 
 
 class PerformanceTest(object):
@@ -113,12 +112,12 @@ class PerformanceTest(object):
                              "database: %s\n" % e)
             sys.exit(1)
 
-    def run_tests(self, views):
+    def run_tests(self, views, n_repeat=2):
         """
         Run the CATMAID performance tests and return a list of results for
         every run.
         """
-        results, _ = self.run_tests_and_repeat(views, repeats=0)
+        results, _ = self.run_tests_and_repeat(views, repeats=n_repeat)
         return results
 
     def run_tests_and_repeat(self, views, repeats=3):
@@ -156,14 +155,14 @@ class PerformanceTest(object):
         # Test all views
         self.log("Testing all %s views" % len(views))
         results = []
-        repeat_results = []
+        repeat_results = [[] for i in range(repeats)]
         for v in views:
             # Ideally the DB cluster would be stopped here, OS caches would be
             # dropped (http://linux-mm.org/Drop_Caches) and then the DB cluster
             # would be restarted.
             results.append(self.test(v))
             for r in range(repeats):
-                repeat_results.append(self.test(v))
+                repeat_results[r].append(self.test(v))
 
         teardown_test_environment()
 
@@ -198,6 +197,7 @@ class PerformanceTest(object):
             # Try to get version information
             version = subprocess.check_output(['git', 'describe'])
 
+            from .models import TestResult
             return TestResult(view=view, time=time_ms, result=response,
                               result_code=response.status_code, version=version)
         finally:

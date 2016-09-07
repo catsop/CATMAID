@@ -8,7 +8,6 @@
   InstanceRegistry,
   project,
   requestQueue,
-  session,
   SkeletonAnnotations,
   SkeletonRegistry,
   submitterFn,
@@ -26,16 +25,24 @@
   var WebGLApplication = function() {
     this.widgetID = this.registerInstance();
     this.registerSource();
+    this.APPEND_WARNING_THRESHOLD = 1000;
     // Indicates whether init has been called
     this.initialized = false;
     // Indicates if there is an animation running
     this.animationRequestId = undefined;
     // The current animation, if any
     this.animation = undefined;
+    // Map loaed volume IDs to an array of Three.js meshes
+    this.loadedVolumes = {};
+    // Current set of filtered connectors (if any)
+    this.filteredConnectors = null;
 
     // Listen to changes of the active node
     SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
       this.staticUpdateActiveNodePosition, this);
+
+    CATMAID.Nodes.on(CATMAID.Nodes.EVENT_NODE_RADIUS_CHANGED,
+        this.handleRadiusChange, this);
   };
 
   WebGLApplication.prototype = {};
@@ -67,8 +74,11 @@
   WebGLApplication.prototype.destroy = function() {
     SkeletonAnnotations.off(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
         this.staticUpdateActiveNodePosition, this);
+    CATMAID.Nodes.off(CATMAID.Nodes.EVENT_NODE_RADIUS_CHANGED,
+        this.handleRadiusChange, this);
     project.off(CATMAID.Project.EVENT_STACKVIEW_FOCUS_CHANGED, this.adjustStaticContent, this);
     project.off(CATMAID.Project.EVENT_LOCATION_CHANGED, this.handlelLocationChange, this);
+    this.stopAnimation();
     this.unregisterInstance();
     this.unregisterSource();
     this.space.destroy();
@@ -239,7 +249,8 @@
         CATMAID.info("The exported PNG will have a transparent background");
         saveAs(blob, "catmaid_3d_view.png");
       } catch(e) {
-        CATMAID.error("Could not export current 3D view, there was an error.", e);
+        CATMAID.error("Could not export current 3D view, there was an error: " + e,
+            e.stack);
       }
     }).bind(this), true);
   };
@@ -275,7 +286,8 @@
             } catch (e) {
               $.unblockUI();
               error = true;
-              CATMAID.error("Could not export current 3D view, there was an error.", e);
+              CATMAID.error("Could not export current 3D view, there was an error: " + e,
+                  e.stack);
             }
           }, 0);
         };
@@ -658,7 +670,7 @@
         } else {
           query = "within-spatial-distance";
           post = {distance: distance,
-                  treenode: active_node,
+                  treenode_id: active_node,
                   size_mode: skeleton_mode};
         }
       } else {
@@ -727,7 +739,7 @@
         requestQueue.register(django_url + project.id + '/skeletons/' + query, "POST", post,
           function(status, text) {
             if (200 !== status) return;
-            var json = $.parseJSON(text);
+            var json = JSON.parse(text);
             if (json.error) return new CATMAID.ErrorDialog(
                 "Could not fetch skeletons.", json.error);
             if (json.skeletons) {
@@ -750,6 +762,7 @@
     this.show_meshes = false;
     this.meshes_color = "#ffffff";
     this.meshes_opacity = 0.2;
+    this.meshes_faces = false;
     this.show_missing_sections = false;
     this.missing_section_height = 20;
     this.show_active_node = true;
@@ -758,7 +771,11 @@
     this.show_background = true;
     this.show_box = true;
     this.show_zplane = false;
+    this.zplane_texture = true;
+    this.zplane_zoomlevel = "max";
+    this.zplane_opacity = 0.8;
     this.custom_tag_spheres_regex = '';
+    this.neuron_material = 'lambert';
     this.connector_filter = false;
     this.shading_method = 'none';
     this.color_method = 'none';
@@ -784,6 +801,7 @@
     this.animation_stepwise_visibility_type = 'all';
     this.animation_stepwise_visibility_options = null;
     this.strahler_cut = 2; // to approximate twigs
+    this.use_native_resolution = true;
   };
 
   WebGLApplication.prototype.Options.prototype = {};
@@ -798,8 +816,9 @@
   WebGLApplication.prototype.Options.prototype.createMeshMaterial = function(color, opacity) {
     color = color || new THREE.Color(this.meshes_color);
     if (typeof opacity === 'undefined') opacity = this.meshes_opacity;
-    return new THREE.MeshBasicMaterial({color: color, opacity: opacity,
-      transparent: opacity !== 1, wireframe: true});
+    return new THREE.MeshLambertMaterial({color: color, opacity: opacity,
+      transparent: opacity !== 1, wireframe: !this.meshes_faces, side: THREE.DoubleSide,
+      depthWrite: opacity === 1});
   };
 
 
@@ -826,6 +845,7 @@
     }
 
     this.options.color_method = colorMenu.value;
+    this.space.userColormap = {};
     this.updateSkeletonColors();
   };
 
@@ -887,6 +907,14 @@
     } else {
       fnRecolor();
     }
+  };
+
+  WebGLApplication.prototype.setSkeletonShadingType = function(shading) {
+    var skeletons = this.space.content.skeletons;
+    Object.keys(skeletons).filter(function(skid) {
+      skeletons[skid].setShadingType(shading);
+    });
+    this.space.render();
   };
 
   WebGLApplication.prototype.XYView = function() {
@@ -967,6 +995,18 @@
     this.space.render();
   };
 
+  /**
+   * Activate or deactivate the use of native resolution. If activated, quality
+   * is improved for HiDPI displays for the cost of performance.
+   *
+   * @param {boolean} useNativeResolution If native resolution should be used.
+   */
+  WebGLApplication.prototype.setNativeResolution = function(useNativeResolution) {
+    this.options.use_native_resolution = !!useNativeResolution;
+    this.space.view.initRenderer();
+    this.space.render();
+  };
+
   WebGLApplication.prototype._skeletonVizFn = function(field) {
     return function(skeleton_id, value) {
       var skeletons = this.space.content.skeletons;
@@ -1035,12 +1075,13 @@
         var visible = inSource1.length > 0 && inSource2.length > 0;
         // If at least one pre-post-connection between the two groups is required,
         // check for this.
-        if (visible && onlyPrePost) {
+        if (visible && (onlyPrePost[0] || onlyPrePost[1])) {
           var preIn1 = inSource1.some(isPresynaptic);
           var preIn2 = inSource2.some(isPresynaptic);
           var postIn1 = inSource1.some(isPostsynaptic);
           var postIn2 = inSource2.some(isPostsynaptic);
-          visible = (preIn1 && postIn2 ) || (preIn2 && postIn1);
+          visible = (onlyPrePost[0] && preIn1 && postIn2) ||
+                    (onlyPrePost[1] && preIn2 && postIn1);
         }
 
         if (visible) {
@@ -1060,7 +1101,7 @@
    * two skeleton sources that form the groups between which connectors are
    * allowed.
    */
-  WebGLApplication.makeGroupShareConnectorFilter = function(onlyPrePost, callback) {
+  WebGLApplication.makeGroupShareConnectorFilter = function(callback) {
     var source1, source2;
 
     // Add skeleton source message and controls
@@ -1072,6 +1113,10 @@
         'that link neurons from one group to the other will be shown.');
     var source1Input = addSourceInput(dialog.dialog, "Source 1:");
     var source2Input = addSourceInput(dialog.dialog, "Source 2:");
+    var source1PrePost = dialog.appendCheckbox(
+        "Restrict to pre->post from source 1 to source 2");
+    var source2PrePost = dialog.appendCheckbox(
+        "Restrict to pre->post from source 2 to source 1");
 
     // Add handler for initiating the export
     dialog.onOK = function() {
@@ -1089,7 +1134,8 @@
       }
 
       var filter =  WebGLApplication.filterGroupSharedConnectors.bind(
-          this, group1, group2, onlyPrePost);
+          this, group1, group2,
+          [source1PrePost.checked, source2PrePost.checked]);
 
       if (CATMAID.tools.isFn(callback)) {
         callback(filter);
@@ -1102,7 +1148,7 @@
       }
     };
 
-    dialog.show(350, 250, true);
+    dialog.show(350, 320, true);
 
     function addSourceInput(d, name) {
       var select = document.createElement('select');
@@ -1129,10 +1175,8 @@
       this.options.connector_filter = WebGLApplication.filterSharedConnectors;
     } else if ('all-pre-post' === restriction) {
       this.options.connector_filter = WebGLApplication.filterPrePostConnectors;
-    } else if ('all-group-shared' === restriction ||
-        'all-group-shared-pre-post' === restriction) {
-      var onlyPrePost = 'all-group-shared-pre-post' === restriction;
-      WebGLApplication.makeGroupShareConnectorFilter(onlyPrePost, function(filter) {
+    } else if ('all-group-shared' === restriction) {
+      WebGLApplication.makeGroupShareConnectorFilter(function(filter) {
         if (filter) {
           self.options.connector_filter = filter;
           self.refreshRestrictedConnectors();
@@ -1196,6 +1240,12 @@
         return o;
       }, {});
 
+      // Remember current set of filtered connectors
+      this.filteredConnectors = {
+        'connectorIds': Object.keys(common),
+        'skeletonIds': visible_skeletons
+      };
+
       for (var skeleton_id in skeletons) {
         if (skeletons.hasOwnProperty(skeleton_id)) {
           skeletons[skeleton_id].remove_connector_selection();
@@ -1208,6 +1258,8 @@
       skids.forEach(function(skid) {
         skeletons[skid].remove_connector_selection();
       });
+      // Declare that there is no filter used at the moment
+      this.filteredConnectors = null;
     }
 
     this.space.render();
@@ -1258,7 +1310,7 @@
 
   WebGLApplication.prototype.look_at_active_node = function() {
     this.space.content.active_node.updatePosition(this.space, this.options);
-    this.space.view.controls.target = this.space.content.active_node.mesh.position.clone();
+    this.space.view.controls.target.copy(this.space.content.active_node.mesh.position);
     this.space.render();
   };
 
@@ -1266,6 +1318,21 @@
     this.space.content.active_node.updatePosition(this.space, this.options);
     if (this.space.content.active_node.mesh.visible) {
       this.space.render();
+    }
+  };
+
+  WebGLApplication.prototype.handleRadiusChange = function(updatedNodes) {
+    if (updatedNodes) {
+      var updatedSkeletonIds = [];
+      // Collect changed skeletons
+      for (var nodeId in updatedNodes) {
+        var skid = updatedNodes[nodeId].skeleton_id;
+        if (skid && -1 == updatedSkeletonIds.indexOf(skid)) {
+          updatedSkeletonIds.push(skid);
+        }
+      }
+      // Update if we display a changed skeleton
+      this.reloadSkeletons(updatedSkeletonIds);
     }
   };
 
@@ -1286,13 +1353,7 @@
   /** Reload only if present. */
   WebGLApplication.prototype.staticReloadSkeletons = function(skeleton_ids) {
     this.getInstances().forEach(function(instance) {
-      var models = skeleton_ids.filter(instance.hasSkeleton, instance)
-                               .reduce(function(m, skid) {
-                                 if (instance.hasSkeleton(skid)) m[skid] = instance.getSkeletonModel(skid);
-                                 return m;
-                               }, {});
-      instance.space.removeSkeletons(skeleton_ids);
-      instance.updateModels(models);
+      instance.reloadSkeletons(skeleton_ids);
     });
   };
 
@@ -1406,6 +1467,20 @@
     return skeleton_id in this.space.content.skeletons;
   };
 
+  /**
+   * Remove and re-add all skeletons from the passed in list of IDs that are
+   * currently loaded.
+   */
+  WebGLApplication.prototype.reloadSkeletons = function(skeleton_ids) {
+    var models = skeleton_ids.filter(this.hasSkeleton, this)
+        .reduce((function(m, skid) {
+           m[skid] = this.getSkeletonModel(skid);
+           return m;
+        }).bind(this), {});
+    this.space.removeSkeletons(skeleton_ids);
+    this.updateModels(models);
+  };
+
   WebGLApplication.prototype.removeSkeletons = function(skeleton_ids) {
     if (!this.space) return;
     this.space.removeSkeletons(skeleton_ids);
@@ -1437,6 +1512,171 @@
     this.space.content.active_node.setVisible(true);
   };
 
+  /**
+   * Display meshes in the passed-in object. Mesh IDs should be mapped to an
+   * array following this format: [[points], [[faces]].
+   *
+   * @returns a function that removes the added meshes when called
+   */
+  WebGLApplication.prototype.showTriangleMeshes = function(meshes) {
+    var addedObjects = [];
+    var self = this;
+
+    var renderedMeshes = Object.keys(meshes).filter(function(name) {
+      var mesh = meshes[name];
+      var points = mesh[0];
+      var hull = mesh[1];
+      if (!points || 0 === points.length || !hull || 0 === hull.length) {
+        return false;
+      }
+      // Make the mesh with the faces specified in the hull array
+      var geom = new THREE.Geometry();
+      points.forEach(function(p) {
+        this.vertices.push(new THREE.Vector3(p[0], p[1], p[2]));
+      }, geom);
+      hull.forEach(function(indices) {
+        this.faces.push(new THREE.Face3(indices[0], indices[1], indices[2]));
+      }, geom);
+      geom.computeFaceNormals();
+
+      // Create mesh based on volume color and opacity selected in 3D viewer.
+      // Ignore the face setting for now to always show faces.
+      var opacity = self.options.meshes_opacity;
+      var mesh = new THREE.Mesh(
+          geom,
+          new THREE.MeshLambertMaterial(
+             {color: self.options.meshes_color,
+              opacity: opacity,
+              transparent: opacity !== 1.0,
+              wireframe: false,
+              depthWrite: opacity === 1.0,
+              side: THREE.DoubleSide}));
+
+      var wfh = new THREE.WireframeHelper(mesh, 0x000000);
+      wfh.material.linewidth = 2;
+      self.space.add(mesh);
+      self.space.add(wfh);
+      this.push(mesh);
+      this.push(wfh);
+      return true;
+    }, addedObjects);
+
+    if (0 < renderedMeshes.length) {
+      this.space.render();
+    }
+
+    return function() {
+      if (!self || !self.space) {
+        // No need to remove anything if 3D viewer or its space are gone
+        return;
+      }
+      addedObjects.forEach(function(o) {
+          this.remove(o);
+      }, self.space);
+      self.space.render();
+    };
+  };
+
+  /**
+   * Converts simple X3D IndexedFaceSet and IndexedTriangleSet nodes to a VRML
+   * representation.
+   */
+  function x3dToVrml(x3d) {
+    var vrml = x3d;
+    var shapePrefix = "Shape {\n  geometry IndexedFaceSet {\n     ";
+
+    // Indexed triangle set
+    vrml = vrml.replace(/<IndexedTriangleSet\s*index='([-\d\s]*)'\s*>/gi,
+        function(match, indexGroup) {
+          var triIndices = indexGroup.split(" ");
+          var nVertices = triIndices.length;
+          // Mark end of face after each three points. This wouldn't be
+          // required if the Three.js loader would support triangle sets.
+          var indices = new Array(nVertices + Math.floor(nVertices / 3));
+          var offset = 0;
+          for (var i=0; i<triIndices.length; ++i) {
+            indices[i + offset] = triIndices[i];
+            if (0 === (i + 1) % 3) {
+              ++offset;
+              indices[i + offset] = "-1";
+            }
+          }
+
+          return shapePrefix + "    coordIndex [" + indices.join(", ") + "]\n";
+        }).replace(/<\/IndexedTriangleSet>/gi, "  }\n}");
+
+    // Indexed face set
+    vrml = vrml.replace(/<IndexedFaceSet\s*coordIndex='([-\d\s]*)'\s*>/gi,
+        function(match, indexGroup) {
+          var indices = indexGroup.split(" ");
+          return shapePrefix + "    coordIndex [" + indices.join(", ") + "]\n";
+        }).replace(/<\/IndexedFaceSet>/gi, "  }\n}");
+
+    // Coordinates
+    vrml = vrml.replace(/<Coordinate\s*point='([-.\d\s]*)'\s*\/>/gi,
+        function(match, pointGroup) {
+          var points = pointGroup.split(" ");
+          var groupedPoints = new Array(Math.floor(points.length / 3));
+          // Store points in component groups
+          for (var i=0; i<groupedPoints.length; ++i) {
+            var j = 3 * i;
+            groupedPoints[i] = points[j] + " " + points[j+1] + " " + points[j+2];
+          }
+          return "  coord Coordinate {\n    point [" + groupedPoints.join(", ") + "]\n  }";
+        });
+
+    return "#VRML V2.0 utf8\n\n" + vrml;
+  }
+
+  /**
+   * Show or hide a stored volume with a given Id.
+   */
+  WebGLApplication.prototype.showVolume = function(volumeId, visible) {
+    var existingVolume = this.loadedVolumes[volumeId];
+    if (visible) {
+      // Bail out if the volume in question is already visible
+      if (existingVolume) {
+        CATMAID.warn("Volume \"" + volumeId + "\" is already visible.");
+        return;
+      }
+
+      CATMAID.Volumes.get(project.id, volumeId)
+        .then((function(volume) {
+          // Convert X3D mesh to simple VRML and have Three.js load it
+          var vrml = x3dToVrml(volume.mesh);
+          var loader = new THREE.VRMLLoader();
+          var scene = loader.parse(vrml);
+          if (scene.children) {
+            var material = this.options.createMeshMaterial();
+            var addedMeshes = scene.children.map(function(mesh) {
+              mesh.material = material;
+              this.space.scene.add(mesh);
+              return mesh;
+            }, this);
+            // Store mesh reference
+            this.loadedVolumes[volumeId] = addedMeshes;
+            this.space.render();
+          } else {
+            CATMAID.warn("Couldn't parse volume \"" + volumeId + "\"");
+          }
+        }).bind(this))
+        .catch(CATMAID.handleError);
+    } else if (existingVolume) {
+      // Remove volume
+      existingVolume.forEach(function(v) {
+        this.space.scene.remove(v);
+      }, this);
+      delete this.loadedVolumes[volumeId];
+      this.space.render();
+    }
+  };
+
+  /**
+   * Return IDs of the currently loaded volumes.
+   */
+  WebGLApplication.prototype.getLoadedVolumeIds = function() {
+    return Object.keys(this.loadedVolumes);
+  };
 
   /** Defines the properties of the 3d space and also its static members like the bounding box and the missing sections. */
   WebGLApplication.prototype.Space = function( w, h, container, stack, options ) {
@@ -1461,6 +1701,8 @@
         stack.resolution.y, stack.resolution.z);
     // Make the scaling factor look a bit prettier by rounding to two decimals
     options.skeleton_node_scaling = Number(options.skeleton_node_scaling.toFixed(2));
+
+    this.userColormap = {};
 
     // WebGL space
     this.scene = new THREE.Scene();
@@ -1525,23 +1767,11 @@
 
 
   WebGLApplication.prototype.Space.prototype.createLights = function(dimensions, center, camera) {
-    var ambientLight = new THREE.AmbientLight( 0x505050 );
-
-    var pointLight = new THREE.PointLight( 0xffaa00 );
-    pointLight.position.set(dimensions.max.x, dimensions.max.y, dimensions.min.z - 50);
-
-    var light = new THREE.SpotLight( 0xffffff, 1.5 );
-    light.position.set(center.x, center.y, dimensions.min.z - 50);
-    light.castShadow = true;
-    light.shadowCameraNear = 200;
-    light.shadowCameraFar = camera.far;
-    light.shadowCameraFov = 50;
-    light.shadowBias = -0.00022;
-    light.shadowDarkness = 0.5;
-    light.shadowMapWidth = 2048;
-    light.shadowMapHeight = 2048;
-
-    return [ambientLight, pointLight, light];
+    var ambientLight = new THREE.AmbientLight(0x505050);
+    var height = dimensions.max.y - dimensions.min.y;
+    var hemiLight = new THREE.HemisphereLight( 0xffffff, 0x000000, 1 );
+    hemiLight.position.set( center.x, - center.y - height, center.z);
+    return [ambientLight, hemiLight];
   };
 
   WebGLApplication.prototype.Space.prototype.add = function(mesh) {
@@ -1552,8 +1782,14 @@
     this.scene.remove(mesh);
   };
 
+  WebGLApplication.prototype.Space.prototype.removeAll = function(objects) {
+    this.scene.remove.apply(this.scene, objects);
+  };
+
   WebGLApplication.prototype.Space.prototype.render = function() {
-    this.view.render();
+    if (this.view) {
+      this.view.render();
+    }
   };
 
   WebGLApplication.prototype.Space.prototype.destroy = function() {
@@ -1573,7 +1809,7 @@
     this.staticContent.dispose();
 
     // remove meshes
-    this.scene.remove(this.staticContent.box);
+    if (this.staticContent.box) this.scene.remove(this.staticContent.box);
     this.scene.remove(this.staticContent.floor);
     if (this.staticContent.zplane) this.scene.remove(this.staticContent.zplane);
     this.staticContent.missing_sections.forEach(function(m) { this.remove(m); }, this.scene);
@@ -1584,12 +1820,19 @@
   };
 
   WebGLApplication.prototype.Space.prototype.removeSkeletons = function(skeleton_ids) {
-    skeleton_ids.forEach(this.removeSkeleton, this);
+    // First remove all objects from the Three.js scene
+
+    // Destroy all CATMAID parts of these objects
+    var collection = [];
+    skeleton_ids.forEach(function(skeleton_id) {
+      this.removeSkeleton(skeleton_id, collection);
+    }, this);
+    this.removeAll(collection);
   };
 
-  WebGLApplication.prototype.Space.prototype.removeSkeleton = function(skeleton_id) {
+  WebGLApplication.prototype.Space.prototype.removeSkeleton = function(skeleton_id, collection) {
     if (skeleton_id in this.content.skeletons) {
-      this.content.skeletons[skeleton_id].destroy();
+      this.content.skeletons[skeleton_id].destroy(collection);
       delete this.content.skeletons[skeleton_id];
     }
   };
@@ -1645,10 +1888,28 @@
     }
   };
 
-  WebGLApplication.prototype.Space.prototype.TextGeometryCache = function() {
+  WebGLApplication.prototype.Space.prototype.TextGeometryCache = function(options) {
     this.geometryCache = {};
 
-    this.getTagGeometry = function(tagString) {
+    // Load font asynchronously, text creation will wait
+    var prepare, font;
+    if (options.font) {
+      prepare = new Promise.resolve();
+      font = options.font;
+    } else {
+      prepare = new Promise(function(resolve, reject) {
+        var loader = new THREE.FontLoader();
+        var url = CATMAID.makeStaticURL('libs/three.js/fonts/helvetiker_regular.typeface.js');
+        loader.load(url, function(newFont) {
+          // Share font
+          options.font = newFont;
+          font = newFont;
+          resolve();
+        }, undefined, reject);
+      }).catch(CATMAID.handleError);
+    }
+
+    this.getTagGeometry = function(tagString, font) {
       if (tagString in this.geometryCache) {
         var e = this.geometryCache[tagString];
         e.refs += 1;
@@ -1659,7 +1920,7 @@
         size: 100,
         height: 20,
         curveSegments: 1,
-        font: "helvetiker"
+        font: font
       });
       text3d.computeBoundingBox();
       text3d.tagString = tagString;
@@ -1678,12 +1939,33 @@
       }
     };
 
-    this.createTextMesh = function(tagString, material) {
-      var text = new THREE.Mesh(this.getTagGeometry(tagString), material);
+    this._createMesh = function(tagString, material, font) {
+      var geometry = this.getTagGeometry(tagString, font);
+      var text = new THREE.Mesh(geometry, material);
       // We need to flip up, because our cameras' up direction is -Y.
       text.scale.setY(-1);
       text.visible = true;
       return text;
+    };
+
+    /**
+     * Create text mesh and load font if it isn't already available yet.
+     */
+    this.createTextMesh = function(tagString, material, onSuccess) {
+      // If font isn't loaded yet, load it and try again in 100ms.
+      if (font) {
+        var mesh = this._createMesh(tagString, material, font);
+        onSuccess(mesh);
+      } else {
+        prepare.then(function() {
+          if (font) {
+            var mesh = this._createMesh(tagString, material, font);
+            onSuccess(mesh);
+          } else {
+            throw new CATMAID.Error("3D viewer font couldn't be loaded");
+          }
+        });
+      }
     };
 
     this.destroy = function() {
@@ -1694,9 +1976,26 @@
     };
   };
 
-  WebGLApplication.prototype.Space.prototype.StaticContent = function(dimensions, stack, center) {
+  /**
+   * Get the constructor for the material used for skeleton meshes.
+   *
+   * @param {String} neuron_material Expected to be either 'basic' or 'lambert'
+   *
+   * @return a THREE.js constructor for a material
+   */
+  var getSkeletonMaterialType = function(neuron_material) {
+    if ('basic' === neuron_material) {
+      return THREE.MeshBasicMaterial;
+    } else if ('lambert' === neuron_material) {
+      return THREE.MeshLambertMaterial;
+    } else {
+      throw new CATMAID.ValueError("Unknown material identifier: " + neuron_material);
+    }
+  };
+
+  WebGLApplication.prototype.Space.prototype.StaticContent = function(dimensions, stack, center, options) {
     // Space elements
-    this.box = this.createBoundingBox(stack);
+    this.box = this.createBoundingBox(project.focusedStackViewer.primaryStack);
     this.floor = this.createFloor(center, dimensions);
 
     this.zplane = null;
@@ -1709,22 +2008,27 @@
     this.icoSphere = new THREE.IcosahedronGeometry(1, 2);
     this.cylinder = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
     this.textMaterial = new THREE.MeshNormalMaterial();
+
+    // Make sure normals are computed on tempalte geometry
+    this.labelspheregeometry.computeFaceNormals();
+    this.labelspheregeometry.computeVertexNormals();
+
     // Mesh materials for spheres on nodes tagged with 'uncertain end', 'undertain continuation' or 'TODO'
-    this.labelColors = {uncertain: new THREE.MeshBasicMaterial({color: 0xff8000, opacity:0.6, transparent: true}),
-                        todo:      new THREE.MeshBasicMaterial({color: 0xff0000, opacity:0.6, transparent: true}),
-                        custom:    new THREE.MeshBasicMaterial({color: 0xaa70ff, opacity:0.6, transparent: true})};
-    this.textGeometryCache = new WebGLApplication.prototype.Space.prototype.TextGeometryCache();
-    this.synapticColors = [new THREE.MeshBasicMaterial( { color: 0xff0000, opacity:0.6, transparent:false  } ), new THREE.MeshBasicMaterial( { color: 0x00f6ff, opacity:0.6, transparent:false  } )];
+    this.updateDynamicMaterials(options, false);
+    this.textGeometryCache = new WebGLApplication.prototype.Space.prototype.TextGeometryCache(options);
     this.connectorLineColors = {'presynaptic_to': new THREE.LineBasicMaterial({color: 0xff0000, opacity: 1.0, linewidth: 6}),
-                                'postsynaptic_to': new THREE.LineBasicMaterial({color: 0x00f6ff, opacity: 1.0, linewidth: 6})};
+                                'postsynaptic_to': new THREE.LineBasicMaterial({color: 0x00f6ff, opacity: 1.0, linewidth: 6}),
+                                'gapjunction_with': new THREE.LineBasicMaterial({color: 0x9f25c2, opacity: 1.0, linewidth: 6})};
   };
 
   WebGLApplication.prototype.Space.prototype.StaticContent.prototype = {};
 
   WebGLApplication.prototype.Space.prototype.StaticContent.prototype.dispose = function() {
     // dispose ornaments
-    this.box.geometry.dispose();
-    this.box.material.dispose();
+    if (this.box) {
+      this.box.geometry.dispose();
+      this.box.material.dispose();
+    }
     this.floor.geometry.dispose();
     this.floor.material.dispose();
     this.missing_sections.forEach(function(s) {
@@ -1733,11 +2037,14 @@
     });
     if (this.zplane) {
       this.zplane.geometry.dispose();
-      this.zplane.material.dispose();
+      // Dispose individual zplane tiles in texture mode.
+      this.zplane.material.materials.forEach(function(m) {
+        m.dispose();
+      });
     }
-   
+
     // dispose shared geometries
-    [this.labelspheregeometry, this.radiusSphere, this.icoSphere, this.cylinder].forEach(function(g) { 
+    [this.labelspheregeometry, this.radiusSphere, this.icoSphere, this.cylinder].forEach(function(g) {
       g.dispose();
     });
     this.textGeometryCache.destroy();
@@ -1749,6 +2056,39 @@
     }, this);
     this.synapticColors[0].dispose();
     this.synapticColors[1].dispose();
+    this.synapticColors[2].dispose();
+    this.synapticColors.default.dispose();
+  };
+
+  /**
+   * Update shared materials that can be updated during run-time.
+   */
+  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.updateDynamicMaterials = function(options, copyProperties) {
+    // Material constructor depends on current options
+    var Material = getSkeletonMaterialType(options['neuron_material']);
+
+    function makeMaterial(defaultOptions, sourceObj, sourceField) {
+      var properties;
+      if (copyProperties && sourceObj) {
+        properties = {};
+        var sourceMaterial = sourceObj[sourceField];
+        properties['color'] = sourceMaterial.color;
+        properties['opacity'] = sourceMaterial.opacity;
+        properties['transparent'] = sourceMaterial.transparent;
+      } else {
+        properties = defaultOptions;
+      }
+
+      return new Material(properties);
+    }
+
+    this.labelColors = {uncertain: makeMaterial({color: 0xff8000, opacity:0.6, transparent: true}, this.labelColors, 'uncertain'),
+                        todo:      makeMaterial({color: 0xff0000, opacity:0.6, transparent: true}, this.labelColors, 'todo'),
+                        custom:    makeMaterial({color: 0xaa70ff, opacity:0.6, transparent: true}, this.labelColors, 'custom')};
+    this.synapticColors = [makeMaterial({color: 0xff0000, opacity:1.0, transparent:false}, this.synapticColors, 0),
+                           makeMaterial({color: 0x00f6ff, opacity:1.0, transparent:false}, this.synapticColors, 1),
+                           makeMaterial({color: 0x9f25c2, opacity:1.0, transparent:false}, this.synapticColors, 2)];
+    this.synapticColors.default = makeMaterial({color: 0xff9100, opacity:0.6, transparent:false});
   };
 
   WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createBoundingBox = function(stack) {
@@ -1894,14 +2234,14 @@
 
   /** Adjust visibility of static content according to the persistent options. */
   WebGLApplication.prototype.Space.prototype.StaticContent.prototype.adjust = function(options, space) {
-    if (options.show_missing_sections) {
-      if (0 === this.missing_sections.length) {
-        this.missing_sections = this.createMissingSections(space, options.missing_section_height);
-        this.missing_sections.forEach(function(m) { this.add(m); }, space.scene);
-      }
-    } else {
+    if (0 !== this.missing_sections.length) {
       this.missing_sections.forEach(function(m) { this.remove(m); }, space.scene);
       this.missing_sections = [];
+    }
+    if (options.show_missing_sections) {
+      this.missing_sections = this.createMissingSections(project.focusedStackViewer.primaryStack,
+                                                         options.missing_section_height);
+      this.missing_sections.forEach(function(m) { this.add(m); }, space.scene);
     }
 
     if (options.show_background) {
@@ -1912,83 +2252,288 @@
 
     this.floor.visible = options.show_floor;
 
-    this.box.visible = options.show_box;
+    if (this.box) {
+      space.scene.remove(this.box);
+      this.box.geometry.dispose();
+      this.box.material.dispose();
+      this.box = null;
+    }
+    if (options.show_box) {
+      this.box = this.createBoundingBox(project.focusedStackViewer.primaryStack);
+      this.box.visible = options.show_box;
+      space.scene.add(this.box);
+    }
 
     if (options.show_zplane) {
-      this.createZPlane(space, project.focusedStackViewer);
+      this.createZPlane(space, project.focusedStackViewer,
+          options.zplane_texture ? options.zplane_zoomlevel : null,
+          options.zplane_opacity);
     } else {
       if (this.zplane) space.scene.remove(this.zplane);
       this.zplane = null;
     }
   };
 
-  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createPlaneGeometry = function (stack) {
+  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createPlaneGeometry =
+      function (stack, tileZoomLevel) {
     var stackPlane = stack.createStackExtentsBox(),
         plane = stack.createStackToProjectBox(stackPlane),
-        geometry = new THREE.Geometry();
+        geometry, pDepth;
 
     var majorDimSeq = ['min', 'max', 'min', 'max'],
         minorDimSeq = ['min', 'min', 'max', 'max'],
         planeDimSeq = minorDimSeq,
-        seq;
+        seq, pWidth, pHeight, pTileWidth, pTileHeight;
 
     switch (stack.orientation) {
       case CATMAID.Stack.ORIENTATION_XY:
+        pDepth = plane.max.z - plane.min.z;
         plane.min.z = plane.max.z = 0;
         seq = {x: majorDimSeq, y: minorDimSeq, z: planeDimSeq};
+        pWidth = plane.max.x - plane.min.x;
+        pHeight = plane.max.y - plane.min.y;
+        pTileWidth = stack.tileSource.tileWidth * stack.resolution.x;
+        pTileHeight = stack.tileSource.tileHeight * stack.resolution.y;
         break;
       case CATMAID.Stack.ORIENTATION_XZ:
+        pDepth = plane.max.y - plane.min.y;
         plane.min.y = plane.max.y = 0;
         seq = {x: majorDimSeq, y: planeDimSeq, z: minorDimSeq};
+        pWidth = plane.max.x - plane.min.x;
+        pHeight = plane.max.z - plane.min.z;
+        pTileWidth = stack.tileSource.tileWidth * stack.resolution.x;
+        pTileHeight = stack.tileSource.tileHeight * stack.resolution.z;
         break;
       case CATMAID.Stack.ORIENTATION_ZY:
+        pDepth = plane.max.x - plane.min.x;
         plane.min.x = plane.max.x = 0;
         seq = {x: planeDimSeq, y: minorDimSeq, z: majorDimSeq};
+        pWidth = plane.max.z - plane.min.z;
+        pHeight = plane.max.y - plane.min.y;
+        pTileWidth = stack.tileSource.tileWidth * stack.resolution.z;
+        pTileHeight = stack.tileSource.tileHeight * stack.resolution.y;
         break;
     }
 
-    for (var i = 0; i < 4; ++i) {
-      geometry.vertices.push( new THREE.Vector3( plane[seq.x[i]].x, plane[seq.y[i]].y, plane[seq.z[i]].z ) );
+    if (tileZoomLevel) {
+      // Scale project tile width to the requested zoom level
+      var scale = Math.pow(2, tileZoomLevel);
+      pTileWidth *= scale;
+      pTileHeight *= scale;
+      // Create two triangles for every tile
+      var tileWidth = stack.tileSource.tileWidth;
+      var tileHeight = stack.tileSource.tileHeight;
+      var nHTiles = getNZoomedParts(stack.dimension.x, tileZoomLevel, tileWidth);
+      var nVTiles = getNZoomedParts(stack.dimension.y, tileZoomLevel, tileHeight);
+      var transpose = stack.tileSource.transposeTiles &&
+          stack.tileSource.transposeTiles.has(stack.orientation);
+
+      // Use THREE's plane geometry so that UVs and normals are set up aleady.
+      var tilePlaneWidth = nHTiles * pTileWidth;
+      var tilePlaneHeight = nVTiles * pTileHeight;
+
+      // Get four corners of z plane: lower left, lower right,
+      // upper left, upper right
+      var planeVertices = new Array(4);
+      for (var i = 0; i < 4; ++i) {
+        planeVertices[i] = new THREE.Vector3(plane[seq.x[i]].x,
+            plane[seq.y[i]].y, plane[seq.z[i]].z);
+      }
+      var hTileStep = planeVertices[1].clone().sub(planeVertices[0]).setLength(pTileWidth);
+      var vTileStep = planeVertices[0].clone().sub(planeVertices[2]).setLength(pTileHeight);
+
+      // Calculate some required tile overflow information
+      var overflowH = tilePlaneWidth - pWidth;
+      var overflowHCoRatio = 1 - overflowH / pTileWidth;
+      var overflowV = tilePlaneHeight - pHeight;
+      var overflowVCoRatio = 1 - overflowV / pTileHeight;
+
+      // This will become the z plane.
+      geometry = new THREE.PlaneGeometry(tilePlaneWidth, tilePlaneHeight, nHTiles, nVTiles);
+      var tileVertices = new Array(4);
+      for (var r=0; r<nVTiles; ++r) {
+        for (var c=0; c<nHTiles; ++c) {
+          var tileIndex = r * nHTiles + c;
+          var faceIndex = tileIndex * 2;
+          var face1 = geometry.faces[faceIndex];
+          var face2 = geometry.faces[faceIndex + 1];
+          var isLastCol = (c === nHTiles - 1);
+          var isLastRow = (r === nVTiles - 1);
+          var hTileFrac = isLastCol ? overflowHCoRatio : 1;
+          var vTileFrac = isLastRow ? overflowVCoRatio : 1;
+
+          // Move vertices to actual positions and clamp last row as well as
+          // last column to stack bounds.
+          var vertices = geometry.vertices;
+          var ul = vertices[face1.a].copy(planeVertices[0])
+              .addScaledVector(hTileStep, c)
+              .addScaledVector(vTileStep,  -r);
+          var ll = vertices[face1.b].copy(planeVertices[0])
+              .addScaledVector(hTileStep, c)
+              .addScaledVector(vTileStep, -r - vTileFrac);
+          var lr = vertices[face2.b].copy(planeVertices[0])
+              .addScaledVector(hTileStep, c + hTileFrac)
+              .addScaledVector(vTileStep, -r - vTileFrac);
+          var ur = vertices[face2.c].copy(planeVertices[0])
+              .addScaledVector(hTileStep, c + hTileFrac)
+              .addScaledVector(vTileStep, -r);
+
+          // Set different material index for each tile
+          face1.materialIndex = tileIndex;
+          face2.materialIndex = tileIndex;
+
+          // Set UVs so that our image tiles map nicely on our triangles
+          var uvs1 = geometry.faceVertexUvs[0][faceIndex];
+          var uvs2 = geometry.faceVertexUvs[0][faceIndex + 1];
+
+          // Set UVs and clamp UVs of last row and column to stack bounds.
+          uvs1[0].set(0, 1);
+          uvs1[1].set(0, 1 - vTileFrac);
+          uvs1[2].set(hTileFrac, 1);
+          uvs2[0].set(0, 1 - vTileFrac);
+          uvs2[1].set(hTileFrac, 1 - vTileFrac);
+          uvs2[2].set(hTileFrac, vTileFrac);
+        }
+      }
+      geometry.verticesNeedUpdate = true;
+      geometry.uvsNeedUpdate = true;
+
+      // If the stack tiles for this stack are transposed, its dimensions are
+      // swapped and the stack has to be rotated by 90 degees.
+      if (transpose) {
+        // Mirror image diagonally
+        var axis = planeVertices[3].clone().sub(planeVertices[0]).normalize();
+        var rotation = new THREE.Matrix4();
+        rotation.makeRotationAxis(axis, -Math.PI);
+        geometry.applyMatrix(rotation);
+      }
+    } else {
+      // Push vertices for lower left, lower right, upper left, upper right
+      geometry = new THREE.Geometry();
+      for (var i = 0; i < 4; ++i) {
+        geometry.vertices.push( new THREE.Vector3( plane[seq.x[i]].x,
+              plane[seq.y[i]].y, plane[seq.z[i]].z ) );
+      }
+      geometry.faces.push( new THREE.Face3( 0, 1, 2 ) );
+      geometry.faces.push( new THREE.Face3( 1, 2, 3 ) );
     }
-    geometry.faces.push( new THREE.Face3( 0, 1, 2 ) );
-    geometry.faces.push( new THREE.Face3( 1, 2, 3 ) );
 
     return geometry;
   };
 
-  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createZPlane = function(space, stackViewer) {
+  /**
+   * Destroy an existing z plane and replace it with a new one.
+   *
+   * @param {Object}  space            Space to which the z plane should be added to
+   * @param {Object}  stackViewer      The stack viewer to create z plane for
+   * @param {Integer} textureZoomLevel (Optional) The zoom level used for
+   *                                   image tile texture. If set to "max", the
+   *                                   stack's maximum zoom level is used. If
+   *                                   null/undefined, no texture will be used.
+   * @param {Number}  opacity          A value in the range 0-1 representing the
+   *                                   opacity of the z plane.
+   */
+  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createZPlane =
+      function(space, stackViewer, textureZoomLevel, opacity) {
     if (this.zplane) space.scene.remove(this.zplane);
-    var material = new THREE.MeshBasicMaterial( { color: 0x151349, side: THREE.DoubleSide, opacity: 0.5, transparent: true } ),
-        geometry = this.createPlaneGeometry(stackViewer.primaryStack);
 
-    this.zplane = new THREE.Mesh( geometry, material );
+    if ("max" === textureZoomLevel) {
+      textureZoomLevel = stackViewer.primaryStack.MAX_S;
+    }
+    // Create geometry for plane
+    var geometry = this.createPlaneGeometry(stackViewer.primaryStack, textureZoomLevel);
+
+    if (textureZoomLevel || 0 === textureZoomLevel) {
+      // Remember zoom level for updates
+      this.zplaneZoomLevel = textureZoomLevel;
+      // Every tile in the z plane is made out of two triangles.
+      this.zplaneMaterials = new Array(geometry.faces.length / 2);
+      for (var i=0; i<this.zplaneMaterials.length; ++i) {
+        this.zplaneMaterials[i] = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          side: THREE.DoubleSide,
+          opacity: opacity,
+          transparent: true
+        });
+      }
+      this.zplane = new THREE.Mesh(geometry, new THREE.MultiMaterial(this.zplaneMaterials));
+    } else {
+      var material = new THREE.MeshBasicMaterial({
+        color: 0x151349, side: THREE.DoubleSide, opacity: opacity, transparent: true});
+      this.zplane = new THREE.Mesh(geometry, material);
+      this.zplaneMaterials = null;
+    }
+
     space.scene.add(this.zplane);
 
     this.updateZPlanePosition(space, stackViewer);
   };
 
+  var getNZoomedParts = function(width, zoom, part) {
+    return Math.floor((width * Math.pow(2, -zoom) - 1) / part) + 1;
+  };
+
   WebGLApplication.prototype.Space.prototype.StaticContent.prototype.updateZPlanePosition = function(space, stackViewer) {
     if (this.zplane) {
+      var stack = stackViewer.primaryStack;
       var v = new THREE.Vector3(0, 0, 0);
       switch (stackViewer.primaryStack.orientation) {
         case CATMAID.Stack.ORIENTATION_XY:
-          v.z = stackViewer.primaryStack.stackToProjectZ(stackViewer.z, stackViewer.y, stackViewer.x);
+          v.z = stack.stackToProjectZ(stackViewer.z, stackViewer.y, stackViewer.x);
           break;
         case CATMAID.Stack.ORIENTATION_XZ:
-          v.y = stackViewer.primaryStack.stackToProjectY(stackViewer.z, stackViewer.y, stackViewer.x);
+          v.y = stack.stackToProjectY(stackViewer.z, stackViewer.y, stackViewer.x);
           break;
         case CATMAID.Stack.ORIENTATION_ZY:
-          v.x = stackViewer.primaryStack.stackToProjectX(stackViewer.z, stackViewer.y, stackViewer.x);
+          v.x = stack.stackToProjectX(stackViewer.z, stackViewer.y, stackViewer.x);
           break;
       }
       this.zplane.position.copy(v);
+
+      // Also update tile texture
+      if (this.zplaneMaterials) {
+        var tileSource = stack.tileSource;
+        // To get arround potential CORS restrictions load tile into image and
+        // then into texture.
+        var loadTile = function(texture, material, notify) {
+          material.map = texture;
+          texture.needsUpdate = true;
+          material.needsUpdate = true;
+          notify();
+        };
+
+        var counter = this.zplaneMaterials.length;
+        var notify = function() {
+          counter = counter - 1;
+          if (0 === counter) {
+            space.render();
+          }
+        };
+
+        var zoomLevel = this.zplaneZoomLevel;
+        var nCols = getNZoomedParts(stack.dimension.x, zoomLevel, tileSource.tileWidth);
+        for (var i=0; i<this.zplaneMaterials.length; ++i) {
+          var material = this.zplaneMaterials[i];
+          var image = new Image();
+          image.crossOrigin = true;
+          var texture = new THREE.Texture(image);
+          image.onload = loadTile.bind(this, texture, material, notify);
+
+          var slicePixelPosition = [stackViewer.z];
+          var col = i % nCols;
+          var row = (i - col) / nCols;
+          image.src = tileSource.getTileURL(project.id, stack,
+              slicePixelPosition, col, row, zoomLevel);
+        }
+
+        this.zplane.material.needsUpdate = true;
+      }
     }
   };
 
   /** Returns an array of meshes representing the missing sections. */
-  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createMissingSections = function(space, missing_section_height) {
-    var stack = space.stack,
-        geometry = this.createPlaneGeometry(stack),
+  WebGLApplication.prototype.Space.prototype.StaticContent.prototype.createMissingSections = function(stack, missing_section_height) {
+    var geometry = this.createPlaneGeometry(stack),
         materials = [new THREE.MeshBasicMaterial( { color: 0x151349, opacity:0.6, transparent: true, side: THREE.DoubleSide } ),
                      new THREE.MeshBasicMaterial( { color: 0x00ffff, wireframe: true, wireframeLinewidth: 5, side: THREE.DoubleSide } )];
 
@@ -2006,7 +2551,7 @@
         break;
     }
 
-    return space.stack.broken_slices.reduce(function(missing_sections, sliceStackZ) {
+    return stack.broken_slices.reduce(function(missing_sections, sliceStackZ) {
       var x = stack.stackToProjectX(sliceStackZ, 0, 0),
           y = stack.stackToProjectY(sliceStackZ, 0, 0),
           z = stack.stackToProjectZ(sliceStackZ, 0, 0);
@@ -2185,7 +2730,14 @@
   WebGLApplication.prototype.Space.prototype.View.prototype.createRenderer = function(type) {
     var renderer = null;
     if ('webgl' === type) {
-      renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: this.logDepthBuffer });
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        logarithmicDepthBuffer: this.logDepthBuffer,
+      });
+      // Set pixel ratio, needed for HiDPI displays, if enabled
+      if (this.space.options.use_native_resolution) {
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+      }
     } else if ('svg' === type) {
       renderer = new THREE.SVGRenderer();
     } else {
@@ -2250,9 +2802,9 @@
     var o = options || {};
 
     // Find all spheres
+    var fields = ['radiusVolumes'];
     var skeletons = this.space.content.skeletons;
     var visibleSpheres = Object.keys(skeletons).reduce(function(o, skeleton_id) {
-      var fields = ['specialTagSpheres', 'synapticSpheres', 'radiusVolumes'];
       var skeleton = skeletons[skeleton_id];
       if (!skeleton.visible) return o;
 
@@ -2270,10 +2822,36 @@
         }, this);
       }, meshes);
 
-      o[skeleton_id] = meshes;
+      // Append all individual buffer objects to be able to create replacements
+      // for them. The whole buffers added below are only used to make all
+      // objects of this bufffer invisible for rendering (doesn't work with with
+      // the meshes only in SVG renderer).
+      var bufferObjects = [];
+      var bufferConnectorSpheres = skeleton['synapticSpheres'];
+      for (var id in bufferConnectorSpheres) {
+        var bo = bufferConnectorSpheres[id];
+        bufferObjects.push(bo);
+      }
+      var bufferSpheres = skeleton['specialTagSpheres'];
+      for (var id in bufferSpheres) {
+        var bo = bufferSpheres[id];
+        bufferObjects.push(bo);
+      }
+
+      o.meshes[skeleton_id] = meshes;
+      o.bufferObjects[skeleton_id] = bufferObjects;
+      o.buffers[skeleton_id] = [];
+      if (skeleton.specialTagSphereCollection)
+        o.buffers[skeleton_id].push(skeleton.specialTagSphereCollection);
+      if (skeleton.connectorSphereCollection)
+        o.buffers[skeleton_id].push(skeleton.connectorSphereCollection);
 
       return o;
-    }, {});
+    }, {
+      meshes: {},
+      bufferObjects: {},
+      buffers: {}
+    });
 
     // Hide the active node
     var atnVisible = self.space.content.active_node.mesh.visible;
@@ -2282,9 +2860,11 @@
     // Render
     var svgData = null;
     if ('catalog' === o['layout']) {
-      svgData = createCatalogData(visibleSpheres, o);
+      svgData = createCatalogData(visibleSpheres.meshes,
+          visibleSpheres.bufferObjects, visibleSpheres.buffers, o);
     } else {
-      svgData = renderSkeletons(visibleSpheres);
+      svgData = renderSkeletons(visibleSpheres.meshes,
+          visibleSpheres.bufferObjects, visibleSpheres.buffers);
     }
 
     // Show active node, if it was visible before
@@ -2306,7 +2886,7 @@
       });
     }
 
-    function addSphereReplacements(meshes, scene)
+    function addSphereReplacements(meshes, buffers, scene)
     {
       // Spheres will be replaced with very short lines
       var geometry = new THREE.Geometry();
@@ -2325,38 +2905,87 @@
       // Use the camera's up vector to constuct a normalized vector embedded in
       // the screen space plane.
       var up = self.camera.up.clone().normalize();
-      addedData.d = meshes.map(function(mesh) {
-        var hex = mesh.material.color.getHexString();
-        // Get radius of sphere in 3D world coordinates, but only use a 3x3 world
-        // matrix, since we don't need the translation.
-        var r = tmp.set(mesh.geometry.boundingSphere.radius,0,0)
-                      .applyMatrix3(mesh.matrixWorld).length();
-        // The radius has to be corrected for perspective
-        var sr = tmp.copy(up).multiplyScalar(r);
-        line.set(mesh.position.clone(), sr.add(mesh.position));
-        line.start.project(self.camera);
-        line.end.project(self.camera);
-        // The projected line distance is given in a screen space that ranges from
-        // (-1,-1) to (1,1). We therefore have to divide by 2 to get a normalized
-        // value that we can use to create actual screen distances.  For the final
-        // length, there is no need to be more precise than 1 decimal
-        var l = (0.5 * line.distance() * self.space.canvasWidth).toFixed(1);
-        // Get material from index or create a new one
-        var key = hex + "-" + l;
-        var material = this.m[key];
-        if (!material) {
-          material = new THREE.LineBasicMaterial({
-            color: mesh.material.color.clone(),
-            linewidth: l
-          });
-          this.m[key] = material;
-        }
-        var newMesh = new THREE.LineSegments( this.g, material );
-        // Move new mesh to position of replaced mesh and adapt size
-        newMesh.position.copy(mesh.position);
-        scene.add(newMesh);
-        return newMesh;
-      }, addedData);
+      if (meshes) {
+        var meshReplacements = meshes.map(function(mesh) {
+          var hex = mesh.material.color.getHexString();
+          // Get radius of sphere in 3D world coordinates, but only use a 3x3 world
+          // matrix, since we don't need the translation.
+          if (mesh instanceof THREE.Mesh) {
+            tmp.set(mesh.geometry.boundingSphere.radius, 0, 0)
+              .applyMatrix3(mesh.matrixWorld).length();
+          } else {
+            tmp.set(mesh.radius, 0, 0);
+          }
+          var r = tmp.length();
+          // The radius has to be corrected for perspective
+          var sr = tmp.copy(up).multiplyScalar(r);
+          line.set(mesh.position.clone(), sr.add(mesh.position));
+          line.start.project(self.camera);
+          line.end.project(self.camera);
+          // The projected line distance is given in a screen space that ranges from
+          // (-1,-1) to (1,1). We therefore have to divide by 2 to get a normalized
+          // value that we can use to create actual screen distances.  For the final
+          // length, there is no need to be more precise than 1 decimal
+          var l = (0.5 * line.distance() * self.space.canvasWidth).toFixed(1);
+          // Get material from index or create a new one
+          var key = hex + "-" + l;
+          var material = this.m[key];
+          if (!material) {
+            material = new THREE.LineBasicMaterial({
+              color: mesh.material.color.clone(),
+              opacity: mesh.material.opacity,
+              linewidth: l
+            });
+            this.m[key] = material;
+          }
+          var newMesh = new THREE.LineSegments( this.g, material );
+          // Move new mesh to position of replaced mesh and adapt size
+          newMesh.position.copy(mesh.position);
+          scene.add(newMesh);
+          return newMesh;
+        }, addedData);
+
+        addedData.d = addedData.d.concat(meshReplacements);
+      }
+
+
+      if (buffers) {
+        var bufferReplacements = buffers.filter(function(buffer) {
+          return buffer.visible;
+        }).map(function(buffer) {
+          var hex = buffer.color.getHexString();
+          tmp.set(buffer.boundingSphere.radius, 0, 0);
+          var r = tmp.length();
+          // The radius has to be corrected for perspective
+          var sr = tmp.copy(up).multiplyScalar(r);
+          line.set(buffer.position.clone(), sr.add(buffer.position));
+          line.start.project(self.camera);
+          line.end.project(self.camera);
+          // The projected line distance is given in a screen space that ranges from
+          // (-1,-1) to (1,1). We therefore have to divide by 2 to get a normalized
+          // value that we can use to create actual screen distances.  For the final
+          // length, there is no need to be more precise than 1 decimal
+          var l = (0.5 * line.distance() * self.space.canvasWidth).toFixed(1);
+          // Get material from index or create a new one
+          var key = hex + "-" + l;
+          var material = this.m[key];
+          if (!material) {
+            material = new THREE.LineBasicMaterial({
+              color: buffer.color.clone(),
+              opacity: buffer.alpha,
+              linewidth: l
+            });
+            this.m[key] = material;
+          }
+          var newMesh = new THREE.LineSegments( this.g, material );
+          // Move new mesh to position of replaced mesh and adapt size
+          newMesh.position.copy(buffer.position);
+          scene.add(newMesh);
+          return newMesh;
+        }, addedData);
+
+        addedData.d = addedData.d.concat(bufferReplacements);
+      }
 
       return addedData;
     }
@@ -2373,7 +3002,7 @@
     /**
      * Create an SVG catalog of the current view.
      */
-    function createCatalogData(sphereMeshes, options)
+    function createCatalogData(sphereMeshes, bufferObjects, sphereBuffers, options)
     {
       // Sort skeletons
       var skeletons;
@@ -2423,10 +3052,16 @@
 
         // Render view and replace sphere meshes of current skeleton
         var spheres = visibleSkids.reduce(function(o, s) {
-          o[s] = sphereMeshes[s];
+          o.meshes[s] = sphereMeshes[s];
+          o.buffers[s] = sphereBuffers[s];
+          o.bufferObjects[s] = bufferObjects[s];
           return o;
-        }, {});
-        var svg = renderSkeletons(spheres);
+        }, {
+          meshes: {},
+          bufferObjects: {},
+          buffers: {}
+        });
+        var svg = renderSkeletons(spheres.meshes, spheres.bufferObjects, spheres.buffers);
 
         if (displayNames) {
           // Add name of neuron
@@ -2481,13 +3116,17 @@
     /**
      * Render the current scene and replace the given sphere meshes beforehand.
      */
-    function renderSkeletons(sphereMeshes)
+    function renderSkeletons(sphereMeshes, bufferObjects, bufferCollections)
     {
       // Hide spherical meshes of all given skeletons
       var sphereReplacemens = {};
       for (var skid in sphereMeshes) {
-        setVisibility(sphereMeshes[skid], false);
-        sphereReplacemens[skid] = addSphereReplacements(sphereMeshes[skid], self.space);
+        var meshes = sphereMeshes[skid];
+        var skeletonBufferObjects = bufferObjects[skid];
+        var skeletonBuffers = bufferCollections[skid];
+        setVisibility(meshes, false);
+        setVisibility(skeletonBuffers, false);
+        sphereReplacemens[skid] = addSphereReplacements(meshes, skeletonBufferObjects, self.space);
       }
 
       // Create a new SVG renderer (which is faster than cleaning an existing one)
@@ -2498,8 +3137,11 @@
 
       // Show spherical meshes again and remove substitutes
       for (skid in sphereMeshes) {
+        var mesh = sphereMeshes[skid];
+        var buffers = bufferCollections[skid];
         removeSphereReplacements(sphereReplacemens[skid], self.space);
-        setVisibility(sphereMeshes[skid], true);
+        setVisibility(mesh, true);
+        setVisibility(buffers, true);
       }
 
       return svgRenderer.domElement;
@@ -2664,7 +3306,7 @@
 
     this.attach = function(view, domElement) {
       domElement.CATMAID_view = view;
-    
+
       domElement.addEventListener('wheel', this.MouseWheel, false);
       domElement.addEventListener('mousemove', this.MouseMove, false);
       domElement.addEventListener('mouseup', this.MouseUp, false);
@@ -2694,12 +3336,32 @@
       var camera = this.CATMAID_view.camera;
       if ((ev.ctrlKey || ev.altKey) && !camera.inOrthographicMode) {
         // Move the camera and the target in target direction
-        var distance = 3500 * (ev.wheelDelta > 0 ? -1 : 1);
+        var absUpdateDistance = 3500;
+        var movingForward = ev.wheelDelta > 0;
+        var dirFactor = movingForward ? -1 : 1;
+        var distance = absUpdateDistance * dirFactor;
         var controls = this.CATMAID_view.controls;
         var change = new THREE.Vector3().copy(camera.position)
-          .sub(controls.target).normalize().multiplyScalar(distance);
+          .sub(controls.target);
 
+        // If the distance to the target is smaller than the distance the camera
+        // should move toward the target and we are moving forward, update the
+        // moving distance to be half the target distance.
+        var camTargetDistance = change.length();
+        if (camTargetDistance < absUpdateDistance && movingForward) {
+          absUpdateDistance = camTargetDistance * 0.5;
+          distance = absUpdateDistance * dirFactor;
+          // And cancel the location update if we are closer than ten units
+          // (arbitary close distance).
+          if (camTargetDistance - absUpdateDistance < 10) {
+            return;
+          }
+        }
+
+        // Scale change vector into usable range
+        change.normalize().multiplyScalar(distance);
         camera.position.add(change);
+
         // Move the target only if Alt was pressed
         if (ev.altKey) {
           controls.target.add(change);
@@ -2760,15 +3422,10 @@
       }
       if (!ev.shiftKey) return;
 
-      // Try to pick the node by casting a ray
-      var nodeId = space.pickNodeWithIntersectionRay(mouse.position.x, mouse.position.y,
-          ev.offsetX, camera);
-      if (!nodeId) {
-        // If no node was found through ray casting, try to pick a node using a
-        // color map. This option is more precise, but also slower. It is
-        // therefore used as a second option.
-        nodeId = space.pickNodeWithColorMap(ev.offsetX, ev.offsetY, camera);
-      }
+      // Try to pick a node using a color map. This option is more precise, but
+      // also slower than casting a ray, which is not used anymore because
+      // buffer geometries don't support it.
+      var nodeId = space.pickNodeWithColorMap(ev.offsetX, ev.offsetY, camera);
       if (!nodeId) {
         CATMAID.msg("Oops", "Couldn't find any intersectable object under the mouse.");
       } else {
@@ -2786,12 +3443,13 @@
    * @param savePickingMap Export the picking color map as PNG image
    * @return the picked node's ID or null if no node was found
    */
-  WebGLApplication.prototype.Space.prototype.pickNodeWithColorMap = function(x, y, camera, savePickingMap) {
+  WebGLApplication.prototype.Space.prototype.pickNodeWithColorMap =
+      function(x, y, camera, savePickingMap) {
     // Attempt to intersect visible skeleton spheres, stopping at the first found
     var color = 0;
     var idMap = {};
     var submit = new submitterFn();
-    var originalMaterials = {};
+    var originalMaterials = new Map();
     var originalVisibility = {};
     var originalConnectorPreVisibility =
       this.staticContent.connectorLineColors.presynaptic_to.visible;
@@ -2813,18 +3471,34 @@
     this.staticContent.connectorLineColors.presynaptic_to.visible = false;
     this.staticContent.connectorLineColors.postsynaptic_to.visible = false;
 
+    // Disable lighting and add plain ambient light
+    var lightVisMap = this.lights.map(function(l) {
+      var visible = l.visible;
+      l.visible = false;
+      return visible;
+    });
+
+    var ambientLight = new THREE.AmbientLight(0xffffff);
+    this.scene.add(ambientLight);
+
     // Prepare all spheres for picking by coloring them with an ID.
-    mapToPickables(this.content.skeletons, function(skeleton) {
+    mapToPickables(this, this.content.skeletons, function(skeleton) {
       originalVisibility[skeleton.id] = skeleton.actor.neurite.visible;
       skeleton.actor.neurite.visible = false;
-    }, function(id, obj) {
+    }, function(id, obj, isBuffer) {
       // IDs are expected to be 64 (bigint in Postgres) and can't be mapped to
       // colors directly. Since the space we are looking here at is likely to be
       // smaller, we can map colors to IDs ourself.
       color++;
       idMap[color] = id;
-      originalMaterials[id] = obj.material;
-      obj.material = new THREE.MeshBasicMaterial({color: color});
+      if (isBuffer) {
+        originalMaterials.set(obj, [obj.color, obj.alpha]);
+        obj.color = new THREE.Color(color);
+        obj.alpha = 1.0;
+      } else {
+        originalMaterials.set(obj, obj.material);
+        obj.material = new THREE.MeshBasicMaterial({color: color});
+      }
     });
 
     // Render scene to picking texture
@@ -2837,11 +3511,23 @@
         gl.UNSIGNED_BYTE, pixelBuffer);
 
     // Reset materials
-    mapToPickables(this.content.skeletons, function(skeleton) {
+    mapToPickables(this, this.content.skeletons, function(skeleton) {
       skeleton.actor.neurite.visible = originalVisibility[skeleton.id];
-    }, function(id, obj) {
-      obj.material = originalMaterials[id];
+    }, function(id, obj, isBuffer) {
+      if (isBuffer) {
+        var material = originalMaterials.get(obj);
+        obj.color = material[0];
+        obj.alpha = material[1];
+      } else {
+        obj.material = originalMaterials.get(obj);
+      }
     });
+
+    // Reset lighting, assuming no change in position
+    this.scene.remove(ambientLight);
+    this.lights.forEach(function(l, i) {
+      l.visible = this[i];
+    }, lightVisMap);
 
     // Reset visibility of unpickable things
     this.staticContent.adjust(this.options, this);
@@ -2872,25 +3558,36 @@
      * Execute a function for every skeleton and one for each of its pickable
      * elements (defined in fields.
      */
-    function mapToPickables(skeletons, fnSkeleton, fnPickable) {
-      var fields = ['specialTagSpheres', 'synapticSpheres', 'radiusVolumes'];
+    function mapToPickables(space, skeletons, fnSkeleton, fnPickable) {
+      var fields = ['radiusVolumes'];
       Object.keys(skeletons).forEach(function(skeleton_id) {
         var skeleton = skeletons[skeleton_id];
         fnSkeleton(skeleton);
+        // Regular mesh fields
         fields.map(function(field) {
           return skeleton[field];
         }).forEach(function(spheres) {
           Object.keys(spheres).forEach(function(id) {
-            fnPickable(id, spheres[id]);
+            fnPickable(id, spheres[id], false);
           });
         });
+        // Buffer geometry
+        var connectorSpheres = skeleton['synapticSpheres'];
+        for (var id in connectorSpheres) {
+          fnPickable(id, connectorSpheres[id], true);
+        }
+        var tagSpheres = skeleton['specialTagSpheres'];
+        for (var id in tagSpheres) {
+          fnPickable(id, tagSpheres[id], true);
+        }
       });
+
     }
   };
 
   WebGLApplication.prototype.Space.prototype.pickNodeWithIntersectionRay = function(x, y, xOffset, camera) {
     // Attempt to intersect visible skeleton spheres, stopping at the first found
-    var fields = ['specialTagSpheres', 'synapticSpheres', 'radiusVolumes'];
+    var fields = ['radiusVolumes'];
     var skeletons = this.content.skeletons;
 
     // Step, which is normalized screen coordinates, is choosen so that it will
@@ -3003,9 +3700,9 @@
 
     this.mesh.position.set(pos.x, pos.y, pos.z);
 
-    var overlay = SkeletonAnnotations.getTracingOverlay(SkeletonAnnotations.getActiveStackViewerId());
-    var radius = overlay.nodes[SkeletonAnnotations.getActiveNodeId()].radius;
-    CATMAID.tools.setXYZ(this.mesh.scale, radius > 0 ? radius : 40 * options.skeleton_node_scaling);
+    var radius = SkeletonAnnotations.getActiveNodeRadius();
+    radius = (radius && radius > 0) ? radius : 40 * options.skeleton_node_scaling;
+    CATMAID.tools.setXYZ(this.mesh.scale, radius);
   };
 
   WebGLApplication.prototype.Space.prototype.updateSkeleton = function(skeletonmodel, json, options) {
@@ -3018,7 +3715,7 @@
 
   /** An object to represent a skeleton in the WebGL space.
    *  The skeleton consists of three geometries:
-   *    (1) one for the edges between nodes, represented as a list of contiguous pairs of points; 
+   *    (1) one for the edges between nodes, represented as a list of contiguous pairs of points;
    *    (2) one for the edges representing presynaptic relations to connectors;
    *    (3) one for the edges representing postsynaptic relations to connectors.
    *  Each geometry has its own mesh material and can be switched independently.
@@ -3048,8 +3745,9 @@
 
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype = {};
 
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.CTYPES = ['neurite', 'presynaptic_to', 'postsynaptic_to'];
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.synapticTypes = ['presynaptic_to', 'postsynaptic_to'];
+  // Find better way to define connector types
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.CTYPES = ['neurite', 'presynaptic_to', 'postsynaptic_to', 'gapjunction_with'];
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.synapticTypes = ['presynaptic_to', 'postsynaptic_to', 'gapjunction_with'];
 
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.initialize_objects = function(options) {
     this.visible = true;
@@ -3061,15 +3759,18 @@
     var CTYPES = this.CTYPES;
     this.line_material = new THREE.LineBasicMaterial({color: 0xffff00, opacity: 1.0, linewidth: options.skeleton_line_width});
 
+    // Connector links
     this.geometry = {};
     this.geometry[CTYPES[0]] = new THREE.Geometry();
     this.geometry[CTYPES[1]] = new THREE.Geometry();
     this.geometry[CTYPES[2]] = new THREE.Geometry();
+    this.geometry[CTYPES[3]] = new THREE.Geometry();
 
-        this.actor = {}; // has three keys (the CTYPES), each key contains the edges of each type
-        this.actor[CTYPES[0]] = new THREE.LineSegments(this.geometry[CTYPES[0]], this.line_material);
-        this.actor[CTYPES[1]] = new THREE.LineSegments(this.geometry[CTYPES[1]], this.space.staticContent.connectorLineColors[CTYPES[1]]);
-        this.actor[CTYPES[2]] = new THREE.LineSegments(this.geometry[CTYPES[2]], this.space.staticContent.connectorLineColors[CTYPES[2]]);
+    this.actor = {}; // has three keys (the CTYPES), each key contains the edges of each type
+    this.actor[CTYPES[0]] = new THREE.LineSegments(this.geometry[CTYPES[0]], this.line_material);
+    this.actor[CTYPES[1]] = new THREE.LineSegments(this.geometry[CTYPES[1]], this.space.staticContent.connectorLineColors[CTYPES[1]]);
+    this.actor[CTYPES[2]] = new THREE.LineSegments(this.geometry[CTYPES[2]], this.space.staticContent.connectorLineColors[CTYPES[2]]);
+    this.actor[CTYPES[3]] = new THREE.LineSegments(this.geometry[CTYPES[3]], this.space.staticContent.connectorLineColors[CTYPES[3]]);
 
     this.specialTagSpheres = {};
     this.synapticSpheres = {};
@@ -3081,8 +3782,8 @@
     this.connectorgeometry = {};
   };
 
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.destroy = function() {
-    this.removeActorFromScene();
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.destroy = function(collection) {
+    this.removeActorFromScene(collection);
     [this.actor, this.geometry, this.connectorgeometry, this.connectoractor,
      this.specialTagSpheres, this.synapticSpheres,
      this.radiusVolumes, this.textlabels].forEach(function(ob) {
@@ -3094,7 +3795,16 @@
     });
   };
 
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.removeActorFromScene = function() {
+  /**
+   * Dispose the skeleton's geometry and material, the connector geometry
+   * (connector material is shared) and remove all actor and spehere meshes from
+   * the scene. If @collection is given it is expected to be an array and meshes
+   * won't be removed, but added to it. It is then the responsibiliy of the
+   * caller to remove the objects from the scene.
+   *
+   * @param collection Optional array to collect meshes to be removed
+   */
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.removeActorFromScene = function(collection) {
     // Dispose of both geometry and material, unique to this Skeleton
     this.actor[this.CTYPES[0]].geometry.dispose();
     this.actor[this.CTYPES[0]].material.dispose();
@@ -3102,15 +3812,37 @@
     // Dispose only of the geometries. Materials for connectors are shared
     this.actor[this.CTYPES[1]].geometry.dispose();
     this.actor[this.CTYPES[2]].geometry.dispose();
+    this.actor[this.CTYPES[3]].geometry.dispose();
 
-    [this.actor, this.synapticSpheres, this.radiusVolumes,
-     this.specialTagSpheres].forEach(function(ob) {
+    var meshes = collection || [];
+    [this.actor, this.radiusVolumes].forEach(function(ob) {
       if (ob) {
         for (var key in ob) {
-          if (ob.hasOwnProperty(key)) this.space.remove(ob[key]);
+          if (ob.hasOwnProperty(key)) this.push(ob[key]);
         }
       }
-    }, this);
+    }, meshes);
+
+    if (this.connectorSphereCollection) {
+      this.connectorSphereCollection.geometry.dispose();
+      this.connectorSphereCollection.geometry = null;
+      this.connectorSphereCollection.material.dispose();
+      this.connectorSphereCollection.material = null;
+      meshes.push(this.connectorSphereCollection);
+    }
+
+    if (this.specialTagSphereCollection) {
+      this.specialTagSphereCollection.geometry.dispose();
+      this.specialTagSphereCollection.geometry = null;
+      this.specialTagSphereCollection.material.dispose();
+      this.specialTagSphereCollection.material = null;
+      meshes.push(this.specialTagSphereCollection);
+    }
+
+    // If no collection was given, remove objects right away
+    if (!collection) {
+      this.space.removeAll(meshes);
+    }
 
     this.remove_connector_selection();
     this.removeTextMeshes();
@@ -3198,16 +3930,21 @@
     // Create meshes for the tags for all nodes that need them, reusing the geometries
     var cache = this.space.staticContent.textGeometryCache,
         textMaterial = this.space.staticContent.textMaterial;
+
+    var addNode = function(nodeID, text) {
+      var v = vs[nodeID];
+      text.position.x = v.x;
+      text.position.y = v.y;
+      text.position.z = v.z;
+      this.textlabels[nodeID] = text;
+      this.space.add(text);
+    };
+
     for (var tagString in tagNodes) {
       if (tagNodes.hasOwnProperty(tagString)) {
         tagNodes[tagString].forEach(function(nodeID) {
-          var text = cache.createTextMesh(tagString, textMaterial);
-          var v = vs[nodeID];
-          text.position.x = v.x;
-          text.position.y = v.y;
-          text.position.z = v.z;
-          this.textlabels[nodeID] = text;
-          this.space.add(text);
+          cache.createTextMesh(tagString, textMaterial,
+              addNode.bind(this, nodeID));
         }, this);
       }
     }
@@ -3399,7 +4136,7 @@
         arbor;
     if ('near_active_node_z_camera' !== options.shading_method &&
         'near_active_node_z_project' !== options.shading_method &&
-        this.line_material instanceof WebGLApplication.ShaderLineBasicMaterial) {
+        this.line_material instanceof CATMAID.ShaderLineBasicMaterial) {
       this.line_material = this.actor.neurite.material = new THREE.LineBasicMaterial({
         color: this.line_material.color,
         opacity: this.line_material.opacity,
@@ -3554,7 +4291,7 @@
       } else if ('near_active_node_z_camera' === options.shading_method ||
                  'near_active_node_z_project' === options.shading_method) {
         this.line_material = this.actor.neurite.material =
-            new WebGLApplication.ShaderLineBasicMaterial(this.line_material);
+            new CATMAID.ShaderLineBasicMaterial(this.line_material);
 
         // Determine active node distance in the vertex shader and pass to the
         // fragment shader as a varying.
@@ -3665,8 +4402,27 @@
       var axonColor = new THREE.Color().setRGB(0, 1, 0),
           dendriteColor = new THREE.Color().setRGB(0, 0, 1),
           notComputable = new THREE.Color().setRGB(0.4, 0.4, 0.4);
-      if ('creator' === options.color_method) {
-        pickColor = function(vertex) { return CATMAID.User(vertex.user_id).color; };
+      if (options.color_method.startsWith('creator')) {
+        var userColor;
+        if ('creator' === options.color_method) {
+          userColor = function (userID) { return CATMAID.User(userID).color; };
+        } else if ('creator-relevant' === options.color_method) {
+          if (!this.space.userColormap.colorizer) {
+            this.space.userColormap.colorizer = {};
+            CATMAID.asColorizer(this.space.userColormap.colorizer);
+          }
+          var colorizer = this.space.userColormap.colorizer;
+          userColor = colorizer.pickColor.bind(colorizer);
+        }
+
+        pickColor = (function (vertex) {
+          var userID = vertex.user_id;
+          if (!this.space.userColormap.hasOwnProperty(userID)) {
+            this.space.userColormap[userID] = userColor(userID);
+          }
+
+          return this.space.userColormap[userID];
+        }).bind(this);
       } else if ('all-reviewed' === options.color_method) {
         pickColor = this.reviews ?
           (function(vertex) {
@@ -3686,10 +4442,11 @@
         }).bind(this)
           : function() { return notComputable; };
       } else if ('own-reviewed' === options.color_method) {
+        var userId = CATMAID.session.userid;
         pickColor = this.reviews ?
           (function(vertex) {
             var reviewers = this.reviews[vertex.node_id];
-          return reviewers && reviewers.some(function (r) { return r[0] == session.userid;}) ?
+          return reviewers && reviewers.some(function (r) { return r[0] == userId;}) ?
             reviewedColor : unreviewedColor;
         }).bind(this)
           : function() { return notComputable; };
@@ -3751,13 +4508,15 @@
       this.geometry['neurite'].colors = [];
       this.line_material.vertexColors = THREE.NoColors;
       this.line_material.needsUpdate = true;
-      
+
       this.actor['neurite'].material.color = this.actorColor;
       this.actor['neurite'].material.opacity = this.opacity;
       this.actor['neurite'].material.transparent = this.opacity !== 1;
       this.actor['neurite'].material.needsUpdate = true; // TODO repeated it's the line_material
 
-      var material = new THREE.MeshBasicMaterial({color: this.actorColor, opacity: this.opacity, transparent: this.opacity !== 1});
+
+      var Material = getSkeletonMaterialType(options['neuron_material']);
+      var material = new Material({color: this.actorColor, opacity: this.opacity, transparent: this.opacity !== 1});
 
       for (var k in this.radiusVolumes) {
         if (this.radiusVolumes.hasOwnProperty(k)) {
@@ -3775,23 +4534,38 @@
   };
 
   /**
+   * Set the material type for connector partner nodes, connector links and tag
+   * nodes.
+   */
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.setShadingType = function(shading) {
+    if (this.specialTagSphereCollection) {
+      var bufferGeometry = this.specialTagSphereCollection.geometry;
+      var newMaterial = bufferGeometry.createMaterial(shading);
+      this.specialTagSphereCollection.material = newMaterial;
+      this.specialTagSphereCollection.material.needsUpdate = true;
+    }
+    if (this.connectorSphereCollection) {
+      var bufferGeometry = this.connectorSphereCollection.geometry;
+      var newMaterial = bufferGeometry.createMaterial(shading);
+      this.connectorSphereCollection.material = newMaterial;
+      this.connectorSphereCollection.material.needsUpdate = true;
+    }
+  };
+
+  /**
    * Scale node handles of a skeletons. These are the special tag spheres and the
    * synaptic spheres.
    */
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.scaleNodeHandles = function(value) {
-      // Scale special tag spheres
-      for (var k in this.specialTagSpheres) {
-        if (this.specialTagSpheres.hasOwnProperty(k)) {
-          CATMAID.tools.setXYZ(this.specialTagSpheres[k].scale, value);
-        }
-      }
-
-      // Scale synaptic spheres
-      for (var k in this.synapticSpheres) {
-        if (this.synapticSpheres.hasOwnProperty(k)) {
-          CATMAID.tools.setXYZ(this.synapticSpheres[k].scale, value);
-        }
-      }
+    // Both special tag handlers and connector partner nodes are stored as
+    // indexed buffer geometry. Therefore, only the template geometry has to be
+    // scaled.
+    if (this.specialTagSphereCollection) {
+      this.specialTagSphereCollection.geometry.scaleTemplate(value, value, value);
+    }
+    if (this.connectorSphereCollection) {
+      this.connectorSphereCollection.geometry.scaleTemplate(value, value, value);
+    }
   };
 
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.changeColor = function(color, options) {
@@ -3874,7 +4648,7 @@
     } else if ('by-amount' === options.connector_color) {
 
       var skids = skeletons.map(function(skeleton) { return skeleton.id; });
-      
+
       if (skids.length > 1) $.blockUI();
 
       requestQueue.register(django_url + project.id + "/skeleton/connectors-by-partner",
@@ -3883,7 +4657,7 @@
           (function(status, text) {
             try {
               if (200 !== status) return;
-              var json = $.parseJSON(text);
+              var json = JSON.parse(text);
               if (json.error) return alert(json.error);
 
               skeletons.forEach(function(skeleton) {
@@ -3933,8 +4707,10 @@
       }, this);
 
       Object.keys(this.synapticSpheres).forEach(function(idx) {
-        var mesh = this.synapticSpheres[idx];
-        mesh.material = this.synapticColors[this.CTYPES[1] === mesh.type ? 0 : 1];
+        var bufferObject = this.synapticSpheres[idx];
+        // TODO: Handle other connector types
+        var meshType = this.CTYPES[1] === bufferObject.type ? 0 : 1;
+        bufferObject.setFromMaterial(this.synapticColors[meshType]);
       }, this);
 
     } else if ('by-amount' === options.connector_color) {
@@ -3947,6 +4723,7 @@
       };
 
       this.CTYPES.slice(1).forEach(function(type) {
+        if (!json) return;
         var partners = json[type];
         if (!partners) return;
         var connectors = Object.keys(partners).reduce(function(o, skid) {
@@ -3975,6 +4752,7 @@
       }, this);
 
     } else if ('synapse-clustering' === options.connector_color) {
+      if (!json) return;
       var synapse_map = new CATMAID.ArborParser().synapses(json[1]).createSynapseMap(),
           sc = new SynapseClustering(this.createArbor(), this.getPositions(), synapse_map, options.synapse_clustering_bandwidth),
           density_hill_map = sc.densityHillMap(),
@@ -4035,7 +4813,8 @@
     }
   };
 
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype._colorConnectorsBy = function(type, fnConnectorValue, fnMakeColor) {
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype._colorConnectorsBy =
+      function(type, fnConnectorValue, fnMakeColor) {
     // Set colors per-vertex
     var seen = {},
         seen_materials = {},
@@ -4058,17 +4837,18 @@
       colors.push(color);
       colors.push(color);
 
-      var mesh = this.synapticSpheres[node_id];
-      if (mesh) {
-        mesh.material.color = color;
-        mesh.material.needsUpdate = true;
+      var bufferObject = this.synapticSpheres[node_id];
+      if (bufferObject) {
+        bufferObject.color = color;
+        // TODO: Might not be needed anymore: why should we store this extra
+        // material anyway.
         var material = seen_materials[value];
         if (!material) {
-          material = mesh.material.clone();
+          material = bufferObject.material.clone();
           material.color = color;
           seen_materials[value] = material;
         }
-        mesh.material = material;
+        bufferObject.material = material;
       }
     }
 
@@ -4082,7 +4862,13 @@
 
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.addCompositeActorToScene = function() {
     this.CTYPES.forEach(function(t) {
-      this.space.add(this.actor[t]);
+      var actor = this.actor[t];
+      // Only add geometry to the scene that has at least one vertex. Not every
+      // CTYPE actor is actually used, so this case can happen. Adding empty
+      // geometry causes renderer warnings, which we want to avoid.
+      if (actor && actor.geometry.vertices.length > 0) {
+        this.space.add(this.actor[t]);
+      }
     }, this);
   };
 
@@ -4118,6 +4904,7 @@
     this.connectorgeometry = {};
     this.connectorgeometry[this.CTYPES[1]] = new THREE.Geometry();
     this.connectorgeometry[this.CTYPES[2]] = new THREE.Geometry();
+    this.connectorgeometry[this.CTYPES[3]] = new THREE.Geometry();
 
     this.synapticTypes.forEach(function(type) {
       // Vertices is an array of Vector3, every two a pair, the first at the connector and the second at the node
@@ -4138,18 +4925,58 @@
     }, this);
   };
 
-  /** Place a colored sphere at the node. Used for highlighting special tags like 'uncertain end' and 'todo'. */
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createLabelSphere = function(v, material, scaling) {
-    if (this.specialTagSpheres.hasOwnProperty(v.node_id)) {
-      // There already is a tag sphere at the node
-      return;
-    }
-    var mesh = new THREE.Mesh( this.space.staticContent.labelspheregeometry, material );
-    mesh.position.set( v.x, v.y, v.z );
-    mesh.node_id = v.node_id;
-    CATMAID.tools.setXYZ(mesh.scale, scaling);
-    this.specialTagSpheres[v.node_id] = mesh;
-    this.space.add( mesh );
+  /**
+   * Place a colored sphere at each node. Used for highlighting special tags like
+   * 'uncertain end' and 'todo'. Implemented with buffer geometries to gain
+   * better performance.
+   */
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createLabelSpheres =
+      function(labels, scaling, shading) {
+
+    var geometry = new CATMAID.MultiObjectInstancedBufferGeometry({
+      templateGeometry: this.space.staticContent.labelspheregeometry,
+      nObjects: labels.length,
+      scaling: scaling
+    });
+
+    geometry.createAll(labels, scaling, (function(v, m, o) {
+      return !this.specialTagSpheres.hasOwnProperty(v.node_id);
+    }).bind(this), (function(v, m, o, bufferObject) {
+      this.specialTagSpheres[v.node_id] = bufferObject;
+    }).bind(this));
+
+    var material = geometry.createMaterial(shading);
+
+    this.specialTagSphereCollection = new THREE.Mesh(geometry, material);
+    this.space.add(this.specialTagSphereCollection);
+  };
+
+  /**
+   * The itype is 0 (pre) or 1 (post), and chooses from the two arrays:
+   * synapticTypes and synapticColors.
+   */
+  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createPartnerSpheres =
+      function(connectors, scaling, shading) {
+
+    var geometry = new CATMAID.MultiObjectInstancedBufferGeometry({
+      templateGeometry: this.space.staticContent.radiusSphere,
+      nObjects: connectors.length,
+      scaling: scaling
+    });
+
+    geometry.createAll(connectors, scaling, (function(v, m, o) {
+      // There already is a synaptic sphere at the node
+      return !this.synapticSpheres.hasOwnProperty(v.node_id);
+    }).bind(this), (function(v, m, o, bufferObject) {
+      bufferObject.node_id = v.node_id;
+      bufferObject.type = this.synapticTypes[o[2]];
+      this.synapticSpheres[v.node_id] = bufferObject;
+    }).bind(this));
+
+    var material = geometry.createMaterial(shading);
+
+    this.connectorSphereCollection = new THREE.Mesh(geometry, material);
+    this.space.add(this.connectorSphereCollection);
   };
 
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createEdge = function(v1, v2, type) {
@@ -4157,8 +4984,7 @@
     // Takes the coordinates of each node, transforms them into the space,
     // and then adds them to the parallel lists of vertices and vertexIDs
     var vs = this.geometry[type].vertices;
-    vs.push(v1);
-    vs.push(v2);
+    vs.push(v1, v2);
   };
 
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createNodeSphere = function(v, radius, material) {
@@ -4200,22 +5026,6 @@
     this.space.add(mesh);
   };
 
-  /* The itype is 0 (pre) or 1 (post), and chooses from the two arrays: synapticTypes and synapticColors. */
-  WebGLApplication.prototype.Space.prototype.Skeleton.prototype.createSynapticSphere = function(v, itype, scaling) {
-    if (this.synapticSpheres.hasOwnProperty(v.node_id)) {
-      // There already is a synaptic sphere at the node
-      return;
-    }
-    var mesh = new THREE.Mesh( this.space.staticContent.radiusSphere, this.synapticColors[itype] );
-    mesh.position.set( v.x, v.y, v.z );
-    mesh.node_id = v.node_id;
-    mesh.type = this.synapticTypes[itype];
-    CATMAID.tools.setXYZ(mesh.scale, scaling);
-    this.synapticSpheres[v.node_id] = mesh;
-    this.space.add( mesh );
-  };
-
-
   WebGLApplication.prototype.Space.prototype.Skeleton.prototype.reinit_actor = function(skeletonmodel, json, options) {
     if (this.actor) {
       this.destroy();
@@ -4243,9 +5053,14 @@
     var vs = {};
 
     // Reused for all meshes
-    var material = new THREE.MeshBasicMaterial( { color: this.getActorColorAsHex(), opacity:1.0, transparent:false } );
+    var Material = getSkeletonMaterialType(options['neuron_material']);
+    var material = new Material( { color: this.getActorColorAsHex(), opacity:1.0, transparent:false } );
     material.opacity = this.skeletonmodel.opacity;
     material.transparent = material.opacity !== 1;
+
+    // Collect all labels first, before creating its geometry
+    var partner_nodes = [];
+    var labels = [];
 
     // Create edges between all skeleton nodes
     // and a sphere on the node if radius > 0
@@ -4309,7 +5124,7 @@
       }
       if (!lean && node[7] < 5) {
         // Edge with confidence lower than 5
-        this.createLabelSphere(v1, this.space.staticContent.labelColors.uncertain, options.skeleton_node_scaling);
+        labels.push([v1, this.space.staticContent.labelColors.uncertain]);
       }
     }, this);
 
@@ -4334,44 +5149,57 @@
     connectors.forEach(function(con) {
       // con[0]: treenode ID
       // con[1]: connector ID
-      // con[2]: 0 for pre, 1 for post
+      // con[2]: 0 for pre, 1 for post, 2 for gap junction, -1 for other to be skipped
       // indices 3,4,5 are x,y,z for connector
       // indices 4,5,6 are x,y,z for node
+      var type = con[2];
+      if (type === -1) return;
       var v1 = new THREE.Vector3(con[3], con[4], con[5]);
       v1.node_id = con[1];
       var v2 = vs[con[0]];
-      this.createEdge(v1, v2, this.synapticTypes[con[2]]);
-      this.createSynapticSphere(v2, con[2], options.skeleton_node_scaling);
+      this.createEdge(v1, v2, this.synapticTypes[type]);
+      var defaultMaterial = this.space.staticContent.synapticColors[type] ||
+        this.space.staticContent.synapticColors.default;
+      partner_nodes.push([v2, defaultMaterial, type]);
     }, this);
 
     // Place spheres on nodes with special labels, if they don't have a sphere there already
-    var customTagRe = new RegExp(options.custom_tag_spheres_regex || 'a^', 'g');
+    var customTagRe = new RegExp(options.custom_tag_spheres_regex || 'a^');
     for (var tag in this.tags) {
       if (this.tags.hasOwnProperty(tag)) {
         var tagLC = tag.toLowerCase();
         if (-1 !== tagLC.indexOf('todo')) {
           this.tags[tag].forEach(function(nodeID) {
             if (!this.specialTagSpheres[nodeID]) {
-              this.createLabelSphere(vs[nodeID], this.space.staticContent.labelColors.todo,
-                options.skeleton_node_scaling);
+              labels.push([vs[nodeID], this.space.staticContent.labelColors.todo]);
             }
           }, this);
         } else if (-1 !== tagLC.indexOf('uncertain')) {
           this.tags[tag].forEach(function(nodeID) {
             if (!this.specialTagSpheres[nodeID]) {
-              this.createLabelSphere(vs[nodeID], this.space.staticContent.labelColors.uncertain,
-                options.skeleton_node_scaling);
+              labels.push([vs[nodeID], this.space.staticContent.labelColors.uncertain]);
             }
           }, this);
         } else if (customTagRe.test(tagLC)) {
           this.tags[tag].forEach(function(nodeID) {
             if (!this.specialTagSpheres[nodeID]) {
-              this.createLabelSphere(vs[nodeID], this.space.staticContent.labelColors.custom,
-                options.skeleton_node_scaling);
+              labels.push([vs[nodeID], this.space.staticContent.labelColors.custom]);
             }
           }, this);
         }
       }
+    }
+
+    // Create buffer geometry for connectors
+    if (partner_nodes.length > 0) {
+      this.createPartnerSpheres(partner_nodes, options.skeleton_node_scaling,
+          options.neuron_material);
+    }
+
+    // Create buffer geometry for labels
+    if (labels.length > 0) {
+      this.createLabelSpheres(labels, options.skeleton_node_scaling,
+          options.neuron_material);
     }
 
     if (options.resample_skeletons) {
@@ -4434,7 +5262,7 @@
    * Toggles the display of a JQuery UI dialog that shows which user has which
    * color assigned.
    */
-  WebGLApplication.prototype.toggle_usercolormap_dialog = function() {
+  WebGLApplication.prototype.toggleUserColormapDialog = function() {
     // In case a color dialog exists already, close it and return.
     if ($('#user-colormap-dialog').length > 0) {
         $('#user-colormap-dialog').remove();
@@ -4475,16 +5303,18 @@
     });
 
     var users = CATMAID.User.all();
-    for (var userID in users) {
-      if (users.hasOwnProperty(userID) && userID !== "-1") {
-        var user = users[userID];
-        var rowElement = $('<tr/>');
-        rowElement.append( $('<td/>').text( user.login ) );
-        rowElement.append( $('<td/>').text( user.fullName ) );
-        rowElement.append( $('<div/>').css('width', '100px').css('height', '20px').css('background-color', '#' + user.color.getHexString()) );
-        $('#usercolormap-table > tbody:last').append( rowElement );
-      }
-    }
+    users = Object.keys(this.space.userColormap)
+        .map(function (userID) { return users[userID]; })
+        .filter(function (user) { return !!user && user.id !== "-1"; })
+        .sort(CATMAID.User.displayNameCompare);
+    users.forEach(function (user) {
+      var userID = user.id;
+      var rowElement = $('<tr/>');
+      rowElement.append( $('<td/>').text( user.login ) );
+      rowElement.append( $('<td/>').text( user.fullName ) );
+      rowElement.append( $('<div/>').css('width', '100px').css('height', '20px').css('background-color', '#' + this.space.userColormap[userID].getHexString()) );
+      $('#usercolormap-table > tbody:last').append( rowElement );
+    }, this);
   };
 
   WebGLApplication.prototype.toggleInvertShading = function() {
@@ -4531,6 +5361,25 @@
     var value = +number; // cast
     if (Number.isNaN(value) || value < min) return CATMAID.warn(error_msg);
     return value;
+  };
+
+  /**
+   * Open a connector table with the connectors currently visisble in the 3D
+   * viewer.
+   */
+  WebGLApplication.prototype.listConnectors = function() {
+    if (this.filteredConnectors) {
+      CATMAID.ConnectorSelection.showConnectors(
+          this.filteredConnectors.connectorIds,
+          this.filteredConnectors.skeletonIds);
+    } else {
+      var skeletonIds = this.getSelectedSkeletons();
+      if (!skeletonIds.length) {
+        CATMAID.warn('No skeletons loaded, no connectors to show');
+        return;
+      }
+      CATMAID.ConnectorSelection.showConnectors(null, skeletonIds);
+    }
   };
 
   WebGLApplication.prototype.updateSynapseClusteringBandwidth = function(value) {
@@ -4582,8 +5431,10 @@
 
     var onchange = (function(rgb, alpha, colorChanged, alphaChanged) {
       $('#' + labelId).text(alpha.toFixed(2));
+      var color = new THREE.Color().setRGB(rgb.r, rgb.g, rgb.b);
+      this.options.meshes_color = '#' + color.getHexString();
+      this.options.meshes_opacity = alpha;
       if (this.options.show_meshes) {
-        var color = new THREE.Color().setRGB(rgb.r, rgb.g, rgb.b);
         var material = this.options.createMeshMaterial(color, alpha);
         this.space.content.meshes.forEach(function(mesh) {
           mesh.material = material;
@@ -4644,6 +5495,29 @@
     if (shading_method === this.options.shading_method) {
       this.updateSkeletonColors();
     }
+  };
+
+  /**
+   * This will re-create all skeleton meshes if the shading changed.
+   */
+  WebGLApplication.prototype.updateNeuronShading = function(shading) {
+    if ('basic' !== shading && 'lambert' !== shading) {
+      CATMAID.error("Unknown shading: " + shading);
+      return;
+    }
+
+    // Do nothing if the shading didn't change
+    if (shading === this.options['neuron_material']) {
+      return;
+    }
+
+    // Update shading and update material of all affected geometries
+    this.options['neuron_material'] = shading;
+
+    // Update nodeSphere and cylinder of each skeleton
+    var staticContent = this.space.staticContent;
+    staticContent.updateDynamicMaterials(this.options, true);
+    this.setSkeletonShadingType(shading);
   };
 
   /**
@@ -4808,6 +5682,7 @@
         'animation-export-backforth', false);
     var camera = this.space.view.camera;
     var target = this.space.view.controls.target;
+    var rotationAxis = this.options.animation_axis;
 
     var docURL = CATMAID.makeDocURL('user_faq.html#faq-3dviewer-webm');
     dialog.appendHTML('Note: you can convert the resulting WebM file to ' +
@@ -4834,7 +5709,7 @@
         var visMap = this.space.getVisibilityMap();
 
         try {
-          var axis = "up";
+          var axis = rotationAxis;
           var rotations = parseInt(rotationsField.value);
           var rotationtime = parseFloat(rotationtimeField.value);
           var framerate = parseInt(framerateField.value);
@@ -5109,90 +5984,6 @@
     dialog.show(400, 300, false);
   };
 
-  /**
-   * This is a wrapper that allows insertion of snippets of vertex and fragment
-   * shaders at critical sections while otherwise behaving like the shaders for
-   * THREE's built-in BasicLineMaterial.
-   *
-   * Note that this class may need to be updated whenever THREE.js is upgraded.
-   *
-   * @class
-   * @param {THREE.LineBasicMaterial} lineBasicMaterial
-   *        A material to use for color and line property initialization.
-   */
-  WebGLApplication.ShaderLineBasicMaterial = function (lineBasicMaterial) {
-    THREE.ShaderMaterial.call(this);
-
-    this.uniforms = jQuery.extend(true, {}, THREE.ShaderLib.basic.uniforms);
-    this.vertexShader = THREE.ShaderLib.basic.vertexShader;
-    this.fragmentShader = THREE.ShaderLib.basic.fragmentShader;
-
-    // Copy properties from LineBasicMaterial.
-    this.color = lineBasicMaterial.color.clone();
-    this.fog = lineBasicMaterial.fog;
-    this.linewidth = lineBasicMaterial.linewidth;
-    this.linecap = lineBasicMaterial.linecap;
-    this.linejoin = lineBasicMaterial.linejoin;
-    this.vertexColors = lineBasicMaterial.vertexColors;
-  };
-
-  WebGLApplication.ShaderLineBasicMaterial.prototype = Object.create(THREE.ShaderMaterial.prototype);
-  WebGLApplication.ShaderLineBasicMaterial.prototype.constructor = WebGLApplication.ShaderLineBasicMaterial;
-
-  WebGLApplication.ShaderLineBasicMaterial.INSERTION_LOCATIONS = {
-    vertexDeclarations: {
-      shader: 'vertex',
-      regex: /void\s+main\(\s*\)\s+\{/,
-      replacement: 'void main() {'},
-    vertexPosition: {
-      shader: 'vertex',
-      regex: /gl_Position\s*=\s*projectionMatrix\s*\*\s*mvPosition;/,
-      replacement: 'gl_Position = projectionMatrix * mvPosition;'},
-    fragmentDeclarations: {
-      shader: 'fragment',
-      regex: /void\s+main\(\s*\)\s+\{/,
-      replacement: 'void main() {'},
-    fragmentColor: {
-      shader: 'fragment',
-      regex: /gl_FragColor\s*=\s*vec4\(\s*outgoingLight,\s*diffuseColor\.a\s*\);/,
-      replacement: ''}
-  };
-
-  /**
-   * Add uniforms to the vertex and fragment shaders.
-   * @param {object} uniforms THREE.js uniform definitions.
-   */
-  WebGLApplication.ShaderLineBasicMaterial.prototype.addUniforms = function (uniforms) {
-    $.extend(this.uniforms, uniforms);
-  };
-
-  /**
-   * Insert a GLSL snippet into a vertex or fragment shader at a known location.
-   * @param  {string} insertionName Name of a insertion location defined in
-   *                                INSERTION_LOCATIONS.
-   * @param  {string} glsl          GLSL code to insert into the shader.
-   */
-  WebGLApplication.ShaderLineBasicMaterial.prototype.insertSnippet = function (insertionName, glsl) {
-    var insertionPoint = WebGLApplication.ShaderLineBasicMaterial.INSERTION_LOCATIONS[insertionName];
-    var shaderSource = insertionPoint.shader === 'vertex' ? this.vertexShader : this.fragmentShader;
-    shaderSource = shaderSource.replace(insertionPoint.regex, glsl + insertionPoint.replacement);
-    if (insertionPoint.shader === 'vertex') {
-      this.vertexShader = shaderSource;
-    } else {
-      this.fragmentShader = shaderSource;
-    }
-    this.needsUpdate = true;
-  };
-
-  /**
-   * Refresh built-in THREE.js material uniform values from this material's
-   * properties. Necessary because THREE.js performs this in WebGLRenderer's
-   * setProgram only for its built-in materials.
-   */
-  WebGLApplication.ShaderLineBasicMaterial.prototype.refresh = function () {
-    this.uniforms.diffuse.value = this.color;
-    this.uniforms.opacity.value = this.opacity;
-  };
 
   /**
    * Initial entry point to test retrieval of broken_slices
@@ -5251,134 +6042,5 @@
 
   // Make 3D viewer available in CATMAID namespace
   CATMAID.WebGLApplication = WebGLApplication;
-
-  /**
-   * Create new animations.
-   */
-  CATMAID.AnimationFactory = (function()
-  {
-    function getOption(options, key) {
-      if (options[key]) {
-        return options[key];
-      } else {
-        throw Error("Option not found: " + key);
-      }
-    }
-
-    return {
-
-      /**
-       * Create a new animation instance.
-       */
-      createAnimation: function(options) {
-        options = options || {};
-
-        var animation = {};
-
-        var notify = options.notify || false;
-
-        if (options.type == "rotation") {
-          var axis = options.axis || "up";
-          var camera = getOption(options, "camera");
-          var target = getOption(options, "target");
-          var speed = getOption(options, "speed");
-          var backAndForth = options.backandforth || false;
-
-          // Create rotation axis
-          if ("up" === axis) {
-            axis = camera.up.clone().normalize();
-          } else if ("x" === axis) {
-            axis = new THREE.Vector3(1, 0, 0);
-          } else if ("y" === axis) {
-            axis = new THREE.Vector3(0, 1, 0);
-          } else if ("z" === axis) {
-            axis = new THREE.Vector3(0, 0, 1);
-          } else {
-            throw Error("Could not create animation, unknown axis: " + axis);
-          }
-
-          // Make sure rotation axis, camera and target are not collinear. Throw
-          // an error if they are. This is the case when the cross product
-          // between the axis and the vector from target to camera produces a
-          // null vector.
-          var tc = camera.position.clone().sub(target);
-          if (tc.cross(axis).length() < 0.0001) {
-            throw new CATMAID.ValueError("Could not create animation, both " +
-                "camera and target are positioned on the rotation axis.");
-          }
-
-          animation.update = CATMAID.AnimationFactory.AxisRotation(camera,
-              target, axis, speed, backAndForth, notify);
-        } else {
-          throw Error("Could not create animation, don't know type: " +
-              options.type);
-        }
-
-        // Add stop handler
-        var stop = options.stop || false;
-        animation.stop = function() {
-          if (stop) {
-            stop();
-          }
-        };
-
-        return animation;
-      },
-
-    };
-  })();
-
-  /**
-   * Rotate the camera around a particula axis through the the target position,
-   * while keeping the same distance to it. Optionally, a rotation speed can be
-   * passed. If back-and-forth mode is turned on, the rotation won't continue
-   * after a full circle, but reverse direction. A notification function can be
-   * passed in. It is called every full circle.
-   */
-  CATMAID.AnimationFactory.AxisRotation = function(camera, targetPosition, axis, rSpeed,
-      backAndForth, notify)
-  {
-    // Counts the number of rotations done after initialization
-    var numRotations = null;
-
-    var targetDistance = camera.position.distanceTo(targetPosition);
-    rSpeed = rSpeed || 0.01;
-    backAndForth = backAndForth || false;
-
-    // Start position for the rotation, relative to the target
-    var startPosition = camera.position.clone().sub(targetPosition);
-
-    var m = new THREE.Matrix4();
-
-    // Return update function
-    return function(t) {
-      // Angle to rotate
-      var rad = rSpeed * t;
-
-      // Get current number of rotations
-      var currentRotation = Math.floor(rad / (2 * Math.PI));
-      if (currentRotation !== numRotations) {
-        numRotations = currentRotation;
-        // Call notification function, if any
-        if (notify) {
-          notify(currentRotation);
-        }
-      }
-
-      // In back and forth mode, movement direction is reversed once a full circle
-      // is reached.
-      if (backAndForth) {
-        rad = (currentRotation % 2) === 0 ? rad : -rad;
-      }
-
-      // Set matrix to a rotation around a certain axis
-      m.makeRotationAxis(axis, rad);
-
-      // Rotate the camera around this axis by using a copy of the start position
-      // (relative to target), rotating it and make it a world position by adding
-      // it to the target.
-      camera.position.copy(startPosition).applyMatrix4(m).add(targetPosition);
-    };
-  };
 
 })(CATMAID);

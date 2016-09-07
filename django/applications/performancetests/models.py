@@ -1,6 +1,6 @@
-from datetime import datetime
+from django.contrib.postgres.fields import JSONField
 from django.db import models
-from jsonfield import JSONField
+from django.utils import timezone
 
 
 class TestView(models.Model):
@@ -11,7 +11,7 @@ class TestView(models.Model):
     method = models.CharField(max_length=50)
     url = models.TextField()
     data = JSONField(blank=True, default={})
-    creation_time = models.DateTimeField(default=datetime.now)
+    creation_time = models.DateTimeField(default=timezone.now)
 
     def __unicode__(self):
         return "%s %s" % (self.method, self.url)
@@ -30,11 +30,11 @@ class TestResult(models.Model):
     Represents the result of test of the given view. It expects a time and a
     result.
     """
-    view = models.ForeignKey(TestView)
+    view = models.ForeignKey(TestView, on_delete=models.CASCADE)
     time = models.FloatField()
     result_code = models.IntegerField()
     result = models.TextField()
-    creation_time = models.DateTimeField(default=datetime.now)
+    creation_time = models.DateTimeField(default=timezone.now)
     version = models.CharField(blank=True, max_length=50)
 
     def __unicode__(self):
@@ -58,7 +58,7 @@ class Event(models.Model):
     not easiliy comparable before and after it.
     """
     title = models.TextField()
-    creation_time = models.DateTimeField(default=datetime.now)
+    creation_time = models.DateTimeField(default=timezone.now)
 
     def as_json(self):
         return dict(

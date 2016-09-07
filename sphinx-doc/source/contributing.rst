@@ -35,6 +35,8 @@ The frontend is written primarily in Javascript and makes use of a several
 external libraries. Most interfaces are built dynamically through Javascript;
 few HTML templates are used.
 
+.. figure:: _static/architecture.svg
+
 A core philosophy of this architecture is to keep the backend API fast and
 minimal. The primary purpose of the backend is to mediate the database. Complex
 analysis and data processing is performed on the client whenever possible. This
@@ -56,6 +58,8 @@ repository root. The sections below outline basic folder, file, and module
 structure for the backend and frontend, as well as primers on a few common data
 structures.
 
+.. _contributor-backend:
+
 Backend
 #######
 
@@ -64,6 +68,8 @@ folder. Within this folder, ``models.py`` defines the database schema and
 logical objects on which the back API operates, while ``urls.py`` maps URI
 endpoints in the API to Python methods. Both are useful starting points when
 locating particular functionality or determining where to add new functionality.
+In case an endpoint changes data, a transaction log entry is added. This way
+semantic information can be linked to individual database changes.
 
 Most of the API routes to the ``catmaid.control`` module and folder. Within this
 module API functions are organized into logical units like skeleton or
@@ -71,6 +77,11 @@ connector, which are grouped into corresponding Python modules. These often
 contain utility functions not exposed by the API that may be useful, so when
 developing a new API endpoint be sure to check related modules for reusable
 utilities.
+
+Back-end errors should always be signaled to the front-end with the help
+of Exceptions. Regardless whether an argument is missing, permissions are
+lacking or something went wrong otherwise. A dedicated middleware will catch
+them and return them in an expected format to the front-end.
 
 ..
     TODO: organization of controls/views, urls ("Where to look and where to add")
@@ -219,9 +230,17 @@ Prefer descriptive, consistent names for parameters. For example, an endpoint
 receiving a list of skeleton identifiers should prefer a parameter named
 ``skeleton_ids`` over ``skids`` or ``ids``; a few bytes in the header are not
 going to have a performance impact relative to the packaging of HTTP and
-transport, much less when HTTP2/SPDY and modern compression-aware browsers are
+transport, much less when HTTP/2 and modern compression-aware browsers are
 involved. However, abbreviated property names or array-packed values are
 acceptable for the responses of performance-critical endpoints.
+
+Date and time response values should be in UTC and formatted as ISO 8601.
+
+Endpoints containing write operations should be decorated with a ``record_view``
+decorator in ``urls.py``, which expects a label as argument. This label should
+follow the pattern ``resource.action`` and just like URI itself, the
+``resource`` is expected to be in its plural form. Make sure to follow this
+convention for new endpoints.
 
 Javascript
 ##########
@@ -353,3 +372,52 @@ example, with the default configuration this would be::
 ... or, for custom configurations::
 
     http://<catmaid_servername>/<catmaid_subdirectory>/tests
+
+Documentation
+-------------
+
+In addition to the backend, HTTP API, and frontend documentation mentioned
+above, CATMAID provides a general documentation manual for users,
+administrators, and developers (including this page) and in-client
+documentation for keyboard shortcuts and widget help.
+
+General Documentation
+#####################
+
+General documentation is part of the CATMAID repository under the ``sphinx-doc``
+folder. This documentation is written in `Sphinx <http://www.sphinx-doc.org/>`_
+ReStructured Text. Documentation from commits pushed to the official CATMAID
+repository are built by `Read the Docs <https://readthedocs.org/>`_ and hosted
+at `catmaid.org <http://catmaid.org>`_.
+
+To build the general documentation from within your pip virtualenv, run::
+
+    cd sphinx-doc
+    make html
+
+The built documentation is now in ``sphinx-doc/build/html/index.html``.
+
+In-Client Documentation
+#######################
+
+Documentation is provided from within the web client through tool-scoped mouse
+and keyboard shortcut documentation (accessed by pressing :kbd:`F1`) and
+per-widget help accessible through the question mark icon in the title bar of
+some widgets.
+
+If you find that widget help documentation is missing, incomplete, confusing,
+or incorrect, you can contribute better documentation by
+`creating an issue on GitHub <https://github.com/catmaid/CATMAID/issues/new>`_
+or editing the ``helpText`` property of the widget and creating a pull request.
+
+Other Policies
+--------------
+
+Security
+########
+
+The disclosure policy of the CATMAID developers for vulnerabilities is that
+arbitrary SQL execution by anonymous users or users with "browse" permissions
+must be notified to the mailing list simultaneous with patch publication.
+Vulnerabilities only exploitable by users with "annotate" permissions will
+be noted in the release changelog but will not be sent to the mailing list.

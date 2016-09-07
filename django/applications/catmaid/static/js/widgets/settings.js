@@ -5,7 +5,6 @@
   project,
   requestQueue,
   SkeletonAnnotations,
-  userprofile,
   WindowMaker
 */
 
@@ -25,13 +24,18 @@
 
     /**
      * Add meta controls and information about settings cascade, scope and
-     * overrides/locking to a settings element.
+     * overrides/locking to a settings element. Optionally, a toStr() function
+     * can be provided to format the string representation of a settings value.
      */
-    var wrapSettingsControl = function (control, settings, key, scope) {
+    var wrapSettingsControl = function (control, settings, key, scope, update, toStr) {
       var valueScope = settings.rendered[scope][key].valueScope;
       var fromThisScope = valueScope === scope;
       var overridable = settings.rendered[scope][key].overridable;
       var meta = $('<ul />');
+      var updateAndRefresh = function () {
+        var updateValue = CATMAID.tools.isFn(update) ? update() : undefined;
+        Promise.resolve(updateValue).then(refresh);
+      };
 
       if (!fromThisScope) {
         control.addClass('inherited');
@@ -45,8 +49,12 @@
         meta.append($('<li />').text('This value is locked by ' + valueScope + ' settings.'));
       }
 
+      var defaultValue = settings.schema.entries[key].default;
+      if (toStr) {
+        defaultValue = toStr(defaultValue);
+      }
       meta.append($('<li />')
-          .text('CATMAID\'s default is "' + settings.schema.entries[key].default + '".'));
+          .text('CATMAID\'s default is ' + JSON.stringify(defaultValue) + '.'));
 
       meta = $('<div class="settingsMeta" />').append(meta);
 
@@ -54,7 +62,7 @@
         meta.append($('<button />')
             .text('Reset to inherited default')
             .click(function () {
-              settings.unset(key, scope).then(refresh);
+              settings.unset(key, scope).then(updateAndRefresh);
             }));
       }
 
@@ -65,9 +73,18 @@
         meta.append($('<button />')
             .text(overridable ? 'Lock this setting' : 'Unlock this setting')
             .click(function () {
-              settings.setOverridable(key, !overridable, scope).then(refresh);
+              settings.setOverridable(key, !overridable, scope).then(updateAndRefresh);
             }));
       }
+
+      control.prepend($('<button class="settingsMetaToggle" />')
+          .button({
+              icons: {
+                primary: "ui-icon-gear"
+              },
+              text: false
+            })
+          .click(function () { meta.toggle(); }));
 
       return control.append(meta);
     };
@@ -81,7 +98,7 @@
         {name: 'Your default settings', val: 'user'},
         {name: 'Your settings for this project', val: 'session'}
       ];
-      if (user_permissions.can_administer[project.id]) {
+      if (CATMAID.hasPermission(project.id, 'can_administer')) {
         scopeOptions = [
           {name: 'All users: server defaults', val: 'global'},
           {name: 'All users: project defaults', val: 'project'},
@@ -119,6 +136,7 @@
       positionOptions.forEach(function(o) {
         this.append(new Option(o.name, o.id));
       }, msgPosition);
+      msgPosition.val(CATMAID.messagePosition);
 
       ds.append(CATMAID.DOM.createLabeledControl('Message position', msgPosition,
             'Choose where on the screen messages should be displayed. By ' +
@@ -145,6 +163,27 @@
       hoverBehavior.on('change', function(e) {
         CATMAID.focusBehavior = parseInt(this.value, 10);
       });
+
+      ds.append(wrapSettingsControl(
+          CATMAID.DOM.createInputSetting(
+              'Table page length options',
+              CATMAID.Client.Settings[SETTINGS_SCOPE].table_page_length_options,
+              'A list of numbers, representing page length options that ' +
+              'nearly all tables will use. A value of -1 stands for "All ' +
+              'values". Widgets have to be reloaded to respect setting changes.',
+              function () {
+                var newOptions = this.value.split(',')
+                  .map(CATMAID.tools.trimString)
+                  .map(Number);
+                CATMAID.Client.Settings
+                  .set('table_page_length_options', newOptions, SETTINGS_SCOPE)
+                  .catch(function(e) {
+                    CATMAID.msg("Warning: invalid value", e.message ? e.message : e);
+                  });
+              }),
+          CATMAID.Client.Settings,
+          'table_page_length_options',
+          SETTINGS_SCOPE));
     };
 
     /**
@@ -342,17 +381,36 @@
       }, select);
       ds.append(CATMAID.DOM.createLabeledControl('Neuron label', select));
 
-      // Create 'Add' button and component list
+      // Neuron name service configuration
+      var nameServiceInstance = CATMAID.NeuronNameService.getInstance();
+      if (SETTINGS_SCOPE !== 'session') {
+        // Create a dummy neuron name service instance to manage settings
+        // at scopes other than session.
+        nameServiceInstance = CATMAID.NeuronNameService.newInstance(true);
+        nameServiceInstance.loadConfigurationFromSettings(SETTINGS_SCOPE, true);
+      }
+
+      var persistComponentList = function () {
+        CATMAID.NeuronNameService.Settings
+            .set(
+              'component_list',
+              nameServiceInstance.getComponentList(),
+              SETTINGS_SCOPE)
+            .then(function () {
+                  CATMAID.NeuronNameService.getInstance().loadConfigurationFromSettings();
+                });
+          };
       var componentList = $('<select/>').addClass('multiline').attr('size', '4')[0];
       var addButton = $('<button/>').text('Add label component').click(function() {
         var newLabel = select.val();
         // The function to be called to actually add the label
         var addLabeling = function(metaAnnotation) {
           if (metaAnnotation) {
-            CATMAID.NeuronNameService.getInstance().addLabeling(newLabel, metaAnnotation);
+            nameServiceInstance.addLabeling(newLabel, metaAnnotation);
           } else {
-            CATMAID.NeuronNameService.getInstance().addLabeling(newLabel);
+            nameServiceInstance.addLabeling(newLabel);
           }
+          persistComponentList();
           updateComponentList();
         };
 
@@ -384,17 +442,32 @@
         if (componentList.selectedIndex < componentList.length - 1) {
           // We display the component list reversed, therefore we need to mirror
           // the index.
-          CATMAID.NeuronNameService.getInstance().removeLabeling(componentList.length - componentList.selectedIndex - 1);
+          nameServiceInstance.removeLabeling(componentList.length - componentList.selectedIndex - 1);
+          persistComponentList();
           updateComponentList();
         }
       });
       ds.append(CATMAID.DOM.createLabeledControl('', addButton));
-      ds.append(CATMAID.DOM.createLabeledControl('', componentList));
+      // A container is necessary since this component may complete asynchronously.
+      var nnsAsyncContainer = $('<div/>');
+      ds.append(nnsAsyncContainer);
+      CATMAID.NeuronNameService.Settings
+          .load()
+          .then(function () {
+            nnsAsyncContainer.append(wrapSettingsControl(
+                CATMAID.DOM.createLabeledControl('', componentList),
+                CATMAID.NeuronNameService.Settings,
+                'component_list',
+                SETTINGS_SCOPE,
+                function () {
+                  return CATMAID.NeuronNameService.getInstance().loadConfigurationFromSettings();
+                }));
+          });
       ds.append(CATMAID.DOM.createLabeledControl('', removeButton));
 
       var updateComponentList = function() {
         $(componentList).empty();
-        var options = CATMAID.NeuronNameService.getInstance().getComponentList().map(function(o, i) {
+        var options = nameServiceInstance.getComponentList().map(function(o, i) {
           // Add each component list element to the select control. The last
           // element is disabled by default.
           var optionElement = $('<option/>').attr('value', o.id)
@@ -414,16 +487,37 @@
       // Initialize component list
       updateComponentList();
 
-      ds.append(CATMAID.DOM.createInputSetting(
-          "Formatted neuron name",
-          CATMAID.NeuronNameService.getInstance().getFormatString(),
-          "Format the neuron label using label components from list above. " +
-          "Reference the Nth component by using \"%N\". " +
-          "Use \"%f\" for a fallback that uses first available component " +
-          "from the top.",
-          function () {
-            CATMAID.NeuronNameService.getInstance().setFormatString($(this).val());
-          }));
+      nnsAsyncContainer = $('<div/>');
+      ds.append(nnsAsyncContainer);
+      CATMAID.NeuronNameService.Settings
+          .load()
+          .then(function () {
+            nnsAsyncContainer.append(wrapSettingsControl(
+                CATMAID.DOM.createInputSetting(
+                    "Formatted neuron name",
+                    nameServiceInstance.getFormatString(),
+                    "Format the neuron label using label components from list above. " +
+                    "Reference the Nth component by using \"%N\". " +
+                    "Use \"%f\" for a fallback that uses first available component " +
+                    "from the top. Optionally, append \"{<em>delimiter</em>}\" to specify " +
+                    "how component values should be separeted, defaulting to \"{, }\".",
+                    function () {
+                      CATMAID.NeuronNameService.Settings
+                        .set(
+                          'format_string',
+                          $(this).val(),
+                          SETTINGS_SCOPE)
+                        .then(function () {
+                          CATMAID.NeuronNameService.getInstance().loadConfigurationFromSettings();
+                        });
+                    }),
+                CATMAID.NeuronNameService.Settings,
+                'format_string',
+                SETTINGS_SCOPE,
+                function () {
+                  return CATMAID.NeuronNameService.getInstance().loadConfigurationFromSettings();
+                }));
+          });
 
 
       // Overlay settings
@@ -432,27 +526,32 @@
 
       // Active node radius display.
       ds.append(wrapSettingsControl(
-          CATMAID.DOM.createCheckboxSetting(
-              "Display radius for active node",
-              SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE].display_active_node_radius,
-              "Show a radius circle around the active node if its radius is set.",
+          CATMAID.DOM.createSelectSetting(
+              "Display node radii",
+              {'Do not display': 'none',
+               'Active node': 'active-node',
+               'Active skeleton': 'active-skeleton',
+               'All nodes': 'all'},
+              "Show radii around these nodes. Note that showing radii for " +
+              "many nodes will slow down the tracing overlay.",
               function() {
                 SkeletonAnnotations.TracingOverlay.Settings
                     .set(
-                      'display_active_node_radius',
-                      this.checked,
+                      'display_node_radii',
+                      this.value,
                       SETTINGS_SCOPE)
                     .then(function () {
                       project.getStackViewers().every(function(sv) {
                         var overlay = SkeletonAnnotations.getTracingOverlay(sv.getId());
                         if (overlay) {
-                          overlay.updateActiveNodeRadiusVisibility();
+                          overlay.updateNodeRadiiVisibility();
                         }
                       });
                     });
-              }),
+              },
+              SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE].display_node_radii),
           SkeletonAnnotations.TracingOverlay.Settings,
-          'display_active_node_radius',
+          'display_node_radii',
           SETTINGS_SCOPE));
 
 
@@ -479,7 +578,9 @@
                       this.value === 'overlay-scaling-screen',
                       SETTINGS_SCOPE)
                     .then(function () {
-                      project.getStackViewers().forEach(function (s) {s.redraw();});
+                      project.getStackViewers().forEach(function (s) {
+                        SkeletonAnnotations.getTracingOverlay(s.getId()).redraw(true);
+                      });
                     });
               }).addClass('setting'),
           SkeletonAnnotations.TracingOverlay.Settings,
@@ -505,7 +606,9 @@
                         .then(function () {
                           $('#overlay-scale-value').text((
                               SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE].scale*100).toFixed());
-                          project.getStackViewers().forEach(function (s) {s.redraw();});
+                          project.getStackViewers().forEach(function (s) {
+                            SkeletonAnnotations.getTracingOverlay(s.getId()).redraw(true);
+                          });
                         });
                   }})),
           SkeletonAnnotations.TracingOverlay.Settings,
@@ -514,40 +617,74 @@
 
 
       var dsNodeColors = CATMAID.DOM.addSettingsContainer(ds, "Skeleton colors", true);
+      dsNodeColors.append(CATMAID.DOM.createCheckboxSetting(
+          'Hide skeletons not in the skeleton source subscriptions',
+          project.getStackViewers().every(function(sv) {
+            var overlay = SkeletonAnnotations.getTracingOverlay(sv.getId());
+            return overlay && overlay.graphics.overlayGlobals.hideOtherSkeletons;
+          }),
+          'If checked, skeletons not present in the subscribed skeleton ' +
+          'sources will not be displayed in the tracing overlay.',
+          function () {
+            var checked = this.checked;
+            project.getStackViewers().forEach(function(sv) {
+              var overlay = SkeletonAnnotations.getTracingOverlay(sv.getId());
+              if (overlay) {
+                overlay.graphics.overlayGlobals.hideOtherSkeletons = checked;
+                overlay.redraw(true);
+              }
+            });
+          }));
+
       // Node color settings: Title vs. SkeletonAnnotations field.
       var colors = new Map([
-        ['Active node', 'atn_fillcolor'],
+        ['Active node', 'active_node_color'],
+        ['Active virtual node', 'active_virtual_node_color'],
+        ['Active suppressed virtual node', 'active_suppressed_virtual_node_color'],
         ['Active skeleton', 'active_skeleton_color'],
         ['Inactive skeleton', 'inactive_skeleton_color'],
-        ['Active virtual node/edge', 'active_skeleton_color_virtual'],
-        ['Inactive virtual node/edge', 'inactive_skeleton_color_virtual'],
+        ['Active skeleton virtual node/edge', 'active_skeleton_color_virtual'],
+        ['Inactive skeleton virtual node/edge', 'inactive_skeleton_color_virtual'],
         ['Inactive upstream edge', 'inactive_skeleton_color_above'],
         ['Inactive downstream edge', 'inactive_skeleton_color_below'],
         ['Root node', 'root_node_color'],
         ['Leaf node', 'leaf_node_color'],
       ]);
 
-      var setColorOfTracingFields = function() {
-        colors.forEach(function(field, label) {
-          var input = colorControls.get(field);
-          var color = $(input).find('input').val();
-          SkeletonAnnotations[field] = color;
-        });
+      var updateTracingColors = function () {
         // Update all tracing layers
         project.getStackViewers().forEach(function(sv) {
           var overlay = SkeletonAnnotations.getTracingOverlay(sv.getId());
           if (overlay) overlay.recolorAllNodes();
         });
       };
+      var setColorOfTracingFields = function() {
+        colors.forEach(function(field, label) {
+          var input = colorControls.get(field);
+          var color = $(input).find('input').val();
+          color = new THREE.Color(color).getHex();
+          SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE][field] = color;
+        });
+        updateTracingColors();
+      };
+
+      var hexColorToStr = function(hex) {
+        return new THREE.Color(hex).getStyle();
+      };
 
       var colorControls = new Map();
       colors.forEach(function(field, label) {
-        var color = SkeletonAnnotations[field];
-        var input = CATMAID.DOM.createInputSetting(label, color);
-        this.append(input);
+        var color = new THREE.Color(SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE][field]);
+        var input = CATMAID.DOM.createInputSetting(label, color.getStyle());
+        this.append(wrapSettingsControl(input,
+                                        SkeletonAnnotations.TracingOverlay.Settings,
+                                        field,
+                                        SETTINGS_SCOPE,
+                                        updateTracingColors,
+                                        hexColorToStr));
         var colorField = $(input).find('input');
         CATMAID.ColorPicker.enable(colorField, {
-          initialColor: color,
+          initialColor: color.getHex(),
           onColorChange: setColorOfTracingFields
         });
         colorControls.set(field, input);
@@ -562,7 +699,7 @@
 
 
       var dsSkeletonProjection = CATMAID.DOM.addSettingsContainer(ds,
-          "Active skeleton projection", true);
+          "Skeleton projection layer", true);
 
       // Figure out if all displayed stack viewers have a skeleton projection
       // layer
@@ -575,6 +712,14 @@
           "projections of the active skeleton to the tracing display.",
           updateSkeletonProjectionDisplay);
       dsSkeletonProjection.append(skpVisible);
+
+      var skpSource = $(CATMAID.skeletonListSources.createUnboundSelect(
+          'Skeleton projection layer'));
+      var currentSource = CATMAID.SkeletonProjectionLayer.options.source ||
+        SkeletonAnnotations.activeSkeleton;
+      skpSource.val(currentSource.getName());
+      skpSource.on('change', updateSkeletonProjectionDisplay);
+      dsSkeletonProjection.append(CATMAID.DOM.createLabeledControl('Source', skpSource));
 
       var skpShading = $('<select/>');
       var skpShadingOptions = [
@@ -596,10 +741,13 @@
             'Shading', skpShading));
 
       // Set default properties
+      var skpPreferSourceColor = CATMAID.DOM.createCheckboxSetting("Use source color",
+          CATMAID.SkeletonProjectionLayer.options.preferSourceColor, null,
+          updateSkeletonProjectionDisplay);
       var skpDownstreamColor = CATMAID.DOM.createInputSetting("Downstream color",
-          CATMAID.SkeletonProjectionLayer.options.downstreamColor);
+          new THREE.Color(CATMAID.SkeletonProjectionLayer.options.downstreamColor).getStyle());
       var skpUpstreamColor = CATMAID.DOM.createInputSetting("Upstream color",
-          CATMAID.SkeletonProjectionLayer.options.upstreamColor);
+          new THREE.Color(CATMAID.SkeletonProjectionLayer.options.upstreamColor).getStyle());
       var skpShowEdges = CATMAID.DOM.createCheckboxSetting("Show edges",
           CATMAID.SkeletonProjectionLayer.options.showEdges, null,
           updateSkeletonProjectionDisplay);
@@ -618,6 +766,7 @@
           "For distance based shading, a fall-off can be set, by which " +
           "opacity is reduced with every layer");
 
+      dsSkeletonProjection.append(skpPreferSourceColor);
       dsSkeletonProjection.append(skpDownstreamColor);
       dsSkeletonProjection.append(skpUpstreamColor);
       dsSkeletonProjection.append(skpShowEdges);
@@ -661,14 +810,14 @@
         return {
           "visible": skpVisible.find('input').prop('checked'),
           "shadingMode": skpShading.val(),
-          "downstreamColor": skpDownstreamColor.find('input').val(),
-          "upstreamColor": skpUpstreamColor.find('input').val(),
+          "downstreamColor": new THREE.Color(skpDownstreamColor.find('input').val()).getHex(),
+          "upstreamColor": new THREE.Color(skpUpstreamColor.find('input').val()).getHex(),
           "showEdges": skpShowEdges.find('input').prop('checked'),
           "showNodes": skpShowNodes.find('input').prop('checked'),
           "strahlerShadingMin": skpMinStrahler.find('input').val(),
           "strahlerShadingMax": skpMaxStrahler.find('input').val(),
           "distanceFalloff": skpDistanceFalloff.find('input').val(),
-          "initialNode": SkeletonAnnotations.atn
+          "source": CATMAID.skeletonListSources.getSource(skpSource.val())
         };
       }
 
@@ -683,7 +832,6 @@
             if (layer) {
               // Update existing instance
               layer.updateOptions(options, false);
-              layer.update(options.initialNode);
             } else {
               // Create new if not already present
               layer = new CATMAID.SkeletonProjectionLayer(sv, options);
@@ -694,6 +842,170 @@
           }
         });
       }
+
+
+      var dsVisibilityGroups = CATMAID.DOM.addSettingsContainer(ds,
+          "Visibility groups", true);
+      var dsVisibilityGroupsRadioWrapper = $('<div />').addClass('setting');
+      var visibilityGroups = [{
+          name: 'Hidden group 1',
+          description: 'Toggle visibility of this group with <kbd>HOME</kbd>',
+          id: SkeletonAnnotations.VisibilityGroups.GROUP_IDS.GROUP_1,
+        },{
+          name: 'Hidden group 2',
+          description: 'Toggle visibility of this group with <kbs>SHIFT</kbd>+<kbd>HOME</kbd>',
+          id: SkeletonAnnotations.VisibilityGroups.GROUP_IDS.GROUP_2,
+        },{
+          name: 'Always visible',
+          description: 'Skeletons in this group are always visible, ' +
+                       'even if they are also in hidden groups.',
+          id: SkeletonAnnotations.VisibilityGroups.GROUP_IDS.OVERRIDE,
+        }];
+      var updateVisibilityGroup = function (groupID) {
+        var radioValue = $('input[type="radio"][name="visibility-group-' + groupID + '"]:checked').val();
+        var groupSetting = {};
+        switch (radioValue.split('-').slice(-1)[0]) {
+          case 'universal':
+            groupSetting.universal = $('#visibility-group-' + groupID + '-value-0').val();
+            break;
+          case 'annotation':
+            groupSetting.metaAnnotationName = $('#visibility-group-' + groupID + '-value-1').val();
+            break;
+          case 'creator':
+            var creatorValue = $('#visibility-group-' + groupID + '-value-2').val();
+            groupSetting.creatorID = parseInt(creatorValue, 10);
+            break;
+        }
+
+        var settingsCopy = SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE].visibility_groups;
+        settingsCopy = $.extend([], settingsCopy);
+        settingsCopy[groupID] = groupSetting;
+        SkeletonAnnotations.TracingOverlay.Settings
+            .set(
+              'visibility_groups',
+              settingsCopy,
+              SETTINGS_SCOPE)
+            .then(function () {
+              SkeletonAnnotations.VisibilityGroups.setGroup(
+                  groupID,
+                  SkeletonAnnotations.TracingOverlay.Settings.session.visibility_groups[groupID]);
+
+              // Redraw all overlays
+              project.getStackViewers().forEach(function(sv) {
+                var overlay = SkeletonAnnotations.getTracingOverlay(sv.getId());
+                if (overlay) {
+                  overlay.redraw(true);
+                }
+              });
+            });
+      };
+
+      visibilityGroups.forEach(function (group) {
+        var scopedSettings = SkeletonAnnotations.TracingOverlay.Settings[SETTINGS_SCOPE].visibility_groups[group.id];
+
+        var groupRadioControl = CATMAID.DOM.createRadioSetting(
+              'visibility-group-' + group.id,
+              [{
+                id: 'visibility-group-' + group.id + '-universal',
+                desc: 'Universal match',
+                checked: scopedSettings.hasOwnProperty('universal')
+              },{
+                id: 'visibility-group-' + group.id + '-meta-annotation',
+                desc: 'Match meta-annotation',
+                checked: scopedSettings.hasOwnProperty('metaAnnotationName')
+              },{
+                id: 'visibility-group-' + group.id + '-creator',
+                desc: 'Match by creator',
+                checked: scopedSettings.hasOwnProperty('creatorID')
+              }],
+              null,
+              function () {
+                updateVisibilityGroup(group.id);
+              }).addClass('setting');
+
+        groupRadioControl.children().each(function (i, radio) {
+          var select;
+          var checkRadioOnChange = function (name) {
+            return function () {
+              $('#visibility-group-' + group.id + '-' + name)
+                  .prop('checked', true)
+                  .trigger('change');
+            };
+          };
+          switch (i) {
+            case 0:
+              var selected = scopedSettings.hasOwnProperty('universal') ?
+                scopedSettings.universal : 'none';
+              select = CATMAID.DOM.createSelectSetting(
+                    '',
+                    {'All skeletons': 'all', 'No skeletons': 'none'},
+                    null,
+                    checkRadioOnChange('universal'),
+                    selected);
+              select = select.children('label').children('select');
+              break;
+            case 1:
+              var selected = scopedSettings.hasOwnProperty('metaAnnotationName') ?
+                scopedSettings.metaAnnotationName : null;
+              select = $('<input/>').attr('type', 'text')
+                  .addClass("ui-corner-all").val(selected);
+              select.change(checkRadioOnChange('meta-annotation'));
+              select.autocomplete({
+                source: CATMAID.annotations.getAllNames(),
+                change: checkRadioOnChange('meta-annotation')
+              });
+              break;
+            case 2:
+              var selected = scopedSettings.hasOwnProperty('creatorID') ?
+                scopedSettings.creatorID : null;
+              var users = CATMAID.User.all();
+              users = Object.keys(users)
+                  .map(function (userID) { return users[userID]; })
+                  .sort(CATMAID.User.displayNameCompare)
+                  .reduce(function (o, user) {
+                    o[user.getDisplayName()] = user.id;
+                    return o;
+                  }, {});
+              select = CATMAID.DOM.createSelectSetting(
+                    '',
+                    users,
+                    null,
+                    checkRadioOnChange('creator'),
+                    selected);
+              select = select.children('label').children('select');
+              break;
+          }
+
+          select.attr('id', 'visibility-group-' + group.id + '-value-' + i);
+          $(radio).append(select);
+        });
+
+        groupRadioControl.prepend($('<p/>')
+              .addClass('help')
+              .append(group.description));
+        groupRadioControl.prepend($('<h4/>').append(group.name));
+
+        dsVisibilityGroupsRadioWrapper.append(groupRadioControl);
+      });
+
+      dsVisibilityGroups.append(wrapSettingsControl(
+          dsVisibilityGroupsRadioWrapper,
+          SkeletonAnnotations.TracingOverlay.Settings,
+          'visibility_groups',
+          SETTINGS_SCOPE,
+          function () {
+            SkeletonAnnotations.TracingOverlay.Settings.session.visibility_groups.forEach(function (group, i) {
+              SkeletonAnnotations.VisibilityGroups.setGroup(i, group);
+            });
+
+            project.getStackViewers().forEach(function(sv) {
+              var overlay = SkeletonAnnotations.getTracingOverlay(sv.getId());
+              if (overlay) {
+                overlay.redraw(true);
+              }
+            });
+          }));
+
 
       // Reviewer whitelist settings
       ds = CATMAID.DOM.addSettingsContainer(container, "Reviewer Team");
@@ -782,15 +1094,41 @@
             SkeletonAnnotations.newConnectorType = SkeletonAnnotations.SUBTYPE_SYNAPTIC_CONNECTOR;
           }
         }));
-      ds.append(CATMAID.DOM.createCheckboxSetting("Respect suppressed virtual nodes during navigation",
-        SkeletonAnnotations.skipSuppressedVirtualNodes, "When navigating " +
-            "parent/child topology, skip virtual nodes that have been " +
-            "marked as suppressed. " +
-            "This has a marginal impact on performance. Suppressed virtual " +
-            "nodes are always respected during review.",
-        function() {
-          SkeletonAnnotations.skipSuppressedVirtualNodes = this.checked;
-        }));
+      ds.append(wrapSettingsControl(
+          CATMAID.DOM.createCheckboxSetting(
+              "Invert behavior of modifier key to ignore/respect virtual nodes",
+              CATMAID.TracingTool.Settings[SETTINGS_SCOPE].invert_virtual_node_ignore_modifier,
+              "When navigating parent/child topology with " +
+              "<kbd>[</kbd>/<kbd>]</kbd>, invert the behavior of holding " +
+              "<kbd>CTRL</kbd>.",
+              function() {
+                CATMAID.TracingTool.Settings
+                    .set(
+                      'invert_virtual_node_ignore_modifier',
+                      this.checked,
+                      SETTINGS_SCOPE);
+              }),
+          CATMAID.TracingTool.Settings,
+          'invert_virtual_node_ignore_modifier',
+          SETTINGS_SCOPE));
+      ds.append(wrapSettingsControl(
+          CATMAID.DOM.createCheckboxSetting(
+              "Respect suppressed virtual nodes during navigation",
+              SkeletonAnnotations.Settings[SETTINGS_SCOPE].skip_suppressed_virtual_nodes,
+              "When navigating parent/child topology, skip virtual nodes " +
+              "that have been marked as suppressed. This has a marginal " +
+              "impact on performance. Suppressed virtual nodes are always " +
+              "respected during review.",
+              function() {
+                SkeletonAnnotations.Settings
+                    .set(
+                      'skip_suppressed_virtual_nodes',
+                      this.checked,
+                      SETTINGS_SCOPE);
+              }),
+          SkeletonAnnotations.Settings,
+          'skip_suppressed_virtual_nodes',
+          SETTINGS_SCOPE));
       ds.append($('<div/>').addClass('setting').text());
       ds.append(CATMAID.DOM.createInputSetting("Default new neuron name",
           SkeletonAnnotations.defaultNewNeuronName,
@@ -809,6 +1147,38 @@
         function() {
           SkeletonAnnotations.quickSingleNodeSkeletonMerge = this.checked;
         }));
+
+      var autoAnnotationChange = function() {
+          var annotationName = this.value;
+          SkeletonAnnotations.Settings
+              .set(
+                'auto_annotations',
+                annotationName ? [{annotationNames: [annotationName]}] : [],
+                SETTINGS_SCOPE)
+              .then(function () {
+                SkeletonAnnotations.AutoAnnotator.loadFromSettings();
+              });
+        };
+      var autoAnnotationName = SkeletonAnnotations.Settings[SETTINGS_SCOPE].auto_annotations;
+      autoAnnotationName = autoAnnotationName.length > 0 ?
+          autoAnnotationName[0].annotationNames :
+          '';
+      var autoAnnotationInput = CATMAID.DOM.createInputSetting(
+              "Auto-annotate changed skeletons",
+              autoAnnotationName,
+              "Any skeletons you create, split, join or extend will be " +
+              "automatically annotated with the annotation entered here. " +
+              "Leave blank to not auto-annotate.",
+              autoAnnotationChange);
+      ds.append(wrapSettingsControl(
+          autoAnnotationInput,
+          SkeletonAnnotations.Settings,
+          'auto_annotations',
+          SETTINGS_SCOPE));
+      $(autoAnnotationInput).find('input[type=text]').autocomplete({
+        source: CATMAID.annotations.getAllNames(),
+        change: autoAnnotationChange,
+      });
 
       // Auto-select skeleton source created last
       ds.append(CATMAID.DOM.createCheckboxSetting('Auto-select widget created last as source ' +

@@ -18,6 +18,8 @@ RequestQueue = function(originUrl, csrfToken)
   var queue = [];		//!< queue of waiting requests
   var xmlHttp;
   var spinner = null;
+  // Extra headers are stored as key value pairs in an object
+  var extraHeaders = {};
 
   if ( typeof XMLHttpRequest != 'undefined' )
   {
@@ -78,6 +80,9 @@ RequestQueue = function(originUrl, csrfToken)
         break;
       case "function":
       case "object":
+        if (null === o[k]) {
+          break;
+        }
         if ( o[ k ].constructor == Array && o[ k ].length > 0 )
           q += encodeArray( o[ k ], r ) + "&";
         else
@@ -129,9 +134,14 @@ RequestQueue = function(originUrl, csrfToken)
       item.method,
       item.request,
       true );
+    // Accept all content types as response. This is needed to not have Firefox
+    // add its own defaults, which in turn triggers Django Rest Framework in the
+    // back-end to return a website for views it covers.
+    xmlHttp.setRequestHeader( "Accept", "*/*" );
     xmlHttp.setRequestHeader( "X-Requested-With", "XMLHttpRequest");
     if ( item.method == "POST" || item.method == "PUT" )
     {
+      xmlHttp.setRequestHeader( "Accept", "*/*" );
       xmlHttp.setRequestHeader( "Content-type", "application/x-www-form-urlencoded" );
       // xmlHttp.setRequestHeader( "Content-length", queue[ 0 ].data.length );
       // xmlHttp.setRequestHeader( "Connection", "close" );
@@ -139,6 +149,11 @@ RequestQueue = function(originUrl, csrfToken)
     xmlHttp.setRequestHeader( "X-Requested-With", "XMLHttpRequest" );
     if (!RequestQueue.csrfSafe(item.method) && sameOrigin(item.request)) {
       xmlHttp.setRequestHeader('X-CSRFToken', csrfToken);
+    }
+
+    // Add extra headers
+    for (var headerName in extraHeaders) {
+      xmlHttp.setRequestHeader(headerName, extraHeaders[headerName]);
     }
     xmlHttp.onreadystatechange = callback;
     xmlHttp.send( item.data );
@@ -148,11 +163,24 @@ RequestQueue = function(originUrl, csrfToken)
   {
     if ( xmlHttp.readyState == 4 )
     {
+      var advance = true;
       hideSpinner();
-      queue[ 0 ].callback( xmlHttp.status, xmlHttp.responseText, xmlHttp.responseXML );
-      queue.shift();
-      if ( queue.length > 0 )
-        send();
+      try {
+        queue[ 0 ].callback( xmlHttp.status, xmlHttp.responseText, xmlHttp.responseXML );
+      } catch(error) {
+        // In case of error, reset complete queue
+        queue.length = 0;
+        advance = false;
+        // Re-throw error
+        throw error;
+      }
+      if (advance) {
+        // Move forward in queue
+        queue.shift();
+        if ( queue.length > 0 ) {
+          send();
+        }
+      }
     }
   };
 
@@ -236,6 +264,20 @@ RequestQueue = function(originUrl, csrfToken)
         }
       }
       this.register( r, m, d, c, id );
+    },
+
+    /**
+     * Add a header that will be added to every new request.
+     */
+    addHeader: function(name, value) {
+      extraHeaders[name] = value;
+    },
+
+    /**
+     * Remove a header that was added before.
+     */
+    removeHeader: function(name) {
+      delete extraHeaders[name];
     }
   };
 };

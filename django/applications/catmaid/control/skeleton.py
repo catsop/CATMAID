@@ -1,15 +1,15 @@
-import decimal
 import json
 import networkx as nx
+import pytz
 import re
 from operator import itemgetter
 from datetime import datetime, timedelta
 from collections import defaultdict
 from itertools import chain
-from functools import partial
 
-from django.core.serializers.json import DjangoJSONEncoder
-from django.http import HttpResponse, Http404
+from django.conf import settings
+from django.http import HttpResponse, HttpResponseBadRequest, Http404, \
+        JsonResponse
 from django.shortcuts import get_object_or_404
 from django.db import connection
 from django.db.models import Q
@@ -29,7 +29,7 @@ from catmaid.control.common import insert_into_log, get_class_to_id_map, \
 from catmaid.control.neuron import _delete_if_empty
 from catmaid.control.neuron_annotations import create_annotation_query, \
         _annotate_entities, _update_neuron_annotations
-from catmaid.control.review import get_treenodes_to_reviews, get_review_status
+from catmaid.control.review import get_review_status
 from catmaid.control.tree_util import find_root, reroot, edge_count_to_root
 
 
@@ -47,7 +47,8 @@ def get_skeleton_permissions(request, project_id, skeleton_id):
       'can_edit': can_edit,
     }
 
-    return HttpResponse(json.dumps(permissions))
+    return JsonResponse(permissions)
+
 
 @api_view(['POST'])
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -100,59 +101,76 @@ def open_leaves(request, project_id=None, skeleton_id=None):
     tnid = int(request.POST['treenode_id'])
     cursor = connection.cursor()
 
-    cursor.execute("SELECT id FROM relation WHERE project_id=%s AND relation_name='labeled_as'" % int(project_id))
+    cursor.execute("""
+        SELECT id
+        FROM relation
+        WHERE project_id = %s
+        AND relation_name='labeled_as'
+        """, (int(project_id),))
     labeled_as = cursor.fetchone()[0]
 
     # Select all nodes and their tags
     cursor.execute('''
-    SELECT t.id, t.parent_id, t.location_x, t.location_y, t.location_z, t.creation_time, ci.name
-    FROM treenode t LEFT OUTER JOIN (treenode_class_instance tci INNER JOIN class_instance ci ON tci.class_instance_id = ci.id AND tci.relation_id = %s) ON t.id = tci.treenode_id
-    WHERE t.skeleton_id = %s
-    ''' % (labeled_as, int(skeleton_id)))
+        SELECT t.id, t.parent_id
+        FROM treenode t
+        WHERE t.skeleton_id = %s
+        ''', (int(skeleton_id),))
 
     # Some entries repeated, when a node has more than one tag
     # Create a graph with edges from parent to child, and accumulate parents
     tree = nx.DiGraph()
     for row in cursor.fetchall():
-        nodeID = row[0]
+        node_id = row[0]
         if row[1]:
             # It is ok to add edges that already exist: DiGraph doesn't keep duplicates
-            tree.add_edge(row[1], nodeID)
+            tree.add_edge(row[1], node_id)
         else:
-            tree.add_node(nodeID)
-        tree.node[nodeID]['loc'] = (row[2], row[3], row[4])
-        tree.node[nodeID]['ct'] = row[5]
-        if row[6]:
-            props = tree.node[nodeID]
-            tags = props.get('tags')
-            if tags:
-                tags.append(row[6])
-            else:
-                props['tags'] = [row[6]]
+            tree.add_node(node_id)
 
     if tnid not in tree:
         raise Exception("Could not find %s in skeleton %s" % (tnid, int(skeleton_id)))
 
     reroot(tree, tnid)
     distances = edge_count_to_root(tree, root_node=tnid)
+    leaves = set()
+
+    for node_id, out_degree in tree.out_degree_iter():
+        if 0 == out_degree or node_id == tnid and 1 == out_degree:
+            # Found an end node
+            leaves.add(node_id)
+
+    # Select all nodes and their tags
+    cursor.execute('''
+        SELECT t.id, t.location_x, t.location_y, t.location_z, t.creation_time, array_agg(ci.name)
+        FROM treenode t
+        JOIN UNNEST(%s::bigint[]) AS leaves (tnid)
+          ON t.id = leaves.tnid
+        LEFT OUTER JOIN (
+            treenode_class_instance tci
+            INNER JOIN class_instance ci
+              ON tci.class_instance_id = ci.id
+                AND tci.relation_id = %s)
+          ON t.id = tci.treenode_id
+        GROUP BY t.id
+        ''', (list(leaves), labeled_as))
 
     # Iterate end nodes to find which are open.
     nearest = []
     end_tags = ['uncertain continuation', 'not a branch', 'soma',
-            '^(?i)(really|uncertain|anterior|posterior)?\s?ends?$']
+                r'^(?i)(really|uncertain|anterior|posterior)?\s?ends?$']
     end_regex = re.compile('(?:' + ')|(?:'.join(end_tags) + ')')
 
-    for nodeID, out_degree in tree.out_degree_iter():
-        if 0 == out_degree or nodeID == tnid and 1 == out_degree:
-            # Found an end node
-            props = tree.node[nodeID]
-            # Check if not tagged with a tag containing 'end'
-            if not 'tags' in props or not any(end_regex.match(s) for s in props['tags']):
-                # Found an open end
-                d = distances[nodeID]
-                nearest.append([nodeID, props['loc'], d, props['ct']])
+    for row in cursor.fetchall():
+        node_id = row[0]
+        tags = row[5]
+        # Check if not tagged with a tag containing 'end'
+        if tags == [None] or not any(end_regex.match(s) for s in tags):
+            # Found an open end
+            d = distances[node_id]
+            nearest.append([node_id, (row[1], row[2], row[3]), d, row[4]])
 
-    return HttpResponse(json.dumps(nearest, cls=DjangoJSONEncoder))
+    return JsonResponse(nearest, safe=False)
+
 
 @api_view(['POST'])
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -262,7 +280,98 @@ def find_labels(request, project_id=None, skeleton_id=None):
 
     nearest.sort(key=lambda n: n[2])
 
-    return HttpResponse(json.dumps(nearest))
+    return JsonResponse(nearest, safe=False)
+
+
+@api_view(['POST'])
+@requires_user_role(UserRole.Browse)
+def within_spatial_distance(request, project_id=None):
+    """Find skeletons within a given L-infinity distance of a treenode.
+
+    Returns at most 100 results.
+    ---
+    parameters:
+        - name: treenode_id
+          description: ID of the origin treenode to search around
+          required: true
+          type: integer
+          paramType: form
+        - name: distance
+          description: L-infinity distance in nanometers within which to search
+          required: false
+          default: 0
+          type: integer
+          paramType: form
+        - name: size_mode
+          description: |
+            Whether to return skeletons with only one node in the search area
+            (1) or more than one node in the search area (0).
+          required: false
+          default: 0
+          type: integer
+          paramType: form
+    type:
+      reached_limit:
+        description: Whether the limit of at most 100 skeletons was reached
+        type: boolean
+        required: true
+      skeletons:
+        description: IDs of skeletons matching the search criteria
+        type: array
+        required: true
+        items:
+          type: integer
+    """
+    project_id = int(project_id)
+    tnid = request.POST.get('treenode_id', None)
+    if not tnid:
+        raise Exception("Need a treenode!")
+    tnid = int(tnid)
+    distance = int(request.POST.get('distance', 0))
+    if 0 == distance:
+        return JsonResponse({"skeletons": []})
+    size_mode = int(request.POST.get("size_mode", 0))
+    having = ""
+
+    if 0 == size_mode:
+        having = "HAVING count(*) > 1"
+    elif 1 == size_mode:
+        having = "HAVING count(*) = 1"
+    # else, no constraint
+
+    cursor = connection.cursor()
+    cursor.execute('SELECT location_x, location_y, location_z FROM treenode WHERE id=%s' % tnid)
+    pos = cursor.fetchone()
+
+    limit = 100
+    x0 = pos[0] - distance
+    x1 = pos[0] + distance
+    y0 = pos[1] - distance
+    y1 = pos[1] + distance
+    z0 = pos[2] - distance
+    z1 = pos[2] + distance
+
+    # Cheap emulation of the distance
+    cursor.execute('''
+SELECT skeleton_id, count(*)
+FROM treenode
+WHERE project_id = %s
+  AND location_x > %s
+  AND location_x < %s
+  AND location_y > %s
+  AND location_y < %s
+  AND location_z > %s
+  AND location_z < %s
+GROUP BY skeleton_id
+%s
+LIMIT %s
+''' % (project_id, x0, x1, y0, y1, z0, z1, having, limit))
+
+
+    skeletons = tuple(row[0] for row in cursor.fetchall())
+
+    return JsonResponse({"skeletons": skeletons,
+                         "reached_limit": limit == len(skeletons)})
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -271,7 +380,7 @@ def skeleton_statistics(request, project_id=None, skeleton_id=None):
     skel = Skeleton( skeleton_id = skeleton_id, project_id = project_id )
     const_time = skel.measure_construction_time()
     construction_time = '{0} minutes {1} seconds'.format( const_time / 60, const_time % 60)
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'node_count': skel.node_count(),
         'input_count': skel.input_count(),
         'output_count': skel.output_count(),
@@ -279,7 +388,7 @@ def skeleton_statistics(request, project_id=None, skeleton_id=None):
         'postsynaptic_sites': skel.postsynaptic_sites_count(),
         'cable_length': int(skel.cable_length()),
         'measure_construction_time': construction_time,
-        'percentage_reviewed': "%.2f" % skel.percentage_reviewed() }), content_type='application/json')
+        'percentage_reviewed': "%.2f" % skel.percentage_reviewed()})
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -294,7 +403,7 @@ def contributor_statistics_multiple(request, project_id=None, skeleton_ids=None)
     n_time_bins = 0
     n_review_bins = 0
     n_multi_review_bins = 0
-    epoch = datetime.utcfromtimestamp(0)
+    epoch = datetime.utcfromtimestamp(0).replace(tzinfo=pytz.utc)
 
     if not skeleton_ids:
         skeleton_ids = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('skids['))
@@ -315,8 +424,8 @@ def contributor_statistics_multiple(request, project_id=None, skeleton_ids=None)
     # Process last one
     if time_bins:
         n_time_bins += len(time_bins)
-    
-    
+
+
     # Take into account that multiple people may have reviewed the same nodes
     # Therefore measure the time for the user that has the most nodes reviewed,
     # then add the nodes not reviewed by that user but reviewed by the rest
@@ -373,7 +482,7 @@ def contributor_statistics_multiple(request, project_id=None, skeleton_ids=None)
     ).values_list('user_id', 'relation_id').iterator():
         synapses[row[1]][row[0]] += 1
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'construction_minutes': int(n_time_bins / 3.0),
         'min_review_minutes': int(n_review_bins / 3.0),
         'multiuser_review_minutes': int(n_multi_review_bins / 3.0),
@@ -382,7 +491,7 @@ def contributor_statistics_multiple(request, project_id=None, skeleton_ids=None)
         'n_pre': sum(synapses[relations['presynaptic_to']].itervalues()),
         'n_post': sum(synapses[relations['postsynaptic_to']].itervalues()),
         'pre_contributors': synapses[relations['presynaptic_to']],
-        'post_contributors': synapses[relations['postsynaptic_to']]}))
+        'post_contributors': synapses[relations['postsynaptic_to']]})
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -391,9 +500,10 @@ def node_count(request, project_id=None, skeleton_id=None, treenode_id=None):
     p = get_object_or_404(Project, pk=project_id)
     if not skeleton_id:
         skeleton_id = Treenode.objects.get(pk=treenode_id).skeleton_id
-    return HttpResponse(json.dumps({
+    skeleton_id = int(skeleton_id)
+    return JsonResponse({
         'count': Treenode.objects.filter(skeleton_id=skeleton_id).count(),
-        'skeleton_id': skeleton_id}), content_type='application/json')
+        'skeleton_id': skeleton_id})
 
 def _get_neuronname_from_skeletonid( project_id, skeleton_id ):
     p = get_object_or_404(Project, pk=project_id)
@@ -410,7 +520,7 @@ def _get_neuronname_from_skeletonid( project_id, skeleton_id ):
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def neuronname(request, project_id=None, skeleton_id=None):
-    return HttpResponse(json.dumps(_get_neuronname_from_skeletonid(project_id, skeleton_id)), content_type='application/json')
+    return JsonResponse(_get_neuronname_from_skeletonid(project_id, skeleton_id))
 
 def _neuronnames(skeleton_ids, project_id):
     qs = ClassInstanceClassInstance.objects.filter(
@@ -423,7 +533,7 @@ def _neuronnames(skeleton_ids, project_id):
 def neuronnames(request, project_id=None):
     """ Returns a JSON object with skeleton IDs as keys and neuron names as values. """
     skeleton_ids = tuple(int(v) for k,v in request.POST.iteritems() if k.startswith('skids['))
-    return HttpResponse(json.dumps(_neuronnames(skeleton_ids, project_id)))
+    return JsonResponse(_neuronnames(skeleton_ids, project_id))
 
 def check_annotations_on_split(project_id, skeleton_id, over_annotation_set,
         under_annotation_set):
@@ -500,7 +610,7 @@ def split_skeleton(request, project_id=None):
 
     # Check if the treenode is root!
     if not treenode.parent:
-        return HttpResponse(json.dumps({'error': 'Can\'t split at the root node: it doesn\'t have a parent.'}))
+        return JsonResponse({'error': 'Can\'t split at the root node: it doesn\'t have a parent.'})
 
     # Check if annotations are valid
     if not check_annotations_on_split(project_id, skeleton_id,
@@ -573,25 +683,26 @@ def split_skeleton(request, project_id=None):
     cici.user = skeleton.user # The same user that owned the skeleton to split
     cici.project_id = project_id
     cici.save()
-    # update skeleton_id of list in treenode table
-    # This creates a lazy QuerySet that, upon calling update, returns a new QuerySet
-    # that is then executed. It does NOT create an update SQL query for every treenode.
-    tns = Treenode.objects.filter(id__in=change_list).update(skeleton=new_skeleton)
-    # update the skeleton_id value of the treenode_connector table
-    tc = TreenodeConnector.objects.filter(
-        relation__relation_name__endswith = 'synaptic_to',
-        treenode__in=change_list,
-    ).update(skeleton=new_skeleton)
+
+    # Update skeleton IDs for treenodes, treenode_connectors, and reviews.
+    cursor.execute("""
+        UPDATE treenode
+          SET skeleton_id = %(new_skeleton_id)s
+          WHERE id = ANY(%(change_list)s::bigint[]);
+        UPDATE treenode_connector
+          SET skeleton_id = %(new_skeleton_id)s
+          WHERE treenode_id = ANY(%(change_list)s::bigint[]);
+        UPDATE review
+          SET skeleton_id = %(new_skeleton_id)s
+          WHERE treenode_id = ANY(%(change_list)s::bigint[]);
+        """, {'new_skeleton_id': new_skeleton.id, 'change_list': change_list})
+
     # setting new root treenode's parent to null
     Treenode.objects.filter(id=treenode_id).update(parent=None, editor=request.user)
 
     # Update annotations of existing neuron to have only over set
     _update_neuron_annotations(project_id, request.user, neuron.id,
             upstream_annotation_map)
-
-    # Update all reviews of the treenodes that are moved to a new neuron to
-    # refer to the new skeleton.
-    Review.objects.filter(treenode_id__in=change_list).update(skeleton=new_skeleton)
 
     # Update annotations of under skeleton
     _annotate_entities(project_id, [new_neuron.id], downstream_annotation_map)
@@ -601,7 +712,7 @@ def split_skeleton(request, project_id=None):
     insert_into_log(project_id, request.user.id, "split_skeleton", location,
                     "Split skeleton with ID {0} (neuron: {1})".format( skeleton_id, neuron.name ) )
 
-    return HttpResponse(json.dumps({'skeleton_id': new_skeleton.id}), content_type='application/json')
+    return JsonResponse({'new_skeleton_id': new_skeleton.id, 'existing_skeleton_id': skeleton_id})
 
 
 @api_view(['GET'])
@@ -631,12 +742,12 @@ def root_for_skeleton(request, project_id=None, skeleton_id=None):
         project=project_id,
         parent__isnull=True,
         skeleton_id=skeleton_id)
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'root_id': tn.id,
         'x': tn.location_x,
         'y': tn.location_y,
-        'z': tn.location_z}),
-        content_type='application/json')
+        'z': tn.location_z})
+
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeleton_ancestry(request, project_id=None):
@@ -702,7 +813,7 @@ def skeleton_ancestry(request, project_id=None):
                 if current_ci in seen:
                     raise Exception('Cyclic hierarchy detected for skeleton #%s' % skeleton_id)
 
-        return HttpResponse(json.dumps(ancestry))
+        return JsonResponse(ancestry, safe=False)
 
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
@@ -726,11 +837,12 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
     SELECT t1.skeleton_id, t2.skeleton_id, LEAST(t1.confidence, t2.confidence)
     FROM treenode_connector t1,
          treenode_connector t2
-    WHERE t1.skeleton_id IN (%s)
+    WHERE t1.skeleton_id = ANY(%s::integer[])
       AND t1.relation_id = %s
       AND t1.connector_id = t2.connector_id
+      AND t1.id != t2.id
       AND t2.relation_id = %s
-    ''' % (','.join(map(str, skeleton_ids)), int(relation_id_1), int(relation_id_2)))
+    ''', (list(skeleton_ids), int(relation_id_1), int(relation_id_2)))
 
     # Sum the number of synapses
     for srcID, partnerID, confidence in cursor.fetchall():
@@ -750,27 +862,25 @@ def _connected_skeletons(skeleton_ids, op, relation_id_1, relation_id_2, model_o
     if not partners:
         return partners, []
 
-    # Obtain a string with unique skeletons
-    skids_string = '),('.join(map(str, partners.iterkeys()))
+    # Obtain unique partner skeletons
+    partner_skids = list(partners.iterkeys())
 
     # Count nodes of each partner skeleton
     cursor.execute('''
     SELECT skeleton_id, count(skeleton_id)
-    FROM treenode,
-         (VALUES (%s)) skeletons(skid)
-    WHERE skeleton_id = skid
+    FROM treenode
+    WHERE skeleton_id = ANY(%s::integer[])
     GROUP BY skeleton_id
-    ''' % skids_string) # no need to sanitize
+    ''', (partner_skids,))
     for row in cursor.fetchall():
         partners[row[0]].num_nodes = row[1]
 
     # Find which reviewers have reviewed any partner skeletons
     cursor.execute('''
     SELECT DISTINCT reviewer_id
-    FROM review,
-         (VALUES (%s)) skeletons(skid)
-    WHERE skeleton_id = skid
-    ''' % skids_string) # no need to sanitize
+    FROM review
+    WHERE skeleton_id = ANY(%s::integer[])
+    ''', (partner_skids,))
     reviewers = [row[0] for row in cursor]
 
     return partners, reviewers
@@ -786,12 +896,14 @@ def _skeleton_info_raw(project_id, skeletons, op):
     WHERE project_id=%s
       AND (relation_name='presynaptic_to'
         OR relation_name='postsynaptic_to'
+        OR relation_name='gapjunction_with'
         OR relation_name='model_of')''' % project_id)
     relation_ids = dict(cursor.fetchall())
 
     # Obtain partner skeletons and their info
     incoming, incoming_reviewers = _connected_skeletons(skeletons, op, relation_ids['postsynaptic_to'], relation_ids['presynaptic_to'], relation_ids['model_of'], cursor)
     outgoing, outgoing_reviewers = _connected_skeletons(skeletons, op, relation_ids['presynaptic_to'], relation_ids['postsynaptic_to'], relation_ids['model_of'], cursor)
+    gapjunctions, gapjunctions_reviewers = _connected_skeletons(skeletons, op, relation_ids.get('gapjunction_with', -1), relation_ids.get('gapjunction_with', -1), relation_ids['model_of'], cursor)
 
     def prepare(partners):
         for partnerID in partners.keys():
@@ -805,8 +917,9 @@ def _skeleton_info_raw(project_id, skeletons, op):
 
     prepare(incoming)
     prepare(outgoing)
+    prepare(gapjunctions)
 
-    return incoming, outgoing, incoming_reviewers, outgoing_reviewers
+    return incoming, outgoing, gapjunctions, incoming_reviewers, outgoing_reviewers, gapjunctions_reviewers
 
 @api_view(['POST'])
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -820,7 +933,7 @@ def skeleton_info_raw(request, project_id=None):
     that are common between the source skeleton set.
     ---
     parameters:
-        - name: source[]
+        - name: source_skeleton_ids[]
           description: IDs of the skeletons whose partners to find
           required: true
           type: array
@@ -888,6 +1001,10 @@ def skeleton_info_raw(request, project_id=None):
         $ref: skeleton_info_raw_partners
         description: Downstream synaptic partners
         required: true
+      gapjunctions:
+        $ref: skeleton_info_raw_partners
+        description: Gap junction partners
+        required: true
       incoming_reviewers:
         description: IDs of reviewers who have reviewed any upstream partners.
         required: true
@@ -900,6 +1017,12 @@ def skeleton_info_raw(request, project_id=None):
         type: array
         items:
           type: integer
+      gapjunctions_reviewers:
+        description: IDs of reviewers who have reviewed any gap junction partners.
+        required: true
+        type: array
+        items:
+          type: integer
     """
     # sanitize arguments
     project_id = int(project_id)
@@ -907,14 +1030,15 @@ def skeleton_info_raw(request, project_id=None):
     op = str(request.POST.get('boolean_op')) # values: AND, OR
     op = {'AND': 'AND', 'OR': 'OR'}[op] # sanitize
 
-    incoming, outgoing, incoming_reviewers, outgoing_reviewers = _skeleton_info_raw(project_id, skeletons, op)
+    incoming, outgoing, gapjunctions, incoming_reviewers, outgoing_reviewers, gapjunctions_reviewers = _skeleton_info_raw(project_id, skeletons, op)
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
                 'incoming': incoming,
                 'outgoing': outgoing,
+                'gapjunctions': gapjunctions,
                 'incoming_reviewers': incoming_reviewers,
-                'outgoing_reviewers': outgoing_reviewers}),
-            content_type='application/json')
+                'outgoing_reviewers': outgoing_reviewers,
+                'gapjunctions_reviewers': gapjunctions_reviewers})
 
 
 @requires_user_role(UserRole.Browse)
@@ -925,7 +1049,7 @@ def connectivity_matrix(request, project_id=None):
     cols = tuple(int(v) for k, v in request.POST.iteritems() if k.startswith('columns['))
 
     matrix = get_connectivity_matrix(project_id, rows, cols)
-    return HttpResponse(json.dumps(matrix), content_type='application/json')
+    return JsonResponse(matrix)
 
 
 def get_connectivity_matrix(project_id, row_skeleton_ids, col_skeleton_ids):
@@ -1028,7 +1152,7 @@ def review_status(request, project_id=None):
     status = get_review_status(skeleton_ids, project_id=project_id,
             whitelist_id=whitelist_id, user_ids=user_ids)
 
-    return HttpResponse(json.dumps(status))
+    return JsonResponse(status)
 
 
 @requires_user_role(UserRole.Annotate)
@@ -1045,10 +1169,9 @@ def reroot_skeleton(request, project_id=None):
             insert_into_log(project_id, request.user.id, 'reroot_skeleton',
                             location, 'Rerooted skeleton for '
                             'treenode with ID %s' % treenode.id)
-            return HttpResponse(json.dumps({'newroot': treenode.id}))
+            return JsonResponse({'newroot': treenode.id})
         # Else, already root
-        return HttpResponse(json.dumps({'error': 'Node #%s is already '
-                                                 'root!' % treenode_id}))
+        return JsonResponse({'error': 'Node #%s is already root!' % treenode_id})
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
 
@@ -1152,15 +1275,18 @@ def join_skeleton(request, project_id=None):
         if annotation_set:
             annotation_set = json.loads(annotation_set)
 
-        _join_skeleton(request.user, from_treenode_id, to_treenode_id,
+        join_info = _join_skeleton(request.user, from_treenode_id, to_treenode_id,
                 project_id, annotation_set)
 
         response_on_error = 'Could not log actions.'
 
-        return HttpResponse(json.dumps({
+        return JsonResponse({
             'message': 'success',
             'fromid': from_treenode_id,
-            'toid': to_treenode_id}))
+            'toid': to_treenode_id,
+            'result_skeleton_id': join_info['from_skeleton_id'],
+            'deleted_skeleton_id': join_info['to_skeleton_id']
+        })
 
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
@@ -1262,9 +1388,6 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
         response_on_error = 'Could not delete skeleton with ID %s.' % to_skid
         ClassInstance.objects.filter(pk=to_skid).delete()
 
-        # Remove the 'losing' neuron if it is empty
-        _delete_if_empty(to_neuron['neuronid'])
-
         # Update the parent of to_treenode.
         response_on_error = 'Could not update parent of treenode with ID %s' % to_treenode_id
         Treenode.objects.filter(id=to_treenode_id).update(parent=from_treenode_id, editor=user)
@@ -1273,7 +1396,10 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
         response_on_error = 'Could not update annotations of neuron ' \
                 'with ID %s' % from_neuron['neuronid']
         _update_neuron_annotations(project_id, user, from_neuron['neuronid'],
-                annotation_map)
+                annotation_map, to_neuron['neuronid'])
+
+        # Remove the 'losing' neuron if it is empty
+        _delete_if_empty(to_neuron['neuronid'])
 
         from_location = (from_treenode.location_x, from_treenode.location_y,
                          from_treenode.location_z)
@@ -1283,10 +1409,106 @@ def _join_skeleton(user, from_treenode_id, to_treenode_id, project_id,
                 (to_skid, to_neuron['neuronname'], from_skid,
                         from_neuron['neuronname'], ', '.join(annotation_map.keys())))
 
+        return {
+            'from_skeleton_id': from_skid,
+            'to_skeleton_id': to_skid
+        }
+
     except Exception as e:
         raise Exception(response_on_error + ':' + str(e))
 
-def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=None):
+
+@api_view(['POST'])
+@requires_user_role(UserRole.Annotate)
+def import_skeleton(request, project_id=None):
+    """Import a neuron modeled by a skeleton from an uploaded file.
+
+    Currently only SWC representation is supported.
+    ---
+    consumes: multipart/form-data
+    parameters:
+      - name: neuron_id
+        description: >
+            If specified, the imported skeleton will model this existing neuron.
+        paramType: form
+        type: integer
+      - name: file
+        required: true
+        description: A skeleton representation file to import.
+        paramType: body
+        dataType: File
+    type:
+        neuron_id:
+            type: integer
+            required: true
+            description: ID of the neuron used or created.
+        skeleton_id:
+            type: integer
+            required: true
+            description: ID of the imported skeleton.
+        node_id_map:
+            required: true
+            description: >
+                An object whose properties are node IDs in the import file and
+                whose values are IDs of the created nodes.
+    """
+
+    neuron_id = request.POST.get('neuron_id', None)
+    if neuron_id is not None:
+        neuron_id = int(neuron_id)
+
+    if len(request.FILES) == 1:
+        for uploadedfile in request.FILES.itervalues():
+            if uploadedfile.size > settings.IMPORTED_SKELETON_FILE_MAXIMUM_SIZE:
+                return HttpResponse('File too large. Maximum file size is {} bytes.'.format(settings.IMPORTED_SKELETON_FILE_MAXIMUM_SIZE), status=413)
+
+            filename = uploadedfile.name
+            extension = filename.split('.')[-1].strip().lower()
+            if extension == 'swc':
+                swc_string = '\n'.join(uploadedfile)
+                return import_skeleton_swc(request.user, project_id, swc_string, neuron_id)
+            else:
+                return HttpResponse('File type "{}" not understood. Known file types: swc'.format(extension), status=415)
+
+    return HttpResponseBadRequest('No file received.')
+
+
+def import_skeleton_swc(user, project_id, swc_string, neuron_id=None):
+    """Import a neuron modeled by a skeleton in SWC format.
+    """
+
+    g = nx.DiGraph()
+    for line in swc_string.splitlines():
+        if line.startswith('#') or not line.strip():
+            continue
+        row = line.strip().split()
+        if len(row) != 7:
+            raise ValueError('SWC has a malformed line: {}'.format(line))
+
+        node_id = int(row[0])
+        parent_id = int(row[6])
+        g.add_node(node_id, {'x': float(row[2]),
+                             'y': float(row[3]),
+                             'z': float(row[4]),
+                             'radius': float(row[5])})
+
+        if parent_id != -1:
+            g.add_edge(parent_id, node_id)
+
+    if not nx.is_directed_acyclic_graph(g):
+        raise ValueError('SWC skeleton is malformed: it contains a cycle.')
+
+    import_info = _import_skeleton(user, project_id, g, neuron_id)
+    node_id_map = {n: d['id'] for n, d in import_info['graph'].nodes_iter(data=True)}
+
+    return JsonResponse({
+            'neuron_id': import_info['neuron_id'],
+            'skeleton_id': import_info['skeleton_id'],
+            'node_id_map': node_id_map,
+        })
+
+
+def _import_skeleton(user, project_id, arborescence, neuron_id=None, name=None):
     """Create a skeleton from a networkx directed tree.
 
     Associate the skeleton to the specified neuron, or a new one if none is
@@ -1305,7 +1527,7 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
     class_map = get_class_to_id_map(project_id)
 
     new_skeleton = ClassInstance()
-    new_skeleton.user = request.user
+    new_skeleton.user = user
     new_skeleton.project_id = project_id
     new_skeleton.class_column_id = class_map['skeleton']
     if name is not None:
@@ -1317,7 +1539,7 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
     new_skeleton.save()
 
     def relate_neuron_to_skeleton(neuron, skeleton):
-        return _create_relation(request.user, project_id,
+        return _create_relation(user, project_id,
                 relation_map['model_of'], skeleton, neuron)
 
     if neuron_id is not None:
@@ -1328,13 +1550,13 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
     if neuron_id is not None:
         # Raise an Exception if the user doesn't have permission to
         # edit the existing neuron.
-        can_edit_class_instance_or_fail(request.user, neuron_id, 'neuron')
+        can_edit_class_instance_or_fail(user, neuron_id, 'neuron')
 
     else:
         # A neuron does not exist, therefore we put the new skeleton
         # into a new neuron.
         new_neuron = ClassInstance()
-        new_neuron.user = request.user
+        new_neuron.user = user
         new_neuron.project_id = project_id
         new_neuron.class_column_id = class_map['neuron']
         if name is not None:
@@ -1362,7 +1584,7 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
         RETURNING treenode.id;
         """ % {
             'project_id': project_id,
-            'user_id': request.user.id,
+            'user_id': user.id,
             'skeleton_id': new_skeleton.id,
             'num_treenodes': arborescence.number_of_nodes()})
     treenode_ids = cursor.fetchall()
@@ -1374,24 +1596,29 @@ def _import_skeleton(request, project_id, arborescence, neuron_id=None, name=Non
     for n, nbrs in arborescence.adjacency_iter():
         for nbr in nbrs:
             arborescence.node[nbr]['parent_id'] = arborescence.node[n]['id']
+            if not 'radius' in arborescence.node[nbr]:
+                arborescence.node[nbr]['radius'] = -1
     arborescence.node[root]['parent_id'] = 'NULL::bigint'
+    if not 'radius' in arborescence.node[root]:
+        arborescence.node[root]['radius'] = -1
     new_location = tuple([arborescence.node[root][k] for k in ('x', 'y', 'z')])
 
     treenode_values = \
-            '),('.join([','.join(map(str, [n[1][k] for k in ('id', 'x', 'y', 'z', 'parent_id')])) \
-            for n in arborescence.nodes_iter(data=True)])
+            '),('.join([','.join(map(str, [d[k] for k in ('id', 'x', 'y', 'z', 'parent_id', 'radius')])) \
+            for n, d in arborescence.nodes_iter(data=True)])
     cursor.execute("""
         UPDATE treenode SET
             location_x = v.x,
             location_y = v.y,
             location_z = v.z,
-            parent_id = v.parent_id
-        FROM (VALUES (%s)) AS v(id, x, y, z, parent_id)
+            parent_id = v.parent_id,
+            radius = v.radius
+        FROM (VALUES (%s)) AS v(id, x, y, z, parent_id, radius)
         WHERE treenode.id = v.id AND treenode.skeleton_id = %s
         """ % (treenode_values, new_skeleton.id)) # Include skeleton ID for index performance.
 
     # Log import.
-    insert_into_log(project_id, request.user.id, 'create_neuron',
+    insert_into_log(project_id, user.id, 'create_neuron',
                     new_location, 'Create neuron %d and skeleton '
                     '%d via import' % (new_neuron.id, new_skeleton.id))
 
@@ -1407,29 +1634,7 @@ def reset_own_reviewer_ids(request, project_id=None, skeleton_id=None):
     Review.objects.filter(skeleton_id=skeleton_id, reviewer=request.user).delete()
     insert_into_log(project_id, request.user.id, 'reset_reviews',
                     None, 'Reset reviews for skeleton %s' % skeleton_id)
-    return HttpResponse(json.dumps({'status': 'success'}), content_type='application/json')
-
-
-@requires_user_role(UserRole.Annotate)
-def fetch_treenodes(request, project_id=None, skeleton_id=None, with_reviewers=None):
-    """ Fetch the topology only, optionally with the reviewer IDs. """
-    skeleton_id = int(skeleton_id)
-
-    cursor = connection.cursor()
-    cursor.execute('''
-    SELECT id, parent_id
-    FROM treenode
-    WHERE skeleton_id = %s
-    ''' % skeleton_id)
-
-    if with_reviewers:
-        reviews = get_treenodes_to_reviews(skeleton_ids=[skeleton_id])
-        treenode_data = tuple([r[0], r[1], reviews.get(r[0], [])] \
-                for r in cursor.fetchall())
-    else:
-        treenode_data = tuple(cursor.fetchall())
-
-    return HttpResponse(json.dumps(treenode_data))
+    return JsonResponse({'status': 'success'})
 
 
 @requires_user_role(UserRole.Browse)
@@ -1446,7 +1651,8 @@ def annotation_list(request, project_id=None):
     response = get_annotation_info(project_id, skeleton_ids, annotations,
                                    metaannotations, neuronnames)
 
-    return HttpResponse(json.dumps(response), content_type="application/json")
+    return JsonResponse(response)
+
 
 def get_annotation_info(project_id, skeleton_ids, annotations, metaannotations,
                         neuronnames):
@@ -1612,7 +1818,8 @@ def list_skeletons(request, project_id):
         to_date = datetime.strptime(to_date, '%Y%m%d')
 
     response = _list_skeletons(project_id, created_by, reviewed_by, from_date, to_date, nodecount_gt)
-    return HttpResponse(json.dumps(response), content_type="application/json")
+    return JsonResponse(response, safe=False)
+
 
 def _list_skeletons(project_id, created_by=None, reviewed_by=None, from_date=None,
           to_date=None, nodecount_gt=0):
@@ -1695,7 +1902,7 @@ def adjacency_matrix(request, project_id=None):
                     'value': d['count']} for u,v,d in skelgroup.graph.edges_iter(data=True)  ]
     }
 
-    return HttpResponse(json.dumps(data, sort_keys=True, indent=4), content_type='application/json')
+    return JsonResponse(data, json_dumps_params={'sort_keys': True, 'indent': 4})
 
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
@@ -1719,7 +1926,8 @@ def skeletonlist_subgraph(request, project_id=None):
                     'directed': True} for u,v,d in skelgroup.graph.edges_iter(data=True)  ]
     }
 
-    return HttpResponse(json.dumps(data, sort_keys=True, indent=4), content_type='application/json')
+    return JsonResponse(data, json_dumps_params={'sort_keys': True, 'indent': 4})
+
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeletonlist_confidence_compartment_subgraph(request, project_id=None):
@@ -1744,7 +1952,8 @@ def skeletonlist_confidence_compartment_subgraph(request, project_id=None):
                     'directed': True}} for u,v,d in resultgraph.edges_iter(data=True)  ]
     }
 
-    return HttpResponse(json.dumps(data, sort_keys=True, indent=4), content_type='application/json')
+    return JsonResponse(data, json_dumps_params={'sort_keys': True, 'indent': 4})
+
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def skeletonlist_edgecount_compartment_subgraph(request, project_id=None):
@@ -1769,7 +1978,8 @@ def skeletonlist_edgecount_compartment_subgraph(request, project_id=None):
                     'directed': True}} for u,v,d in resultgraph.edges_iter(data=True)  ]
     }
 
-    return HttpResponse(json.dumps(data, sort_keys=True, indent=4), content_type='application/json')
+    return JsonResponse(data, json_dumps_params={'sort_keys': True, 'indent': 4})
+
 
 @requires_user_role([UserRole.Annotate, UserRole.Browse])
 def all_shared_connectors(request, project_id=None):
@@ -1777,4 +1987,4 @@ def all_shared_connectors(request, project_id=None):
     skeletonlist = map(int, skeletonlist)
     p = get_object_or_404(Project, pk=project_id)
     skelgroup = SkeletonGroup( skeletonlist, p.id )
-    return HttpResponse(json.dumps(dict.fromkeys(skelgroup.all_shared_connectors()) ), content_type='application/json')
+    return JsonResponse(dict.fromkeys(skelgroup.all_shared_connectors()))

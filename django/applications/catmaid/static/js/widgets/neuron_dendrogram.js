@@ -48,7 +48,7 @@ var NeuronDendrogram = function() {
   // Listen to change events of the active node and skeletons
   SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
       this.selectActiveNode, this);
-  SkeletonAnnotations.on(SkeletonAnnotations.EVENT_SKELETON_CHANGED,
+  CATMAID.Skeletons.on(CATMAID.Skeletons.EVENT_SKELETON_CHANGED,
       this.handleSkeletonChange, this);
 };
 
@@ -67,7 +67,7 @@ NeuronDendrogram.prototype.getName = function()
 NeuronDendrogram.prototype.destroy = function() {
   SkeletonAnnotations.off(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
       this.selectActiveNode, this);
-  SkeletonAnnotations.off(SkeletonAnnotations.EVENT_SKELETON_CHANGED,
+  CATMAID.Skeletons.off(CATMAID.Skeletons.EVENT_SKELETON_CHANGED,
       this.handleSkeletonChange, this);
   this.unregisterInstance();
   this.unregisterSource();
@@ -647,6 +647,10 @@ NeuronDendrogram.prototype.renderDendogram = function(tree, tags, referenceTags)
     .attr("class", "link")
     .classed('tagged', function(d) { return d.source.belowTag; })
     .attr("d", pathGenerator);
+
+  if (this.showStrahler) {
+    upLink.style("stroke-width", function (d) { return d.target.strahler; });
+  }
 
   /**
    * The node click handler is called if users double click on a node. It will

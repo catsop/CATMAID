@@ -7,6 +7,53 @@
 {% endblock %}
 
 {% block extrahead %}
+  <script>
+    function hideAll(elements) {
+      for (var i=0; i<elements.length; ++i) {
+        elements[i].parentNode.style.display = "none";
+      }
+    }
+
+    function showAll(elements) {
+      for (var i=0; i<elements.length; ++i) {
+        elements[i].parentNode.style.display = "block";
+      }
+    }
+
+    function updateDisplay() {
+      // Get current value or choose filesystem as default
+      var source = this.value || 'filesystem';
+
+      if ('filesystem' === source) {
+        hideAll(document.querySelectorAll('.import-source-setting'));
+        showAll(document.querySelectorAll('.filesystem-import'));
+      } else if ('remote' === source) {
+        hideAll(document.querySelectorAll('.import-source-setting'));
+        showAll(document.querySelectorAll('.remote-import'));
+      } else if ('remote-catmaid' === source) {
+        hideAll(document.querySelectorAll('.import-source-setting'));
+        showAll(document.querySelectorAll('.catmaid-host'));
+        showAll(document.querySelectorAll('.api-key'));
+      } else {
+        alert("Unknown import source: " + source);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+      // Hide an show controls based on import source selection
+      var select = document.getElementById("id_pathsettings-import_from");
+      if (!select) {
+        alert("Couldn't find import source select");
+        return;
+      }
+
+      select.onchange = function() {
+        updateDisplay.call(select);
+      };
+
+      updateDisplay.call(select)
+    });
+  </script>
 {% endblock %}
 
 {% block breadcrumbs %}
@@ -26,50 +73,29 @@
     To identify potentially new projects, the tool will look at the files and
     folders in a working directory. If a sub-directory in the working directory
     contains a project file (<em>project.yaml</em>), it is treated as a potential project.
-    Please consult the manual to get an idea how such a project file is structured
+    Please <a href="http://catmaid.org/page/importing_data.html#importing-project-and-stack-information" target="_blank">
+    consult the manual</a> to get an idea how such a project file is structured
     and how the importer expects the data to be laid out.</p>
 
-    <p>Please be aware of the fact that currently only <em>one</em> specific
-    file and folder layout is supported within a stack folder (source type
-    <em>one</em>).</p>
+    <p>Please be aware that currently only <em>one</em> specific
+    file and folder layout is supported within a stack folder
+    (<a href="http://catmaid.org/page/tile_sources.html#file-based-image-stack" target="_blank">source type one</a>).</p>
 
-    <p>The working directory is defined in the settings as {{ datafolder_setting }}
-    and can be adjusted with the settings below. Additionally, you can define a
-    default base URL to be used as default in this dialog with the help of the
-    {{ base_url_setting }} setting. It should make your data (working) directory
+    <p>The working directory is defined as part of the CATMAID settings as
+    {{ datafolder_setting }} and can be further adjusted through the settings
+    below. Additionally, you can define a default base URL to be used if stacks
+    don't provide their URL explicitly. It should make your data directory
     asscessible from the web.</p>
 
     <hr />
 
     {% if datafolder_missing %}
-        <p><em>Unfortunately, this setting couldn't be found in your
-        configuration. Please make sure it is there.</em></p>
+        <p><em>Unfortunately, no data source was found in your
+        configuration. Please make sure a data folder is set up.</em></p>
     {% else %}
-        <p>The following settings have been found:
-        <div class="form-row">
-              <table>
-                  <tr>
-                      <td>{{ datafolder_setting }}</td>
-                      <td> {{ settings.CATMAID_IMPORT_PATH }}</td>
-                  </tr>
-                  <tr>
-                      <td>{{ base_url_setting }}</td>
-                      {% if base_url_setting_missing %}
-                          <td><em>not set</em></td>
-                      {% else %}
-                          <td>{{ settings.CATMAID_IMPORT_URL }}</td>
-                      {% endif %}
-                  </tr>
-              </table>
-        </div>
-        </p>
-        <p>First you can narrow down the set of folders looked at. With the
-        <em>relative path</em> setting below you can specify a sub-directory below the import
-        path to be the working directory. If left empty, just the {{ datafolder_setting }}
-        setting will be used.
-        You can filter the projects used by specifying a <em>filter term</em> (a regular
-        expression).
+        <p>
         <div class="aligned">
+        {{ wizard.form.non_field_errors }}
         {{ wizard.management_form }}
         {% for field in wizard.form %}
             <div class="form-row">

@@ -1,7 +1,6 @@
 /* -*- mode: espresso; espresso-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set softtabstop=2 shiftwidth=2 tabstop=2 expandtab: */
 /* global
-  checkPermission,
   InstanceRegistry,
   project,
   requestQueue,
@@ -232,7 +231,7 @@
         paging: true,
         displayStart: this.display_start,
         pageLength: this.display_length,
-        lengthMenu: [[50, 100, 500, -1], [50, 100, 500, "All"]],
+        lengthMenu: [CATMAID.pageLengthOptions, CATMAID.pageLengthLabels],
         order: [],
         processing: true,
         columns: [
@@ -408,9 +407,9 @@
         s = s + this.widgetID + '_' + i;
       }
       // Don't use empty names
-      var name = $('input[' + a + ']').val().trim();
-      if (name) {
-        annotations.push([name, $('input[' + s + ']').is(':checked')]);
+      var name = $('input[' + a + ']', $widget).val();
+      if (name && name.trim()) {
+        annotations.push([name, $('input[' + s + ']', $widget).is(':checked')]);
       }
     }
 
@@ -432,10 +431,10 @@
       if (annotationID) {
         // If the annotation matches one particular instance, use it
         value = annotationID;
-      } else {
-        // Otherwise, treat the search term as regular expression and
-        // filter annotations that match
-        var pattern = '/' === a.substr(0, 1) ? a.substr(1) : CATMAID.tools.escapeRegEx(a);
+      } else if ('/' === a.substr(0, 1)) {
+        // Otherwise, treat the search term as regular expression if it starts
+        // with a forward slash character and filter annotations that match
+        var pattern = a.substr(1);
         var filter  = new RegExp(pattern);
         var matches = CATMAID.annotations.getAllNames().filter(function(a) {
           return this.test(a);
@@ -448,9 +447,12 @@
         if (0 === value.trim().length) {
           continue;
         }
+      } else {
+        CATMAID.warn("Couldn't find annotation \"" + a + "\"");
+        return;
       }
-      var field = s ? 'sub_annotated_with' : 'annotated_with';
-      params[field + n] = value;
+      params['annotated_with[' + n + ']'] = value;
+      if (s) params['sub_annotated_with[' + n + ']'] = value;
       ++n;
     }
 
@@ -466,15 +468,13 @@
     }
 
     // Augment form data with offset and limit information
-    params.rangey_start = this.display_start;
-    params.range_length = this.display_length;
     params.with_annotations = this.displayAnnotations;
 
     // Here, $.proxy is used to bind 'this' to the anonymous function
     requestQueue.register(django_url + this.pid + '/annotations/query-targets',
         'POST', params, $.proxy( function(status, text, xml) {
           if (status === 200) {
-            var e = $.parseJSON(text);
+            var e = JSON.parse(text);
             if (e.error) {
               new CATMAID.ErrorDialog(e.error, e.detail).show();
             } else {
@@ -482,6 +482,13 @@
               var removedModels = this.getSkeletonModels();
               // Unregister last result set from neuron name service
               CATMAID.NeuronNameService.getInstance().unregister(this);
+
+              // Mark entities as unselected if initialized, reuse current
+              // selection state otherwise.
+              var selectionMap = this.entity_selection_map;
+              var selected = initialize ? function() { return false; } :
+                  function(id) { return !!this[id]; }.bind(selectionMap);
+
               // Empty selection map and store results
               this.entity_selection_map = {};
               this.entityMap = {};
@@ -491,10 +498,8 @@
               this.total_n_results = e.entities.length;
               // Get new models for notification
               var addedModels = this.getSkeletonModels();
-
-              // Mark entities as unselected
               this.queryResults[0].forEach((function(entity) {
-                this.entity_selection_map[entity.id] = false;
+                this.entity_selection_map[entity.id] = selected(entity.id);
                 this.entityMap[entity.id] = entity;
               }).bind(this));
 
@@ -708,7 +713,7 @@
         requestQueue.register(django_url + project.id + '/annotations/query-targets',
             'POST', query_data, function(status, text, xml) {
               if (status === 200) {
-                var e = $.parseJSON(text);
+                var e = JSON.parse(text);
                 if (e.error) {
                   new CATMAID.ErrorDialog(e.error, e.detail).show();
                 } else {
@@ -774,32 +779,30 @@
       var widget = event.data;
       var neuron_id = $(this).parent().attr('neuron_id');
       var annotation_id = $(this).parent().attr('annotation_id');
-      CATMAID.remove_annotation(neuron_id,
-          annotation_id, (function(message) {
-              // Display message returned by the server
-              CATMAID.info(message);
-              // Update internal representation
-              var hasAnnotation = function(r) {
-                return r.id == neuron_id && r.annotations.some(function(a) {
-                  return a.id == annotation_id;
-                });
-              };
-              var nextAnnotationMatch = function(r) {
-                for (var i=0; i<r.annotations.length; ++i) {
-                  if (r.annotations[i].id == annotation_id) return i;
-                }
-                return null;
-              };
-              this.queryResults[0].filter(hasAnnotation).forEach(function(r) {
-                var i = nextAnnotationMatch(r);
-                if (i !== null) r.annotations.splice(i, 1);
+      return CATMAID.confirmAndRemoveAnnotations(project.id,
+          [neuron_id], [annotation_id]).then((function(data) {
+            // Update internal representation
+            var hasAnnotation = function(r) {
+              return r.id == neuron_id && r.annotations.some(function(a) {
+                return a.id == annotation_id;
               });
-              // Remove current annotation from displayed list
-              var result_tr = $('#neuron_annotations_query_results' +
-                  this.widgetID).find('.show_annotation[neuron_id=' +
-                  neuron_id + '][annotation_id=' + annotation_id + ']');
-              result_tr.fadeOut(1000, function() { $(this).remove(); });
-          }).bind(widget));
+            };
+            var nextAnnotationMatch = function(r) {
+              for (var i=0; i<r.annotations.length; ++i) {
+                if (r.annotations[i].id == annotation_id) return i;
+              }
+              return null;
+            };
+            this.queryResults[0].filter(hasAnnotation).forEach(function(r) {
+              var i = nextAnnotationMatch(r);
+              if (i !== null) r.annotations.splice(i, 1);
+            });
+            // Remove current annotation from displayed list
+            var result_tr = $('#neuron_annotations_query_results' +
+                this.widgetID).find('.show_annotation[neuron_id=' +
+                neuron_id + '][annotation_id=' + annotation_id + ']');
+            result_tr.fadeOut(1000, function() { $(this).remove(); });
+          }).bind(widget)).catch(CATMAID.handleError);
     });
 
     // Add click handlers to show an annotation in navigator
@@ -1040,6 +1043,58 @@
     } else {
       $results.find('li').show();
     }
+  };
+
+  /**
+   * Return name property of an object.
+   */
+  var getName = function(o) {
+    return o.name;
+  };
+
+  /**
+   * Return a quoted version of the input.
+   */
+  var quote = function(o) {
+    return '"' + o + '"';
+  };
+
+  /**
+   * Return the comma joined version of a list.
+   */
+  var joinList = function(l) {
+    return l.join(', ');
+  };
+
+  /**
+   * Export selected neurons in search result as CSV. The first column will be
+   * the neuron ID and the second column the neuron name. If annotations are
+   * displayed, they are exported as a third column
+   */
+  NeuronAnnotations.prototype.exportCSV = function() {
+    // Get IDs of selected entities
+    var selectedNeurons = this.get_selected_neurons();
+    // Cancel if there are no neurons selected
+    if (0 === selectedNeurons.length) {
+      CATMAID.warn('No neurons selected, nothing to export');
+      return true;
+    }
+
+    var makeCsvLine = this.displayAnnotations ?
+      function(n) {
+        // Prepare annotations so that they are represented as a single string,
+        // with each annotation quoted also on its own.
+        var annotations = (n.annotations || []).map(getName).map(quote).join(', ');
+        return [n.id, quote(n.name), quote(annotations)];
+      } :
+      function(n) {
+        return [n.id, quote(n.name)];
+      };
+
+    var csv = selectedNeurons.map(makeCsvLine).map(joinList).join('\n');
+
+    var blob = new Blob([csv], {type: 'text/plain'});
+    saveAs(blob, 'catmaid_neuron_search.csv');
   };
 
   // Make neuron search widget available in CATMAID namespace

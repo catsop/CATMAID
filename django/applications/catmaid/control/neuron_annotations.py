@@ -1,9 +1,8 @@
-import json
 import re
 from string import upper
 from itertools import izip
 
-from django.http import HttpResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.db import connection
 
@@ -13,7 +12,8 @@ from catmaid.models import UserRole, Project, Class, ClassInstance, \
         ClassInstanceClassInstance, Relation, ReviewerWhitelist
 from catmaid.control.authentication import requires_user_role, can_edit_or_fail
 from catmaid.control.common import defaultdict, get_relation_to_id_map, \
-        get_class_to_id_map
+        get_class_to_id_map, get_request_list
+
 
 def create_basic_annotated_entity_query(project, params, relations, classes,
         allowed_classes=['neuron', 'annotation']):
@@ -147,9 +147,10 @@ def get_sub_annotation_ids(project_id, annotation_sets, relations, classes):
                 child_ids = aaa.get(parent_id) or set_wrapper()
                 for child_id in child_ids.data:
                     if child_id not in sa_ids:
-                        # Add all children as sub annotations
-                        ls.add(child_id)
-                        working_set.add(child_id)
+                        if child_id not in ls:
+                            # Add all children as sub annotations
+                            ls.add(child_id)
+                            working_set.add(child_id)
         # Store the result list for this ID
         sa_ids[annotation_set] = list(ls)
 
@@ -176,7 +177,7 @@ def create_annotated_entity_list(project, entities_qs, relations, annotations=Tr
             skeleton_dict[s[1]] = []
         skeleton_dict[s[1]].append(s[0])
 
-    annotated_entities = [];
+    annotated_entities = []
     for e in entities:
         class_name = e.class_column.class_name
         entity_info = {
@@ -297,7 +298,7 @@ def query_annotated_classinstances(request, project_id = None):
             required: true
           skeleton_ids:
             type: array
-            description: A list of users
+            description: A list of ids of skeletons modeling this entity
             required: true
             items:
                 type: integer
@@ -321,10 +322,7 @@ def query_annotated_classinstances(request, project_id = None):
     relations = dict(Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id'))
 
     # Type constraints
-    allowed_classes = [v for k,v in request.POST.iteritems()
-            if k.startswith('types[')]
-    if not allowed_classes:
-        allowed_classes = ('neuron', 'annotation')
+    allowed_classes = get_request_list(request.POST, 'types', ['neuron', 'annotation'])
 
     query = create_basic_annotated_entity_query(p, request.POST,
             relations, classes, allowed_classes)
@@ -363,15 +361,20 @@ def query_annotated_classinstances(request, project_id = None):
                 with_annotations)
         num_records = len(entities)
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
       'entities': entities,
       'totalRecords': num_records,
-    }))
+    })
 
-def _update_neuron_annotations(project_id, user, neuron_id, annotation_map):
+
+def _update_neuron_annotations(project_id, user, neuron_id, annotation_map, losing_neuron_id=None):
     """ Ensure that the neuron is annotated_with only the annotations given.
     These annotations are expected to come as dictornary of annotation name
     versus annotator ID.
+
+    If losing_neuron_id is provided, annotations missing on the neuron that
+    exist for the losing neuron will be updated to refer to neuon_id, rather
+    than created from scratch. This preserves provenance such as creation times.
     """
     annotated_with = Relation.objects.get(project_id=project_id,
             relation_name='annotated_with')
@@ -385,9 +388,34 @@ def _update_neuron_annotations(project_id, user, neuron_id, annotation_map):
 
     update = set(annotation_map.iterkeys())
     existing = set(existing_annotations.iterkeys())
+    missing = update - existing
 
-    missing = {k:v for k,v in annotation_map.items() if k in update - existing}
-    _annotate_entities(project_id, [neuron_id], missing)
+    if losing_neuron_id:
+        qs = ClassInstanceClassInstance.objects.filter(
+                class_instance_a__id=losing_neuron_id, relation=annotated_with)
+        qs = qs.select_related('class_instance_b').values_list(
+                'class_instance_b__name', 'id')
+
+        losing_existing_annotations = dict(qs)
+        losing_missing = frozenset(losing_existing_annotations.iterkeys()) & missing
+
+        if losing_missing:
+            cici_ids = [losing_existing_annotations[k] for k in losing_missing]
+            u_ids = [annotation_map[k] for k in losing_missing]
+
+            cursor = connection.cursor()
+
+            cursor.execute('''
+                UPDATE class_instance_class_instance
+                SET class_instance_a = %s, user_id = missing.u_id
+                FROM UNNEST(%s::integer[], %s::integer[]) AS missing(cici_id, u_id)
+                WHERE id = missing.cici_id;
+                ''', (neuron_id, cici_ids, u_ids))
+
+            missing = missing - losing_missing
+
+    missing_map = {k:v for k,v in annotation_map.items() if k in missing}
+    _annotate_entities(project_id, [neuron_id], missing_map)
 
     to_delete = existing - update
     to_delete_ids = tuple(aid for name, aid in existing_annotations.iteritems() \
@@ -433,6 +461,7 @@ def _annotate_entities(project_id, entity_ids, annotation_map):
     counting pattern {nX} with X being a number. This will add an incrementing
     number starting from X for each entity.
     """
+    new_annotations = set()
     r = Relation.objects.get(project_id = project_id,
             relation_name = 'annotated_with')
 
@@ -474,6 +503,9 @@ def _annotate_entities(project_id, entity_ids, annotation_map):
                     class_column=annotation_class,
                     defaults={'user_id': annotator_id})
 
+            if created:
+                new_annotations.add(ci.id)
+
             newly_annotated = set()
             # Annotate each of the entities. Don't allow duplicates.
             for entity_id in a_entity_ids:
@@ -487,7 +519,7 @@ def _annotate_entities(project_id, entity_ids, annotation_map):
             # Remember which entities got newly annotated
             annotation_objects[ci] = newly_annotated
 
-    return annotation_objects
+    return annotation_objects, new_annotations
 
 @requires_user_role(UserRole.Annotate)
 def annotate_entities(request, project_id = None):
@@ -496,14 +528,10 @@ def annotate_entities(request, project_id = None):
     # Read keys in a sorted manner
     sorted_keys = sorted(request.POST.keys())
 
-    annotations = [request.POST[k] for k in sorted_keys
-            if k.startswith('annotations[')]
-    meta_annotations = [request.POST[k] for k in sorted_keys
-            if k.startswith('meta_annotations[')]
-    entity_ids = [int(request.POST[k]) for k in sorted_keys
-            if k.startswith('entity_ids[')]
-    skeleton_ids = [int(request.POST[k]) for k in sorted_keys
-            if k.startswith('skeleton_ids[')]
+    annotations = get_request_list(request.POST, 'annotations', [])
+    meta_annotations = get_request_list(request.POST, 'meta_annotations', [])
+    entity_ids = get_request_list(request.POST, 'entity_ids', [], map_fn=int)
+    skeleton_ids = get_request_list(request.POST, 'skeleton_ids', [], map_fn=int)
 
     if any(skeleton_ids):
         skid_to_eid = dict(ClassInstance.objects.filter(project = p,
@@ -515,13 +543,16 @@ def annotate_entities(request, project_id = None):
 
     # Annotate enties
     annotation_map = {a: request.user.id for a in annotations}
-    annotation_objs = _annotate_entities(project_id, entity_ids, annotation_map)
+    annotation_objs, new_annotations = _annotate_entities(project_id,
+            entity_ids, annotation_map)
     # Annotate annotations
     if meta_annotations:
         annotation_ids = [a.id for a in annotation_objs.keys()]
         meta_annotation_map = {ma: request.user.id for ma in meta_annotations}
-        meta_annotation_objs = _annotate_entities(project_id, annotation_ids,
-                meta_annotation_map)
+        meta_annotation_objs, new_meta_annotations = _annotate_entities(
+                project_id, annotation_ids, meta_annotation_map)
+        # Keep track of new annotations
+        new_annotations.update(new_meta_annotations)
         # Update used annotation objects set
         for ma, me in meta_annotation_objs.items():
             entities = annotation_objs.get(ma)
@@ -532,20 +563,23 @@ def annotate_entities(request, project_id = None):
 
     result = {
         'message': 'success',
-        'annotations': [{'name': a.name, 'id': a.id, 'entities': list(e)} \
-                for a,e in annotation_objs.items()],
+        'annotations': [{
+            'name': a.name,
+            'id': a.id,
+            'entities': list(e)
+        } for a,e in annotation_objs.items()],
+        'new_annotations': list(new_annotations)
     }
 
-    return HttpResponse(json.dumps(result), content_type='application/json')
+    return JsonResponse(result)
+
 
 @requires_user_role(UserRole.Annotate)
 def remove_annotations(request, project_id=None):
     """ Removes an annotation from one or more entities.
     """
-    annotation_ids = [int(v) for k,v in request.POST.iteritems()
-            if k.startswith('annotation_ids[')]
-    entity_ids = [int(v) for k,v in request.POST.iteritems()
-            if k.startswith('entity_ids[')]
+    annotation_ids = get_request_list(request.POST, 'annotation_ids', [], map_fn=int)
+    entity_ids = get_request_list(request.POST, 'entity_ids', [], map_fn=int)
 
     if not annotation_ids:
         raise ValueError("No annotation IDs provided")
@@ -554,28 +588,37 @@ def remove_annotations(request, project_id=None):
         raise ValueError("No entity IDs provided")
 
     # Remove individual annotations
-    deleted_annotations = []
+    deleted_annotations = {}
+    deleted_links = []
     num_left_annotations = {}
     for annotation_id in annotation_ids:
         cicis_to_delete, missed_cicis, deleted, num_left = _remove_annotation(
                 request.user, project_id, entity_ids, annotation_id)
         # Keep track of results
         num_left_annotations[str(annotation_id)] = num_left
+        targetIds = []
         for cici in cicis_to_delete:
-            deleted_annotations.append(cici.id)
+            deleted_links.append(cici.id)
+            # The target is class_instance_a, because we deal with the
+            # "annotated_with" relation.
+            targetIds.append(cici.class_instance_a_id)
+        if targetIds:
+            deleted_annotations[annotation_id] = {
+                'targetIds': targetIds
+            }
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'deleted_annotations': deleted_annotations,
+        'deleted_links': deleted_links,
         'left_uses': num_left_annotations
-    }), content_type='application/json')
+    })
 
 
 @requires_user_role(UserRole.Annotate)
 def remove_annotation(request, project_id=None, annotation_id=None):
     """ Removes an annotation from one or more entities.
     """
-    entity_ids = [int(v) for k,v in request.POST.iteritems()
-            if k.startswith('entity_ids[')]
+    entity_ids = get_request_list(request.POST, 'entity_ids', [], map_fn=int)
 
     cicis_to_delete, missed_cicis, deleted, num_left = _remove_annotation(
             request.user, project_id, entity_ids, annotation_id)
@@ -597,11 +640,12 @@ def remove_annotation(request, project_id=None, annotation_id=None):
     else:
         message += " There are %s links left to this annotation." % num_left
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'message': message,
         'deleted_annotation': deleted,
         'left_uses': num_left
-    }), content_type='application/json')
+    })
+
 
 def _remove_annotation(user, project_id, entity_ids, annotation_id):
     """Remove an annotation made by a certain user in a given project on a set
@@ -921,11 +965,9 @@ def list_annotations(request, project_id=None):
                          ON (ci.id = cici.class_instance_b)
             LEFT OUTER JOIN auth_user u
                          ON (cici.user_id = u.id)
-            WHERE (ci.class_id = %s AND cici.relation_id = %s
-              AND ci.project_id = %s AND cici.project_id = %s);
+            WHERE (ci.class_id = %s AND (cici.relation_id = %s OR cici.id IS NULL));
                        ''',
-            (classes['annotation'], relations['annotated_with'], project_id,
-                project_id))
+            (classes['annotation'], relations['annotated_with']))
         annotation_tuples = cursor.fetchall()
     else:
         annotation_query = create_annotation_query(project_id, request.POST)
@@ -941,15 +983,17 @@ def list_annotations(request, project_id=None):
         if ls is None:
             ls = []
             annotation_dict[aid] = ls
-        ls.append({'id': uid, 'name': username})
+        if uid is not None:
+            ls.append({'id': uid, 'name': username})
     # Flatten dictionary to list
     annotations = tuple({'name': ids[aid], 'id': aid, 'users': users} for aid, users in annotation_dict.iteritems())
-    return HttpResponse(json.dumps({'annotations': annotations}), content_type="application/json")
+    return JsonResponse({'annotations': annotations})
+
 
 def _fast_co_annotations(request, project_id, display_start, display_length):
     classIDs = dict(Class.objects.filter(project_id=project_id).values_list('class_name', 'id'))
     relationIDs = dict(Relation.objects.filter(project_id=project_id).values_list('relation_name', 'id'))
-    co_annotation_ids = set(int(v) for k, v in request.POST.iteritems() if k.startswith('parallel_annotations'))
+    co_annotation_ids = set(get_request_list(request.POST, 'parallel_annotations', [], map_fn=int))
 
     select, rest = generate_co_annotation_query(int(project_id), co_annotation_ids, classIDs, relationIDs)
 
@@ -1010,7 +1054,8 @@ def _fast_co_annotations(request, project_id, display_start, display_length):
                        row[0]])
 
     response['aaData'] = aaData
-    return HttpResponse(json.dumps(response), content_type='application/json')
+
+    return JsonResponse(response)
 
 
 @requires_user_role([UserRole.Browse])
@@ -1101,7 +1146,7 @@ def list_annotations_datatable(request, project_id=None):
     for annotation in annotation_query[display_start:display_start + display_length]:
         # Format last used time
         if annotation[2]:
-            last_used = annotation[2].strftime("%Y-%m-%d %H:%M:%S")
+            last_used = annotation[2].isoformat()
         else:
             last_used = 'never'
         # Build datatable data structure
@@ -1112,7 +1157,7 @@ def list_annotations_datatable(request, project_id=None):
             annotation[4], # Annotator ID
             annotation[0]]) # ID
 
-    return HttpResponse(json.dumps(response), content_type='application/json')
+    return JsonResponse(response)
 
 
 @api_view(['POST'])
@@ -1137,8 +1182,7 @@ def annotations_for_skeletons(request, project_id=None):
             type: integer
             description: A skeleton ID
     """
-    skids = tuple(int(skid) for key, skid in request.POST.iteritems() \
-            if key.startswith('skeleton_ids['))
+    skids = tuple(get_request_list(request.POST, 'skeleton_ids', [], map_fn=int))
     cursor = connection.cursor()
     cursor.execute("SELECT id FROM relation WHERE project_id=%s AND relation_name='annotated_with'" % int(project_id))
     annotated_with_id = cursor.fetchone()[0]
@@ -1163,10 +1207,10 @@ def annotations_for_skeletons(request, project_id=None):
         m[skid].append({'id': aid, 'uid': uid})
         a[aid] = name
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'skeletons': m,
         'annotations': a
-    }, separators=(',', ':')))
+    }, json_dumps_params={'separators': (',', ':')})
 
 
 @api_view(['POST'])
@@ -1196,8 +1240,7 @@ def annotations_for_entities(request, project_id=None):
             description: A skeleton ID
     """
     # Get 'annotated_with' relation ID
-    object_ids = tuple(int(eid) for key, eid in request.POST.iteritems() \
-            if key.startswith('object_ids['))
+    object_ids = tuple(get_request_list(request.POST, 'object_ids', [], map_fn=int))
     cursor = connection.cursor()
     cursor.execute("""
         SELECT id FROM relation
@@ -1223,7 +1266,7 @@ def annotations_for_entities(request, project_id=None):
         m[eid].append({'id': aid, 'uid': uid})
         a[aid] = name
 
-    return HttpResponse(json.dumps({
+    return JsonResponse({
         'entities': m,
         'annotations': a
-    }, separators=(',', ':')))
+    }, json_dumps_params={'separators': (',', ':')})

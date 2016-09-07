@@ -8,10 +8,11 @@
 
   "use strict";
 
-  CATMAID.ReviewSystem = new function()
-  {
+  CATMAID.ReviewSystem = function() {
+    this.widgetID = this.registerInstance();
     var projectID, skeletonID, subarborNodeId;
     var self = this;
+    self.mode = 'node-review';
     self.skeleton_segments = null;
     self.current_segment = null;
     self.current_segment_index = 0;
@@ -33,7 +34,8 @@
 
     this.init = function() {
       projectID = project.id;
-      followedUsers = [session.userid];
+      followedUsers = [CATMAID.session.userid];
+      this.redraw();
     };
 
     this.setAutoCentering = function(centering) {
@@ -403,7 +405,7 @@
               self.current_segment['nr_nodes'] + ' nodes');
           if (self.noRefreshBetwenSegments) {
             end_puffer_count += 1;
-            markSegmentDone(self.current_segment, [session.userid]);
+            markSegmentDone(self.current_segment, [CATMAID.session.userid]);
             // do not directly jump to the next segment to review
             if( end_puffer_count < 3) {
               return;
@@ -437,7 +439,7 @@
       if (changeSelectedNode) {
 
         var whitelist = CATMAID.ReviewSystem.Whitelist.getWhitelist();
-        var reviewedByTeam = reviewedByUserOrTeam.bind(self, session.userid, whitelist);
+        var reviewedByTeam = reviewedByUserOrTeam.bind(self, CATMAID.session.userid, whitelist);
 
         // Find index of next real node that should be reviewed
         var newIndex = Math.min(self.current_segment_index + 1, sequenceLength - 1);
@@ -488,7 +490,7 @@
             while (i_union < sequenceLength && 0 !== sequence[i_union].rids.length) {
               i_union += 1;
             }
-            var cellIDs = [session.userid];
+            var cellIDs = [CATMAID.session.userid];
             if (i_user === sequenceLength) {
               CATMAID.msg('DONE', 'Segment fully reviewed: ' +
                   self.current_segment['nr_nodes'] + ' nodes');
@@ -528,7 +530,7 @@
         cell.text(status + '%')
             .css('background-color',
                  CATMAID.ReviewSystem.getBackgroundColor(Math.round(status)));
-        if (s === session.userid) segment['status'] = status;
+        if (s === CATMAID.session.userid) segment['status'] = status;
       });
     }
 
@@ -738,10 +740,10 @@
       // current user as first element, regardless of his/her review status.
       var reviewers = Object.keys(users).filter(function(u) {
         // u is a string, so rely on != for comparing to (integer) user ID.
-        return this[u].count > 0 && u != session.userid;
+        return this[u].count > 0 && u != CATMAID.session.userid;
       }, users);
       // Prepend user ID
-      reviewers = [session.userid].concat(reviewers);
+      reviewers = [CATMAID.session.userid].concat(reviewers);
       // Make sure all IDs are actual numbers
       reviewers = reviewers.map(function(u){ return parseInt(u); });
 
@@ -925,7 +927,7 @@
         return;
       }
       var startsegment = -1, endsegment = 0, locations = [];
-      var reviewedByCurrentUser = reviewedByUser.bind(self, session.userid);
+      var reviewedByCurrentUser = reviewedByUser.bind(self, CATMAID.session.userid);
 
       for(var idx in self.skeleton_segments) {
         if( self.skeleton_segments[idx]['status'] !== "100.00" ) {
@@ -957,11 +959,309 @@
         }
       });
     };
-  }();
 
-  // Register to the active node change event
-  SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
-    CATMAID.ReviewSystem.handleActiveNodeChange, CATMAID.ReviewSystem);
+
+    // Register to the active node change event
+    SkeletonAnnotations.on(SkeletonAnnotations.EVENT_ACTIVE_NODE_CHANGED,
+      this.handleActiveNodeChange, this);
+  };
+
+  CATMAID.ReviewSystem.prototype = new InstanceRegistry();
+
+  CATMAID.ReviewSystem.prototype.getName = function() {
+    return "Review System " + this.widgetID;
+  };
+
+  CATMAID.ReviewSystem.prototype.getWidgetConfiguration = function() {
+    return {
+      controlsID: "review_widget_buttons",
+      createControls: function(controls) {
+        var self = this;
+        var tabs = CATMAID.DOM.addTabGroup(controls, '-review', ['Node review', 'Skeleton analytics']);
+
+        CATMAID.DOM.appendToTab(tabs['Node review'], [{
+            type: 'button',
+            label: 'Start to review skeleton',
+            onclick: this.startReviewActiveSkeleton.bind(this, false)
+          }, {
+            type: 'button',
+            label: 'Start to review current sub-arbor',
+            onclick:  this.startReviewActiveSkeleton.bind(this, true)
+          }, {
+            type: 'button',
+            label: 'End review',
+            onclick: this.endReview.bind(this)
+          }, {
+            type: 'button',
+            label: 'Reset own revisions',
+            onclick: this.resetOwnRevisions.bind(this)
+          }, {
+            type: 'numeric',
+            label: 'In-between node step',
+            value: this.virtualNodeStep,
+            length: 3,
+            onchange: function() {
+              self.virtualNodeStep = parseInt(this.value, 10);
+            }
+          }, {
+            type: 'checkbox',
+            label: 'Auto centering',
+            value: this.getAutoCentering(),
+            onchange: function() { this.setAutoCentering(this.checked); }
+          }, {
+            type: 'checkbox',
+            label: 'Cache tiles',
+            value: false,
+            onclick: this.cacheImages.bind(this)
+          }, {
+            type: 'checkbox',
+            label: 'No refresh after segment done',
+            value: this.noRefreshBetwenSegments,
+            onclick: function() {
+              self.noRefreshBetwenSegments = this.checked;
+            }
+          }
+        ]);
+        tabs['Node review'].dataset.mode = 'node-review';
+
+        // Skeleton analytics
+        var adjacents = [];
+        for (var i=0; i<5; ++i) adjacents.push(i);
+        tabs['Skeleton analytics'].dataset.mode = 'analytics';
+        CATMAID.DOM.appendToTab(tabs['Skeleton analytics'], [{
+            type: 'child',
+            element: CATMAID.skeletonListSources.createSelect(this)
+          }, {
+            type: 'select',
+            id: 'extra' + this.widgetID,
+            label: 'Extra',
+            title: 'List problems with connected neurons',
+            entries: [
+              {title: "No others", value: 0},
+              {title: "Downstream skeletons", value: 1},
+              {title: "Upstream skeletons", value: 2},
+              {title: "Both upstream and downstream", value: 3}
+            ]
+          }, {
+            type: 'select',
+            id: 'adjacents' + this.widgetID,
+            label: 'Adjacents',
+            title: 'Maximum distance (hops) from a node when checking of duplicate connectors',
+            entries: adjacents
+          }, {
+            type: 'button',
+            label: 'Update',
+            onclick: this.reloadSkeletonAnalyticsData.bind(this)
+          }
+        ]);
+
+        $(controls).tabs({
+          activate: function(event, ui) {
+            var mode = ui.newPanel.attr('data-mode');
+            if (mode === 'node-review' || mode === 'analytics') {
+              self.mode = mode;
+              self.redraw();
+            }
+          }
+        });
+      },
+      contentID: "review_widget",
+      createContent: function(content) {
+        var self = this;
+
+        // Node review container
+        this.nodeReviewContainer = document.createElement('div');
+        var cacheCounter = document.createElement('div');
+        cacheCounter.setAttribute("id", "counting-cache");
+        this.nodeReviewContainer.appendChild(cacheCounter);
+
+        var cacheInfoCounter = document.createElement('div');
+        cacheInfoCounter.setAttribute("id", "counting-cache-info");
+        this.nodeReviewContainer.appendChild(cacheInfoCounter);
+
+        var label = document.createElement('div');
+        label.setAttribute("id", "reviewing_skeleton");
+        this.nodeReviewContainer.appendChild(label);
+
+        var table = document.createElement("div");
+        table.setAttribute("id", "project_review_widget");
+        table.style.position = "relative";
+        table.style.width = "100%";
+        table.style.overflow = "auto";
+        table.style.backgroundColor = "#ffffff";
+        this.nodeReviewContainer.appendChild(table);
+
+        content.appendChild(this.nodeReviewContainer);
+
+        // Skeleton analytics
+        this.analyticsContainer = document.createElement('div');
+        this.analyticsContainer.innerHTML =
+          '<table cellpadding="0" cellspacing="0" border="0" class="display" id="skeletonanalyticstable' + this.widgetID + '">' +
+            '<thead>' +
+              '<tr>' +
+                '<th>Issue</th>' +
+                '<th>Neuron ID</th>' +
+                '<th>Treenode ID</th>' +
+                '<th>Skeleton ID</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody>' +
+            '</tbody>' +
+            '<tfoot>' +
+              '<tr>' +
+                '<th>Issue</th>' +
+                '<th>Neuron ID</th>' +
+                '<th>Treenode ID</th>' +
+                '<th>Skeleton ID</th>' +
+              '</tr>' +
+            '</tfoot>' +
+          '</table>';
+        this.skeletonAnalyticsTable = $('table', this.analyticsContainer).DataTable({
+          destroy: true,
+          dom: 'lfrtip',
+          processing: true,
+          // Enable sorting locally, and prevent sorting from calling the
+          // fnServerData to reload the table -- an expensive and undesirable
+          // operation.
+          serverSide: false,
+          autoWidth: false,
+          pageLength: -1,
+          lengthMenu: [CATMAID.pageLengthOptions, CATMAID.pageLengthLabels],
+          columns: [
+            { // Type
+              "searchable": true,
+              "sortable": true
+            },
+            { // Neuron name
+              "searchable": true,
+              "sortable": true
+            },
+            { // Treenode ID
+              "searchable": true,
+              "sortable": true,
+            },
+            { // Skeleton ID
+              "searchable": true,
+              "sortable": true
+            }
+          ]
+        });
+
+        /** Make rows double-clickable to go to the treenode location and select it. */
+        var table = this.skeletonAnalyticsTable;
+        $('table tbody', this.analyticsContainer).on('dblclick', 'tr', function() {
+          var data = table.row(this).data();
+          var tnid = parseInt(data[2]);
+          var skeleton_id = parseInt(data[3]);
+          CATMAID.fetch(CATMAID.makeURL(project.id + '/node/get_location'), 'POST',
+              { tnid: tnid }, false, "skeleton_analytics_go_to_node")
+            .then(function(json) {
+              SkeletonAnnotations.staticMoveTo(json[3], json[2], json[1],
+                function() {
+                  SkeletonAnnotations.staticSelectNode(tnid, skeleton_id);
+                });
+            }).catch(CATMAID.handleError);
+        });
+
+        content.appendChild(this.analyticsContainer);
+      },
+      init: function() {
+        this.init();
+      }
+    };
+  };
+
+  /**
+   * Redraw the review widget.
+   */
+  CATMAID.ReviewSystem.prototype.redraw = function() {
+    if (this.mode === 'node-review') {
+      this.nodeReviewContainer.style.display = 'block';
+      this.analyticsContainer.style.display = 'none';
+    } else if (this.mode === 'analytics') {
+      this.nodeReviewContainer.style.display = 'none';
+      this.analyticsContainer.style.display = 'block';
+    }
+  };
+
+  /**
+   * Refresh the skeleton analytics data based on the current settings.
+   */
+  CATMAID.ReviewSystem.prototype.reloadSkeletonAnalyticsData = function() {
+    var table = this.skeletonAnalyticsTable;
+    if (!table) {
+      CATMAID.warn("Couldn't find skeleton analytics table");
+      return;
+    }
+    // Clear
+    table.clear();
+    // Reload
+    var skids = CATMAID.skeletonListSources.getSelectedSource(this).getSelectedSkeletons();
+    if (!skids || !skids[0]) {
+      CATMAID.msg("Oops", "Select skeleton(s) first!");
+      return;
+    }
+    // sSource is the sAjaxSource
+    var extra = $('#Skeletonanalytics-review_extra' + this.widgetID).val();
+    if (undefined === extra) {
+      throw new CATMAID.Error("Couldn't find parameter 'extra'");
+    }
+    var adjacents = $('#Skeletonanalytics-review_adjacents' + this.widgetID).val();
+    if (undefined === adjacents) {
+      throw new CATMAID.Error("Couldn't find parameter 'adjacents'");
+    }
+
+    requestQueue.replace(django_url + project.id + '/skeleton/analytics', 'POST',
+      {skeleton_ids: skids,
+       extra: extra,
+       adjacents: adjacents},
+       CATMAID.jsonResponseHandler(function(json) {
+        var rows = [];
+        json.issues.forEach(function (sk) {
+          // sk[0]: skeleton ID
+          // sk[1]: array of pairs like [issue ID, treenode ID]
+          var name = json.names[sk[0]];
+          sk[1].forEach(function(p) {
+            rows.push([json[p[0]], // issue name
+                       name, // neuron name
+                       p[1], // treenode ID
+                       sk[0]]); // skeleton ID
+          });
+        });
+
+        if (rows.length > 0) {
+          table.rows.add(rows);
+        }
+        table.draw();
+      }), 'skeleton_analytics_update');
+  };
+
+  // Allow access to the last active instance
+  var lastFocused = null;
+
+  /**
+   * Update referene to last focused instance.
+   */
+  CATMAID.ReviewSystem.prototype.focus = function() {
+    lastFocused = this;
+  };
+
+  /**
+   * Clear referene to last focused instance if this instance was the last
+   * focused instance.
+   */
+  CATMAID.ReviewSystem.prototype.destroy = function() {
+    if (lastFocused === this) {
+      lastFocused = null;
+    }
+  };
+
+  /**
+   * Get the review widget that was focused last.
+   */
+  CATMAID.ReviewSystem.getLastFocused = function() {
+    return lastFocused;
+  };
 
   CATMAID.ReviewSystem.STATUS_COLOR_FULL    = '#6fff5c';
   CATMAID.ReviewSystem.STATUS_COLOR_PARTIAL = '#ffc71d';
@@ -1034,7 +1334,8 @@
        */
       refresh: function (callback) {
         // If no project is open or no user is logged in, clear the whitelist.
-        if (typeof project === 'undefined' || !project || typeof session === 'undefined') {
+        if (typeof project === 'undefined' || !project ||
+            !CATMAID.session || !CATMAID.session.id) {
           whitelist = {};
           return;
         }
@@ -1057,7 +1358,7 @@
        */
       save: function (callback) {
         // If no user is logged in, do not attempt to save the whitelist.
-        if (typeof session === 'undefined') return;
+        if (!CATMAID.session || !CATMAID.session.id) return;
 
         var encodedWhitelist = Object.keys(whitelist).reduce(function (ewl, userId) {
           ewl[userId] = whitelist[userId].toISOString();
@@ -1075,4 +1376,10 @@
 
   CATMAID.Init.on(CATMAID.Init.EVENT_PROJECT_CHANGED, CATMAID.ReviewSystem.Whitelist.refresh);
   CATMAID.Init.on(CATMAID.Init.EVENT_USER_CHANGED, CATMAID.ReviewSystem.Whitelist.refresh);
+
+  CATMAID.registerWidget({
+    key: "review-system",
+    creator: CATMAID.ReviewSystem
+  });
+
 })(CATMAID);

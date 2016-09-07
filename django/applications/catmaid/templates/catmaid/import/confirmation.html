@@ -26,6 +26,7 @@
     <form method="post" id="confirmation-form" action="">
     {% csrf_token %}
     <div class="module">
+    {{ wizard.form.non_field_errors }}
     <p>The following projects have been selected to be imported together with
     the settings listed. Please confirm this selection to do the actual import.
     Alternatively, you can go back and change settings. If an image base of a
@@ -77,6 +78,17 @@
                         <td class="not-accessible">{{ o.image_base }}</td>
                     {% endif %}
                     <td>Default opacity: {{ o.default_opacity }}</td>
+                  </tr>
+                {% endfor %}
+                {% for sg in s.stackgroups %}
+                  <tr>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td colspan="2"><em>Stack group:</em> {{ sg.name }} </td>
+                    <td></td>
+                    <td></td>
+                    <td>{{ sg.relation }}</td>
                   </tr>
                 {% endfor %}
               {% endfor %}
