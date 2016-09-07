@@ -3,16 +3,15 @@ import os
 import re
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import connection, models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 import pysopnet
 
-from catmaid.fields import IntegerArrayField, DoubleArrayField
 from catmaid.models import Project, ProjectStack, Stack
 import djsopnet
-from djsopnet.fields import *
 
 logger = logging.getLogger(__name__)
 
@@ -398,8 +397,8 @@ class FeatureInfo(models.Model):
 
     segmentation_stack = models.OneToOneField(SegmentationStack, primary_key=True)
     size = models.IntegerField(default=0)
-    name_ids = IntegerArrayField()
-    weights = DoubleArrayField()
+    name_ids = ArrayField(models.IntegerField())
+    weights = ArrayField(models.FloatField())
 
     def __unicode__(self):
         return u'%s feature info' % (self.segmentation_stack,)

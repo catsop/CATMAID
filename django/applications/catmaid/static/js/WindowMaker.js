@@ -3210,12 +3210,12 @@ var WindowMaker = new function()
           return o;
     }, {});
 
-    appendToTab(tabs['Graph'],
+    DOM.appendToTab(tabs['Graph'],
       [['Refresh', CW.refresh.bind(CW)],
        ['Recenter', CW.moveToActiveSegment.bind(CW)],
        ['Create Segment for Selected Slices', CW.createSegmentForSlices.bind(CW)],
        ['Load Current Location', CW.loadSegmentsAtLocation.bind(CW)]]);
-    appendSelect(
+    DOM.appendSelect(
         tabs['Graph'],
         'graph_value',
         'Graph value:',
@@ -3223,7 +3223,7 @@ var WindowMaker = new function()
         'Metric to use for graph edge weight',
         'Slice Size',
         CW.selectGraphValue.bind(CW));
-    appendSelect(
+    DOM.appendSelect(
         tabs['Graph'],
         'configuration_id',
         'Configuration:',
@@ -3231,7 +3231,7 @@ var WindowMaker = new function()
         'Segmentation configuration ID to display',
         undefined,
         CW.activateConfiguration.bind(CW));
-    appendSelect(
+    DOM.appendSelect(
         tabs['Graph'],
         'stack_type',
         'Stack:',
@@ -3240,7 +3240,7 @@ var WindowMaker = new function()
         'Membrane',
         CW.activateConfiguration.bind(CW));
 
-    appendToTab(tabs['Block'],
+    DOM.appendToTab(tabs['Block'],
       [[$('<h3>Segmentation for block: <span id="' + containerID + '-block-id" /></h3>')[0]],
        ['Load Slices for Block at Current Location', CW.loadBlockAtLocation.bind(CW)]]);
 
@@ -3254,10 +3254,10 @@ var WindowMaker = new function()
         return containers;
     }, {});
 
-    appendToTab(tabs['Solution'],
+    DOM.appendToTab(tabs['Solution'],
       [['Generate Assemblies for Current Core', CW.generateAssembliesAtLocation.bind(CW)],
        ['Solve Current Core', CW.solveAtLocation.bind(CW)]]);
-    appendSelect(
+    DOM.appendSelect(
         tabs['Solution'],
         'solution_id',
         'Solution:',
@@ -3266,7 +3266,7 @@ var WindowMaker = new function()
         'Union',
         CW.activateSolution.bind(CW));
 
-    appendToTab(tabs['Overlays'],
+    DOM.appendToTab(tabs['Overlays'],
       Object.keys(CATMAID.CatsopResultsLayer.Overlays).map(function (overlay) {
         return [overlay, false, CW.toggleOverlay.bind(CW, overlay), false];
       }));

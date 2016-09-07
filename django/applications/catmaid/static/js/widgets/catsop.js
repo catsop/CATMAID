@@ -3,7 +3,6 @@
   CATMAID,
   InstanceRegistry,
   OffsetStack,
-  openProjectStack,
   project,
   requestQueue
  */
@@ -117,7 +116,7 @@
         {},
         CATMAID.jsonResponseHandler((function (json) {
           this.blockInfo = json;
-          openProjectStack(project.id, this.stackViewer.primaryStack.id)
+          CATMAID.openProjectStack(project.id, this.stackViewer.primaryStack.id)
               .then((function (offsetStackViewer) {
                 offsetStackViewer.setOffset([0, 0, 1]);
                 this.offsetStackViewer = offsetStackViewer;

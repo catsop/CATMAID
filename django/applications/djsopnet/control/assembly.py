@@ -45,7 +45,7 @@ def _map_assembly_equivalence_to_skeleton(request, segmentation_stack_id, equiva
     arborescence = map_assembly_equivalence_to_arborescence(segmentation_stack_id, equivalence_id)
     if arborescence.number_of_nodes() < min_nodes:
         return
-    imported_skeleton = _import_skeleton(request, project_id, arborescence,
+    imported_skeleton = _import_skeleton(request.user, project_id, arborescence,
             name='AssemblyEquivalence %s' % equivalence_id)
 
     # Set the mapped skeleton ID for this AssemblyEquivalence.

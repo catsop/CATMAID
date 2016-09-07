@@ -14,7 +14,13 @@ from djsopnet.control.assembly import \
         generate_continuing_assemblies_between_cores, \
         map_assembly_equivalence_to_arborescence
 
-class AssemblyTests(TestCase):
+
+# Because the assembly relation functions use their own transactions, Django
+# fails when these are intermixed with its own atomic requests in TestCase where
+# transactional behavior is silently changed. Instead, TransactionTestCase must
+# now be used, even though it is much slower.
+
+class AssemblyTests(TransactionTestCase):
     fixtures = ['djsopnet_testdata']
 
     maxDiff = None
@@ -197,10 +203,6 @@ class AssemblyTests(TestCase):
 
         self.assertAssembliesForSegmentsInEquivalence(1000000, 000, 1001020, 001)
 
-# Because the assembly relation function use their own transactions, Django
-# fails when these are intermixed with its own atomic requests in TestCase where
-# transactional behavior is silently changed. Instead skeleton mapping must be
-# run as its own TransactionTestCase.
 
 class MappedSkeletonTests(TransactionTestCase):
     fixtures = ['djsopnet_testdata']

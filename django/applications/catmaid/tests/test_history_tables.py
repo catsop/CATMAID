@@ -200,7 +200,14 @@ class HistoryTableTests(TransactionTestCase):
         'djcelery_workerstate',
         'djcelery_taskstate',
         'django_session',
-        'spatial_ref_sys'
+        'spatial_ref_sys',
+
+        # Regular unversioned DJSOPNET tables
+        'segmentation_configuration',
+        'segmentation_block_info',
+        'segmentation_feature_name',
+        'segmentation_feature_info',
+        'segmentation_stack',
     )
 
     def test_name_length_limits(self):
