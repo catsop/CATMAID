@@ -44,7 +44,7 @@ def fill_core(x, y, z):
 bi = BlockInfo.objects.get(configuration_id=st.segmentation_configuration_id)
 for core_coord in bi.core_range():
 	if PARALLEL_JOBS:
-		jobs.append(delayed(fill_block)(*core_coord))
+		jobs.append(delayed(fill_core)(*core_coord))
 	else:
 		fill_core(*core_coord)
 
