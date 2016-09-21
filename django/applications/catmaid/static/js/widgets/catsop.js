@@ -116,12 +116,16 @@
         {},
         CATMAID.jsonResponseHandler((function (json) {
           this.blockInfo = json;
-          CATMAID.openProjectStack(project.id, this.stackViewer.primaryStack.id)
-              .then((function (offsetStackViewer) {
-                offsetStackViewer.setOffset([0, 0, 1]);
-                this.offsetStackViewer = offsetStackViewer;
-                this.initLayers();
-              }).bind(this)); // Duplicate stack
+          if (!this.offsetStackViewer) {
+            CATMAID.openProjectStack(project.id, this.stackViewer.primaryStack.id)
+                .then((function (offsetStackViewer) {
+                  offsetStackViewer.setOffset([0, 0, 1]);
+                  this.offsetStackViewer = offsetStackViewer;
+                  this.initLayers();
+                }).bind(this)); // Duplicate stack
+          } else {
+            this.initLayers();
+          }
 
           this.loadSegmentsAtLocation();
         }).bind(this)));
