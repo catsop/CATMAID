@@ -55,7 +55,7 @@
   };
 
   CatsopResultsLayer.prototype.unregister = function () {
-    this.stage.removeChild(this.batchContainer);
+    CATMAID.PixiLayer.prototype.unregister.call(this);
     this._renderIfReady();
   };
 
